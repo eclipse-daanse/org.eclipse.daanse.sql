@@ -31,5 +31,9 @@
   </properties>
 
   <modules>
+    <module>model.api</module>
+    <module>model.pojo</module>
+    <module>service.api</module>
+    <module>jsqlparser.play</module>
   </modules>
 </project>
