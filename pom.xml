@@ -28,12 +28,41 @@
   <properties>
     <revision>0.0.1-SNAPSHOT</revision>
     <scm.repo.detail>org.eclipse.daanse.sql</scm.repo.detail>
+    <slf4j.version>2.0.9</slf4j.version>
+    <mockito.version>4.9.0</mockito.version>
+    <assertj.version>3.24.2</assertj.version>
+
+    <java.version>17</java.version>
+    <java.release>17</java.release>
+
+    <maven.compiler.source>${java.version}</maven.compiler.source>
+    <maven.compiler.target>${java.version}</maven.compiler.target>
   </properties>
 
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>compile</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <modules>
-    <module>model.api</module>
-    <module>model.pojo</module>
-    <module>service.api</module>
-    <module>jsqlparser.play</module>
+    <module>guard</module>
   </modules>
 </project>
