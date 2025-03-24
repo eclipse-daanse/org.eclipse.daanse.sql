@@ -162,7 +162,6 @@ public class SqlGuardTest {
     }
 
     @Test
-    @Disabled
     void testInnerJoin1(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
@@ -268,28 +267,16 @@ public class SqlGuardTest {
 
             assertThrows(UnresolvableObjectsGuardException.class,
                     () -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE, agg, agg)));
-            // TODO "select avg(foo1.id) from foo group by foo.name")" with any aggregation use wrong table
-            // "foo1". we have foo table only
-            // assertThrows(RuntimeException.class, () -> guard.guard("select avg(foo1.id) from foo group by
-            // foo.name"));
 
             result = guard.guard(String.format(SQL_WITH_HAVING1, agg));
             assertEquals(String.format(SQL_WITH_HAVING1_EXPECTED, agg), result);
 
             assertThrows(UnresolvableObjectsGuardException.class,
                     () -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE1, agg)));
-            // TODO select sum(foo.id) from foo group by foo.name having foo1.name = 'tets' with any aggregation
-            // use wrong table "foo1". we have "foo" table only
-            // assertThrows(RuntimeException.class, () -> guard.guard("select count(foo.id) from foo group by
-            // foo.name having foo1.name = 'tets'"));
 
             assertThrows(UnresolvableObjectsGuardException.class, () ->
 
             guard.guard(String.format(SQL_WITH_HAVING_WRONG_COLUMN, agg)));
-            // TODO select sum(foo.id) from foo group by foo.name having foo.name1 = 'tets' we use wrong column
-            // name1. name1 ia absent. we have "name" column only
-            // assertThrows(RuntimeException.class, () -> guard.guard("select count(foo.id) from foo group by
-            // foo.name having foo.name1 = 'tets'"));
 
         }
     }
