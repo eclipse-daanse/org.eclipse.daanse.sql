@@ -14,8 +14,10 @@
 
 package org.eclipse.daanse.sql.guard.jsqltranspiler;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
@@ -51,11 +53,13 @@ public class TranspilerSqlGuard implements SqlGuard {
     private static final String UPDATE_IS_NOT_PERMITTED = "UPDATE is not permitted.";
     private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
     private static final String NOTHING_WAS_SELECTED = "Nothing was selected.";
+    private static final String QUERY_HAS_DISAllOWED_FUNCTIONS = "Query has disallowed functions.";
     private static final Logger LOGGER = LoggerFactory.getLogger(TranspilerSqlGuard.class);
     private JdbcMetaData jdbcMetaDataToCopy;
+    private List<String> whitelistFunctionsPatterns = new ArrayList<String>();
 
-    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog) {
-
+    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns) {
+        this.whitelistFunctionsPatterns = whitelistFunctionsPatterns;
         jdbcMetaDataToCopy = calculateMetaData(currentCatalogName, currentSchemaName, databaseCatalog);
 
     }
@@ -113,6 +117,28 @@ public class TranspilerSqlGuard implements SqlGuard {
                 // check functions
                 final List<Expression> functions = resolver.getFunctions();
                 final Set<String> functionNames = resolver.getFlatFunctionNames();
+
+                List<String> allowedFunctions = new ArrayList<>();
+                List<String> disallowedFunctions = new ArrayList<>();
+
+                for (String function : functionNames) {
+                    boolean isAllowed = false;
+                    for (String pattern : whitelistFunctionsPatterns) {
+                        if (Pattern.matches(pattern, function)) {
+                            isAllowed = true;
+                            break;
+                        }
+                    }
+                    if (isAllowed) {
+                        allowedFunctions.add(function);
+                    } else {
+                        disallowedFunctions.add(function);
+                    }
+                }
+                if (!disallowedFunctions.isEmpty()) {
+                    LOGGER.atInfo().log(QUERY_HAS_DISAllOWED_FUNCTIONS);
+                    throw new GuardException(QUERY_HAS_DISAllOWED_FUNCTIONS);
+                }
 
                 // we can finally resolve for the actually returned columns
                 JSQLColumResolver columResolver = new JSQLColumResolver(jdbcMetaDataToCopy);
