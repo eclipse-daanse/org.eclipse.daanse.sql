@@ -13,9 +13,11 @@
  */
 package org.eclipse.daanse.sql.guard.api;
 
+import java.util.List;
+
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 
 public interface SqlGuardFactory {
 
-    SqlGuard create(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog);
+    SqlGuard create(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns);
 }

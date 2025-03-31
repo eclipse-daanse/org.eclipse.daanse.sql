@@ -27,8 +27,8 @@ import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseColumn;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseSchema;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseTable;
+import org.eclipse.daanse.sql.guard.api.exception.GuardException;
 import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardException;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.osgi.test.common.annotation.InjectService;
 
@@ -52,7 +52,19 @@ public class SqlGuardTest {
 
     private static final String SQL_WITH_FUNCTION = "select trim(foo.name)  from foo";
 
+    private static final String SQL_WITH_ALLOWED_FUNCTION = "select %s(foo.name) from foo";
+
+    private static final String SQL_WITH_ALLOWED_FUNCTION_IN_WHERE = "select foo.name from foo where %s(foo.name) = 1";
+
+    private static final String SQL_WITH_ALLOWED_FUNCTION_IN_HAVING = "select foo.name from foo group by foo.name HAVING %s(foo.id) > 5";
+
     private static final String SQL_WITH_FUNCTION_EXPECTED = "SELECT Trim( foo.name ) FROM sch.foo";
+
+    private static final String SQL_WITH_ALLOWED_FUNCTION_EXPECTED = "SELECT %s(foo.name) FROM sch.foo";
+
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED = "SELECT foo.name FROM sch.foo WHERE %s(foo.name) = 1";
+
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED = "SELECT foo.name FROM sch.foo GROUP BY foo.name HAVING %s(foo.id) > 5";
 
     private static final String SQL_WITH_HAVING_WRONG_COLUMN = """
             select %s(foo.id) from foo group by foo.name having foo.name1 = 'tets'""";
@@ -140,11 +152,15 @@ public class SqlGuardTest {
 
     private static final List<String> AGGREGATIONS = List.of("sum", "count", "distinctcount", "avg");
 
+    private static final List<String> ALLOWED_FUNCTIONS = List.of("DeleteAll", "InsertAll", "UpdateAll", "Modify", "deleteAll", "insertAll", "updateAll", "modify");
+
+    private static final List<String> NOT_ALLOWED_FUNCTIONS = List.of("NotDeleteAll", "NotInsertAll", "NotUpdateAll", "NotModify", "notDeleteAll", "notInsertAll", "notUpdateAll", "notModify");
+
     @Test
     void testName(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SELECT_FROM_FOO);
 
@@ -155,7 +171,7 @@ public class SqlGuardTest {
     void testInnerJoin(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SELECT_INNER_JOIN);
         assertEquals(SELECT_INNER_JOIN_EXPECTED, result);
@@ -165,7 +181,7 @@ public class SqlGuardTest {
     void testInnerJoin1(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SELECT_INNER_JOIN_C_D);
 
@@ -176,7 +192,7 @@ public class SqlGuardTest {
     void testInnerJoin2(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SELECT_INNER_JOIN_D);
 
@@ -187,7 +203,7 @@ public class SqlGuardTest {
     void testTripleSelect(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(TRIPLE_SELECT_SQL);
 
@@ -198,7 +214,7 @@ public class SqlGuardTest {
     void testWhere(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SQL_WITH_IN);
 
@@ -209,7 +225,7 @@ public class SqlGuardTest {
     void testAdditionalColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SQL_WITH_CUSTOM_COLUMN);
 
@@ -220,7 +236,7 @@ public class SqlGuardTest {
     void testUndefinedTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
 
         DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_WITH_WRONG_TABLE));
 
@@ -230,7 +246,7 @@ public class SqlGuardTest {
     void test(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> guard.guard(SIMPLE_SQL_WITH_WRONG_TABLE));
         assertEquals(TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH, thrown.getMessage());
@@ -241,7 +257,7 @@ public class SqlGuardTest {
 
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SQL_WITH_GROUP);
 
@@ -253,7 +269,8 @@ public class SqlGuardTest {
 
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS);
+
 
         for (String agg : AGGREGATIONS) {
             String result = guard.guard(String.format(SQL_WITH_AGG, agg));
@@ -282,11 +299,101 @@ public class SqlGuardTest {
     }
 
     @Test
+    void testAllowedFunctions(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+
+        DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
+
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS);
+        for (String fun : ALLOWED_FUNCTIONS) {
+            String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+        }
+        //allowed all
+        guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(".*"));
+        for (String fun : ALLOWED_FUNCTIONS) {
+            String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+        }
+        guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Delete.*", "Insert.*", "UpdateAll", "Modify.*", "delete.*", "insert.*", "update.*", "modify"));
+        for (String fun : ALLOWED_FUNCTIONS) {
+            String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+
+            result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+        }
+    }
+
+    @Test
+    void testDeleteAllFunctionsNotAllowed(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+
+        DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
+        //all function not allowed
+        final SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
+        for (String fun : ALLOWED_FUNCTIONS) {
+            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+        }
+        //all functions with wrong names are allowed only . all good functions are not allowed
+        final SqlGuard guard1 = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Dalete.*", "Iinsert.*", "UupdateAll", "Moodify.*", "ddelete.*", "insertt.*", "uppdate.*", "moodify"));
+        for (String fun : ALLOWED_FUNCTIONS) {
+            assertThrows(GuardException.class, () -> guard1.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThrows(GuardException.class, () -> guard1.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThrows(GuardException.class, () -> guard1.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+        }
+        //all functions with wrong names are allowed only . all good functions are not allowed
+        final SqlGuard guard2 = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS);
+        for (String fun : NOT_ALLOWED_FUNCTIONS) {
+            assertThrows(GuardException.class, () -> guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThrows(GuardException.class, () -> guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThrows(GuardException.class, () -> guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+        }
+        for (String fun : ALLOWED_FUNCTIONS) {
+            String result = guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+
+            result = guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+
+            result = guard2.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
+
+            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+        }
+    }
+
+    @Test
     void testFunctions(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
 
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
 
-        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog);
+        SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of());
 
         String result = guard.guard(SQL_WITH_FUNCTION);
 
