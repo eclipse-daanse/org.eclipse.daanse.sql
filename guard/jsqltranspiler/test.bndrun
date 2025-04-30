@@ -64,6 +64,8 @@
 	net.bytebuddy.byte-buddy-agent;version='[1.12.16,1.12.17)',\
 	net.sf.jsqlparser;version='[5.2.0,5.2.1)',\
 	org.apache.felix.scr;version='[2.2.10,2.2.11)',\
+	org.eclipse.daanse.jdbc.db.api;version='[0.0.1,0.0.2)',\
+	org.eclipse.daanse.jdbc.db.dialect.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.jsqltranspiler;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.jsqltranspiler-tests;version='[0.0.1,0.0.2)',\
