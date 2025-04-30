@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseSchema;
@@ -57,10 +58,12 @@ public class TranspilerSqlGuard implements SqlGuard {
     private static final Logger LOGGER = LoggerFactory.getLogger(TranspilerSqlGuard.class);
     private JdbcMetaData jdbcMetaDataToCopy;
     private List<String> whitelistFunctionsPatterns = new ArrayList<String>();
+    private Dialect dialect;
 
-    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns) {
+    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns, Dialect dialect) {
         this.whitelistFunctionsPatterns = whitelistFunctionsPatterns;
         jdbcMetaDataToCopy = calculateMetaData(currentCatalogName, currentSchemaName, databaseCatalog);
+        this.dialect = dialect;
 
     }
 
@@ -141,7 +144,8 @@ public class TranspilerSqlGuard implements SqlGuard {
                 }
 
                 // we can finally resolve for the actually returned columns
-                JSQLColumResolver columResolver = new JSQLColumResolver(jdbcMetaDataToCopy);
+                JSQLColumResolver columResolver = new DaanseJSQLColumResolver(jdbcMetaDataToCopy, dialect);
+                columResolver.setCommentFlag(false);
                 columResolver.setErrorMode(JdbcMetaData.ErrorMode.STRICT);
 
                 String rewritten = columResolver.getResolvedStatementText(sqlStr);
@@ -159,14 +163,12 @@ public class TranspilerSqlGuard implements SqlGuard {
 
             } else {
                 throw new UnallowedStatementTypeGuardException(
-                        st.getClass().getSimpleName().toUpperCase() + " is not permitted.");
+                    st.getClass().getSimpleName().toUpperCase() + " is not permitted.");
             }
-        }
-
-        catch (JSQLParserException ex) {
+        } catch (JSQLParserException ex) {
             throw new UnparsableStatementGuardException();
         } catch (CatalogNotFoundException | ColumnNotFoundException | SchemaNotFoundException
-                | TableNotDeclaredException | TableNotFoundException ex) {
+            | TableNotDeclaredException | TableNotFoundException ex) {
             throw new UnresolvableObjectsGuardException(ex.getMessage());
         }
 
@@ -180,7 +182,7 @@ public class TranspilerSqlGuard implements SqlGuard {
             for (DatabaseTable table : schema.getDatabaseTables()) {
 
                 List<JdbcColumn> jdbcColumns = table.getDatabaseColumns().parallelStream()
-                        .map(c -> new JdbcColumn(c.getName())).toList();
+                    .map(c -> new JdbcColumn(c.getName())).toList();
                 jdbcMetaData.addTable(schema.getName(), table.getName(), jdbcColumns);
             }
         }

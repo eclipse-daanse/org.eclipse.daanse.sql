@@ -11,14 +11,16 @@
  *   SmartCity Jena - initial
  *   Stefan Bischof (bipolis.org) - initial
  */
-package org.eclipse.daanse.sql.guard.api;
-
-import java.util.List;
+package org.eclipse.daanse.sql.guard.jsqltranspiler;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 
-public interface SqlGuardFactory {
+import net.sf.jsqlparser.util.deparser.SelectDeParser;
+import net.sf.jsqlparser.util.deparser.StatementDeParser;
 
-    SqlGuard create(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns, Dialect dialect);
+public class DaanseStatementDeParser extends StatementDeParser {
+
+    public DaanseStatementDeParser(StringBuilder buffer, Dialect dialect) {
+        super(new DaanseExpressionDeParser(dialect), new SelectDeParser(), buffer);
+    }
 }
