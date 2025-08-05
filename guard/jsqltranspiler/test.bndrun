@@ -52,9 +52,8 @@
 
 # -runbundles is calculated by the bnd-resolver-maven-plugin
 -runbundles: \
-	ai.starlake.transpiler;version='[0.7.0,0.7.1)',\
-	com.github.jsqlparser;version='[5.3.0,5.3.1)',\
-	json;version='[20250107.0.0,20250107.0.1)',\
+	ai.starlake.transpiler;version='[1.0.0,1.0.1)',\
+	json;version='[20250517.0.0,20250517.0.1)',\
 	junit-jupiter-api;version='[5.10.2,5.10.3)',\
 	junit-jupiter-engine;version='[5.10.2,5.10.3)',\
 	junit-jupiter-params;version='[5.10.2,5.10.3)',\
@@ -63,8 +62,8 @@
 	junit-platform-launcher;version='[1.10.2,1.10.3)',\
 	net.bytebuddy.byte-buddy;version='[1.12.16,1.12.17)',\
 	net.bytebuddy.byte-buddy-agent;version='[1.12.16,1.12.17)',\
+	net.sf.jsqlparser;version='[5.4.0,5.4.1)',\
 	org.apache.felix.scr;version='[2.2.10,2.2.11)',\
-	org.eclipse.daanse.jdbc.db.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.jdbc.db.dialect.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.jsqltranspiler;version='[0.0.1,0.0.2)',\
