@@ -33,6 +33,7 @@ import org.eclipse.daanse.sql.guard.api.elements.DatabaseTable;
 import org.eclipse.daanse.sql.guard.api.exception.GuardException;
 import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardException;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -248,6 +249,7 @@ public class SqlGuardTest {
     }
 
     @Test
+    @Disabled("https://github.com/JSQLParser/JSqlParser/issues/2291")
     void testAdditionalColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
         DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
         SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
