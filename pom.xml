@@ -24,6 +24,8 @@
   <artifactId>org.eclipse.daanse.sql</artifactId>
   <version>${revision}</version>
   <packaging>pom</packaging>
+  <name>Eclipse Daanse SQL Security Framework</name>
+  <description>SQL security and validation framework providing query protection, injection prevention, and SQL statement analysis capabilities. Includes security guards and transpiler-based validation to ensure safe SQL execution within business intelligence and analytical processing environments.</description>
 
   <properties>
     <revision>0.0.1-SNAPSHOT</revision>
