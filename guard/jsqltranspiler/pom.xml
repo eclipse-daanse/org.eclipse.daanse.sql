@@ -20,6 +20,10 @@
     <version>${revision}</version>
   </parent>
   <artifactId>org.eclipse.daanse.sql.guard.jsqltranspiler</artifactId>
+  <name>Daanse SQL Guard JSQLTranspiler Implementation</name>
+  <description>SQL Guard implementation using JSQLParser and JSQLTranspiler
+    libraries. This module provides SQL parsing, validation, and transformation
+    capabilities for security enforcement and database dialect adaptation.</description>
 
   <dependencies>
     <dependency>

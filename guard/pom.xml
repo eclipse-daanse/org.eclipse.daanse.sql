@@ -20,6 +20,11 @@
     <version>${revision}</version>
   </parent>
   <artifactId>org.eclipse.daanse.sql.guard</artifactId>
+  <name>Daanse SQL Guard Modules</name>
+  <description>Parent module for SQL security guard implementations. This
+    aggregates API interfaces and implementations for SQL statement validation,
+    filtering, and security enforcement to protect against SQL injection and
+    unauthorized operations.</description>
   <packaging>pom</packaging>
   <modules>
     <module>api</module>

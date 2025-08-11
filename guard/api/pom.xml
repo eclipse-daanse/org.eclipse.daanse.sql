@@ -20,6 +20,11 @@
     <version>${revision}</version>
   </parent>
   <artifactId>org.eclipse.daanse.sql.guard.api</artifactId>
+  <name>Daanse SQL Guard API</name>
+  <description>API interfaces for SQL security and validation guards. This
+    module defines the contracts for SQL statement filtering, validation, and
+    security enforcement to prevent SQL injection and unauthorized database
+    operations.</description>
 
 
 </project>
