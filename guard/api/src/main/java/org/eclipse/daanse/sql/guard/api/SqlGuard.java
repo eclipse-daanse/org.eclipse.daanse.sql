@@ -18,4 +18,5 @@ import org.eclipse.daanse.sql.guard.api.exception.GuardException;
 public interface SqlGuard {
 
     String guard(String sql) throws GuardException;
+
 }
