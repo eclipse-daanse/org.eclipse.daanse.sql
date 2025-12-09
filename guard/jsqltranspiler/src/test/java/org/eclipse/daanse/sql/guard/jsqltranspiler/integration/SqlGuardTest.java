@@ -12,7 +12,7 @@
  *   Stefan Bischof (bipolis.org) - initial
  */
 
-package org.eclipse.daanse.sql.guard.jsqltranspiler;
+package org.eclipse.daanse.sql.guard.jsqltranspiler.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
