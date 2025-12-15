@@ -35,8 +35,6 @@ import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardExcept
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import org.osgi.test.common.annotation.InjectService;
 
 public class SqlGuardTest {
@@ -168,25 +166,51 @@ public class SqlGuardTest {
     @BeforeAll
     public static void setUp() {
         dialect = mock(Dialect.class);
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation)
-                throws Throwable {
-                Object[] arguments = invocation.getArguments();
 
-                if (arguments != null
-                    &&
-                    arguments.length > 0
-                    &&
-                    arguments[0] != null && arguments[1] != null && arguments[1] != null) {
-                    StringBuilder sb = (StringBuilder) arguments[0];
-                    String s1 = (String) arguments[1];
-                    String s2 = (String) arguments[2];
-                    sb.append(s1).append(".").append(s2);
-                }
-                return null;
+        // Mock for quoteIdentifier(StringBuilder, String) - single identifier
+        doAnswer(invocation -> {
+            StringBuilder buf = invocation.getArgument(0);
+            String name = invocation.getArgument(1);
+            if (name != null) {
+                buf.append(name);
             }
+            return null;
         }).when(dialect).quoteIdentifier(any(StringBuilder.class), any(String.class));
+
+        // Mock for quoteIdentifier(StringBuilder, String...) - varargs for qualified names
+        doAnswer(invocation -> {
+            StringBuilder buf = invocation.getArgument(0);
+            Object[] args = invocation.getArguments();
+            boolean first = true;
+            for (int i = 1; i < args.length; i++) {
+                String name = (String) args[i];
+                if (name == null) continue;
+                if (!first) buf.append(".");
+                buf.append(name);
+                first = false;
+            }
+            return null;
+        }).when(dialect).quoteIdentifier(any(StringBuilder.class), (String[]) any());
+
+        // Mock for quoteNumericLiteral(StringBuilder, String) - numeric values
+        doAnswer(invocation -> {
+            StringBuilder buf = invocation.getArgument(0);
+            String value = invocation.getArgument(1);
+            buf.append(value);
+            return null;
+        }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), any(String.class));
+
+        // Mock for quoteStringLiteral(StringBuilder, String) - string values
+        doAnswer(invocation -> {
+            StringBuilder buf = invocation.getArgument(0);
+            String value = invocation.getArgument(1);
+            buf.append("'").append(value.replace("'", "''")).append("'");
+            return null;
+        }).when(dialect).quoteStringLiteral(any(StringBuilder.class), any(String.class));
+
+        when(dialect.allowsAs()).thenReturn(true);
+        when(dialect.allowsFieldAs()).thenReturn(true);
+        when(dialect.needsExponent(any(), any(String.class))).thenReturn(false);
     }
 
     @Test
