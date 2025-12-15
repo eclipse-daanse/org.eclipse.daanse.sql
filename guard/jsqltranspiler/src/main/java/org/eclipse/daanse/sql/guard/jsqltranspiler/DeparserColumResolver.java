@@ -14,6 +14,7 @@
 package org.eclipse.daanse.sql.guard.jsqltranspiler;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.deparser.api.DialectDeparser;
 
 import ai.starlake.transpiler.JSQLColumResolver;
 import ai.starlake.transpiler.schema.JdbcMetaData;
@@ -23,30 +24,29 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectVisitor;
-import net.sf.jsqlparser.util.deparser.StatementDeParser;
 
-public class DaanseJSQLColumResolver extends JSQLColumResolver {
+public class DeparserColumResolver extends JSQLColumResolver {
 
     final JdbcMetaData metaData;
     private Dialect dialect;
+    private DialectDeparser dialectDeparser;
 
-    public DaanseJSQLColumResolver(JdbcMetaData metaData, Dialect dialect) {
+    public DeparserColumResolver(JdbcMetaData metaData, Dialect dialect, DialectDeparser dialectDeparser) {
         super(metaData);
         this.metaData = metaData;
         this.dialect = dialect;
+        this.dialectDeparser = dialectDeparser;
     }
 
     public String getResolvedStatementText(String sqlStr) throws JSQLParserException {
-        StringBuilder builder = new StringBuilder();
-        StatementDeParser deParser = new DaanseStatementDeParser(builder, this.dialect);
 
         Statement st = CCJSqlParserUtil.parse(sqlStr);
         if (st instanceof Select) {
             Select select = (Select) st;
             select.accept((SelectVisitor<JdbcResultSetMetaData>) this, JdbcMetaData.copyOf(metaData));
         }
-        st.accept(deParser);
-        return builder.toString();
+
+        return  dialectDeparser.deparse(st, dialect);
     }
 
 }

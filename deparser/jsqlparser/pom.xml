@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
 /*********************************************************************
-* Copyright (c) 2024 Contributors to the Eclipse Foundation.
+* Copyright (c) 2025 Contributors to the Eclipse Foundation.
 *
 * This program and the accompanying materials are made
 * available under the terms of the Eclipse Public License 2.0
@@ -16,41 +16,34 @@
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.eclipse.daanse</groupId>
-    <artifactId>org.eclipse.daanse.sql.guard</artifactId>
+    <artifactId>org.eclipse.daanse.sql.deparser</artifactId>
     <version>${revision}</version>
   </parent>
-  <artifactId>org.eclipse.daanse.sql.guard.jsqltranspiler</artifactId>
-  <name>Daanse SQL Guard JSQLTranspiler Implementation</name>
-  <description>SQL Guard implementation using JSQLParser and JSQLTranspiler
-    libraries. This module provides SQL parsing, validation, and transformation
-    capabilities for security enforcement and database dialect adaptation.</description>
+  <artifactId>org.eclipse.daanse.sql.deparser.jsqlparser</artifactId>
+  <name>Daanse SQL Deparser JSqlParser Implementation</name>
+  <description>JSqlParser-based implementation of SQL deparser with
+    comprehensive dialect support.</description>
 
   <dependencies>
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
-      <artifactId>org.eclipse.daanse.sql.guard.api</artifactId>
+      <artifactId>org.eclipse.daanse.sql.deparser.api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.jdbc.db.dialect.api</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.jdbc.db.dialect.db.common</artifactId>
       <version>0.0.1-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>com.github.jsqlparser</groupId>
       <artifactId>jsqlparser</artifactId>
       <version>5.4-SNAPSHOT</version>
-    </dependency>
-    <dependency>
-      <groupId>ai.starlake.jsqltranspiler</groupId>
-      <artifactId>jsqltranspiler</artifactId>
-      <version>1.0</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.daanse</groupId>
-      <artifactId>org.eclipse.daanse.sql.deparser.api</artifactId>
-      <version>0.0.1-SNAPSHOT</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.daanse</groupId>
-      <artifactId>org.eclipse.daanse.sql.deparser.jsqlparser</artifactId>
-      <version>0.0.1-SNAPSHOT</version>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

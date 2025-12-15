@@ -16,18 +16,25 @@ package org.eclipse.daanse.sql.guard.jsqltranspiler;
 import java.util.List;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.deparser.api.DialectDeparser;
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.SqlGuardFactory;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ServiceScope;
 
 @Component(scope = ServiceScope.SINGLETON)
 public class TranspilerSqlGuardFactory implements SqlGuardFactory {
 
+    @Reference
+    DialectDeparser dialectDeparser;
+
     @Override
-    public SqlGuard create(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns, Dialect dialect) {
-        return new TranspilerSqlGuard(currentCatalogName, currentSchemaName, databaseCatalog, whitelistFunctionsPatterns, dialect);
+    public SqlGuard create(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog,
+            List<String> whitelistFunctionsPatterns, Dialect dialect) {
+        return new TranspilerSqlGuard(currentCatalogName, currentSchemaName, databaseCatalog,
+                whitelistFunctionsPatterns, dialect,dialectDeparser);
     }
 
 }

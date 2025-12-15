@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.deparser.api.DialectDeparser;
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseSchema;
@@ -59,9 +60,11 @@ public class TranspilerSqlGuard implements SqlGuard {
     private JdbcMetaData jdbcMetaDataToCopy;
     private List<String> whitelistFunctionsPatterns = new ArrayList<String>();
     private Dialect dialect;
+    private DialectDeparser dialectDeparser;
 
-    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns, Dialect dialect) {
+    public TranspilerSqlGuard(String currentCatalogName, String currentSchemaName, DatabaseCatalog databaseCatalog, List<String> whitelistFunctionsPatterns, Dialect dialect, DialectDeparser dialectDeparser) {
         this.whitelistFunctionsPatterns = whitelistFunctionsPatterns;
+        this.dialectDeparser = dialectDeparser;
         jdbcMetaDataToCopy = calculateMetaData(currentCatalogName, currentSchemaName, databaseCatalog);
         this.dialect = dialect;
 
@@ -144,16 +147,11 @@ public class TranspilerSqlGuard implements SqlGuard {
                 }
 
                 // we can finally resolve for the actually returned columns
-                JSQLColumResolver columResolver = new DaanseJSQLColumResolver(jdbcMetaDataToCopy, dialect);
+                JSQLColumResolver columResolver = new DeparserColumResolver(jdbcMetaDataToCopy, dialect,dialectDeparser);
                 columResolver.setCommentFlag(false);
                 columResolver.setErrorMode(JdbcMetaData.ErrorMode.STRICT);
 
                 String rewritten = columResolver.getResolvedStatementText(sqlStr);
-                // TODO: get it as object and access to AST that we do not have to reparse
-                Statement stResolveds = CCJSqlParserUtil.parse(rewritten);
-
-                // TODO: check the count of functions and deepnes and size of statement. we should be able check on
-                // this variables if we allow statement or if it calls to much.
 
                 deParser.visit((Select) st);// or rewritten
 
@@ -182,7 +180,7 @@ public class TranspilerSqlGuard implements SqlGuard {
             for (DatabaseTable table : schema.getDatabaseTables()) {
 
                 List<JdbcColumn> jdbcColumns = table.getDatabaseColumns().parallelStream()
-                    .map(c -> new JdbcColumn(c.getName())).toList();
+                        .map(c -> new JdbcColumn(c.getName())).toList();
                 jdbcMetaData.addTable(schema.getName(), table.getName(), jdbcColumns);
             }
         }
