@@ -41,9 +41,9 @@
       <version>0.0.1-SNAPSHOT</version>
     </dependency>
     <dependency>
-      <groupId>com.github.jsqlparser</groupId>
+      <groupId>com.manticore-projects.jsqlformatter</groupId>
       <artifactId>jsqlparser</artifactId>
-      <version>5.4-SNAPSHOT</version>
+      <version>5.3.167</version>
     </dependency>
   </dependencies>
 </project>
