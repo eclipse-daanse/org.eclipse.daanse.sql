@@ -14,8 +14,8 @@
 
 package org.eclipse.daanse.sql.guard.jsqltranspiler.integration;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import org.mockito.ArgumentMatchers;
 import static org.mockito.Mockito.doAnswer;
@@ -34,7 +34,6 @@ import org.eclipse.daanse.sql.guard.api.elements.DatabaseTable;
 import org.eclipse.daanse.sql.guard.api.exception.GuardException;
 import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardException;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -114,9 +113,9 @@ public class SqlGuardTest {
     private static final String SQL_WITH_GROUP = "select * from foo group by foo.id, foo.name";
 
     private static final String SQL_WITH_GROUP_EXPECTED = """
-            SELECT sch.foo.id, sch.foo.name FROM sch.foo GROUP BY foo.id, foo.name""";
+            SELECT foo.id, foo.name FROM sch.foo GROUP BY foo.id, foo.name""";
 
-    private static final String TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH = "Table foo1 does not exist in the given Schema sch";
+    private static final String TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH = "Table foo1 not found in schema []";
 
     private static final String SIMPLE_SQL_WITH_WRONG_TABLE = "select * from foo1";
 
@@ -128,42 +127,42 @@ public class SqlGuardTest {
             select *, 5 as testColumn from foo where foo.id  = 10""";
 
     private static final String SQL_WITH_CUSTOM_COLUMN_EXPECTED = """
-            SELECT sch.foo.id, sch.foo.name, 5 AS testColumn FROM sch.foo WHERE foo.id = 10""";
+            SELECT foo.id, foo.name, 5 testColumn FROM sch.foo WHERE foo.id = 10""";
 
     private static final String SQL_WITH_IN = """
             select * from foo where foo.id in (select fooFact.id from fooFact)""";
 
     private static final String SQL_WITH_IN_EXPECTED = """
-            SELECT sch.foo.id, sch.foo.name FROM sch.foo WHERE foo.id IN (SELECT fooFact.id FROM fooFact)""";
+            SELECT foo.id, foo.name FROM sch.foo WHERE foo.id IN (SELECT fooFact.id FROM fooFact)""";
 
     private static final String TRIPLE_SELECT_SQL = """
             SELECT * FROM ( SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) a ) b""";
 
     private static final String TRIPLE_SELECT_SQL_EXPECTED = """
-            SELECT sch.b.id, sch.b.name, sch.b.id_1, sch.b.value FROM (SELECT sch.a.id, sch.a.name, sch.a.id_1, sch.a.value FROM (SELECT sch.foo.id, sch.foo.name, sch.fooFact.id, sch.fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) a) b""";
+            SELECT b.id, b.name, b.id_1, b.value FROM (SELECT a.id, a.name, a.id_1, a.value FROM (SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) a) b""";
 
     private static final String SELECT_INNER_JOIN_C_D = """
             SELECT * FROM ((SELECT * FROM foo) c inner join fooFact on c.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_C_D_EXPECTED = """
-            SELECT sch.d.id, sch.d.name, sch.d.id_1, sch.d.value FROM ((SELECT sch.foo.id, sch.foo.name FROM sch.foo) c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
+            SELECT d.id, d.name, d.id_1, d.value FROM ((SELECT foo.id, foo.name FROM sch.foo) c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
 
     private static final String SELECT_INNER_JOIN_D = """
             SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_D_EXPECTED = """
-            SELECT sch.d.id, sch.d.name, sch.d.id_1, sch.d.value FROM (SELECT sch.foo.id, sch.foo.name, sch.fooFact.id, sch.fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) d""";
+            SELECT d.id, d.name, d.id_1, d.value FROM (SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) d""";
 
     private static final String SELECT_INNER_JOIN = """
             select * from foo inner join fooFact on foo.id = fooFact.id""";
 
     private static final String SELECT_INNER_JOIN_EXPECTED = """
-            SELECT sch.foo.id, sch.foo.name, sch.fooFact.id, sch.fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id""";
+            SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id""";
 
     private static final String SELECT_FROM_FOO = "select * from foo";
 
     private static final String SELECT_FROM_FOO_RESULT = """
-            SELECT sch.foo.id, sch.foo.name FROM sch.foo""";
+            SELECT foo.id, foo.name FROM sch.foo""";
 
     private static final List<String> AGGREGATIONS = List.of("sum", "count", "distinctcount", "avg");
 
@@ -172,8 +171,6 @@ public class SqlGuardTest {
 
     private static final List<String> NOT_ALLOWED_FUNCTIONS = List.of("NotDeleteAll", "NotInsertAll", "NotUpdateAll",
             "NotModify", "notDeleteAll", "notInsertAll", "notUpdateAll", "notModify");
-
-    // ========== Subselect tests ==========
     private static final String SQL_SUBSELECT_IN_SELECT_WRONG_COLUMN = """
             SELECT (SELECT foo1.wrongCol FROM foo) AS subCol FROM foo""";
 
@@ -197,8 +194,6 @@ public class SqlGuardTest {
 
     private static final String SQL_NOT_IN_SUBSELECT_WRONG_TABLE = """
             SELECT foo.id FROM foo WHERE foo.id NOT IN (SELECT wrongTable.id FROM wrongTable)""";
-
-    // ========== ORDER BY tests ==========
     private static final String SQL_ORDER_BY_WRONG_COLUMN = """
             SELECT foo.id, foo.name FROM foo ORDER BY foo.wrongCol""";
 
@@ -207,8 +202,6 @@ public class SqlGuardTest {
 
     private static final String SQL_ORDER_BY_EXPRESSION_WRONG_COLUMN = """
             SELECT foo.id FROM foo ORDER BY foo.wrongCol + 1""";
-
-    // ========== CASE expression tests ==========
     private static final String SQL_CASE_WHEN_WRONG_COLUMN = """
             SELECT CASE WHEN foo.wrongCol = 1 THEN 'one' ELSE 'other' END FROM foo""";
 
@@ -220,8 +213,6 @@ public class SqlGuardTest {
 
     private static final String SQL_CASE_SWITCH_WRONG_COLUMN = """
             SELECT CASE foo.wrongCol WHEN 1 THEN 'one' WHEN 2 THEN 'two' END FROM foo""";
-
-    // ========== UNION/INTERSECT/EXCEPT tests ==========
     private static final String SQL_UNION_WRONG_COLUMN = """
             SELECT foo.id FROM foo UNION SELECT fooFact.wrongCol FROM fooFact""";
 
@@ -242,8 +233,6 @@ public class SqlGuardTest {
 
     private static final String SQL_MINUS_WRONG_TABLE = """
             SELECT foo.id FROM foo MINUS SELECT wrongTable.id FROM wrongTable""";
-
-    // ========== CTE (WITH clause) tests ==========
     private static final String SQL_CTE_WRONG_COLUMN = """
             WITH cte AS (SELECT foo.wrongCol FROM foo) SELECT * FROM cte""";
 
@@ -257,8 +246,6 @@ public class SqlGuardTest {
             WITH cte1 AS (SELECT foo.id FROM foo),
                  cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
-
-    // ========== JOIN tests ==========
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
 
@@ -273,8 +260,6 @@ public class SqlGuardTest {
 
     private static final String SQL_JOIN_SUBSELECT_WRONG_COLUMN = """
             SELECT foo.id FROM foo INNER JOIN (SELECT fooFact.wrongCol FROM fooFact) sub ON foo.id = sub.wrongCol""";
-
-    // ========== Expression tests (BETWEEN, LIKE, arithmetic) ==========
     private static final String SQL_BETWEEN_WRONG_COLUMN = """
             SELECT foo.id FROM foo WHERE foo.wrongCol BETWEEN 1 AND 10""";
 
@@ -310,8 +295,6 @@ public class SqlGuardTest {
 
     private static final String SQL_NULLIF_WRONG_COLUMN = """
             SELECT NULLIF(foo.wrongCol, foo.name) FROM foo""";
-
-    // ========== Nested and complex queries ==========
     private static final String SQL_DEEPLY_NESTED_WRONG_COLUMN = """
             SELECT * FROM (SELECT * FROM (SELECT foo.wrongCol FROM foo) a) b""";
 
@@ -322,8 +305,6 @@ public class SqlGuardTest {
             SELECT foo.id FROM foo
             WHERE foo.id IN (SELECT fooFact.id FROM fooFact)
             AND foo.name IN (SELECT fooFact.wrongCol FROM fooFact)""";
-
-    // ========== Function parameter tests ==========
     private static final String SQL_FUNCTION_NESTED_WRONG_COLUMN = """
             SELECT UPPER(TRIM(foo.wrongCol)) FROM foo""";
 
@@ -332,8 +313,6 @@ public class SqlGuardTest {
 
     private static final String SQL_AGGREGATE_IN_SUBSELECT_WRONG_COLUMN = """
             SELECT foo.id FROM foo WHERE foo.id > (SELECT AVG(fooFact.wrongCol) FROM fooFact)""";
-
-    // ========== DISTINCT and ALL tests ==========
     private static final String SQL_DISTINCT_WRONG_COLUMN = """
             SELECT DISTINCT foo.wrongCol FROM foo""";
 
@@ -342,8 +321,6 @@ public class SqlGuardTest {
 
     private static final String SQL_COUNT_DISTINCT_WRONG_COLUMN = """
             SELECT COUNT(DISTINCT foo.wrongCol) FROM foo""";
-
-    // ========== Valid queries for positive tests ==========
     private static final String SQL_VALID_SUBSELECT = """
             SELECT foo.id FROM foo WHERE foo.id IN (SELECT fooFact.id FROM fooFact)""";
 
@@ -424,7 +401,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_FROM_FOO);
-            assertEquals(SELECT_FROM_FOO_RESULT, result);
+            assertThat(result).isEqualTo(SELECT_FROM_FOO_RESULT);
         }
 
         @Test
@@ -432,7 +409,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_INNER_JOIN);
-            assertEquals(SELECT_INNER_JOIN_EXPECTED, result);
+            assertThat(result).isEqualTo(SELECT_INNER_JOIN_EXPECTED);
         }
 
         @Test
@@ -440,7 +417,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_INNER_JOIN_C_D);
-            assertEquals(SELECT_INNER_JOIN_C_D_EXPECTED, result);
+            assertThat(result).isEqualTo(SELECT_INNER_JOIN_C_D_EXPECTED);
         }
 
         @Test
@@ -448,7 +425,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_INNER_JOIN_D);
-            assertEquals(SELECT_INNER_JOIN_D_EXPECTED, result);
+            assertThat(result).isEqualTo(SELECT_INNER_JOIN_D_EXPECTED);
         }
 
         @Test
@@ -456,7 +433,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(TRIPLE_SELECT_SQL);
-            assertEquals(TRIPLE_SELECT_SQL_EXPECTED, result);
+            assertThat(result).isEqualTo(TRIPLE_SELECT_SQL_EXPECTED);
         }
 
         @Test
@@ -464,32 +441,31 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_WITH_IN);
-            assertEquals(SQL_WITH_IN_EXPECTED, result);
+            assertThat(result).isEqualTo(SQL_WITH_IN_EXPECTED);
         }
 
         @Test
-        @Disabled("https://github.com/JSQLParser/JSqlParser/issues/2291")
         void testAdditionalColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_WITH_CUSTOM_COLUMN);
-            assertEquals(SQL_WITH_CUSTOM_COLUMN_EXPECTED, result);
+            assertThat(result).isEqualTo(SQL_WITH_CUSTOM_COLUMN_EXPECTED);
         }
 
         @Test
         void testUndefinedTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_WITH_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_WITH_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void test(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            RuntimeException thrown = assertThrows(RuntimeException.class,
-                    () -> guard.guard(SIMPLE_SQL_WITH_WRONG_TABLE));
-            assertEquals(TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH, thrown.getMessage());
+            assertThatThrownBy(() -> guard.guard(SIMPLE_SQL_WITH_WRONG_TABLE))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class)
+                    .hasMessage(TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH);
         }
 
         @Test
@@ -497,7 +473,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_WITH_GROUP);
-            assertEquals(SQL_WITH_GROUP_EXPECTED, result);
+            assertThat(result).isEqualTo(SQL_WITH_GROUP_EXPECTED);
         }
 
         @ParameterizedTest(name = "aggregation {0}")
@@ -506,7 +482,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_AGG, agg));
-            assertEquals(String.format(SQL_WITH_AGG_EXPECTED, agg), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_AGG_EXPECTED, agg));
         }
 
         @ParameterizedTest(name = "aggregation {0} with wrong table")
@@ -514,8 +490,8 @@ public class SqlGuardTest {
         void testAggregationWrongTable(String agg, @InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_AGG_WITH_WRONG_TABLE, agg)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_AGG_WITH_WRONG_TABLE, agg)))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @ParameterizedTest(name = "aggregation {0} in HAVING clause")
@@ -524,7 +500,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_HAVING, agg, agg));
-            assertEquals(String.format(SQL_WITH_HAVING_EXPECTED, agg, agg), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_HAVING_EXPECTED, agg, agg));
         }
 
         @ParameterizedTest(name = "aggregation {0} in HAVING with wrong table")
@@ -533,8 +509,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE, agg, agg)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE, agg, agg)))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @ParameterizedTest(name = "aggregation {0} in HAVING with simple condition")
@@ -543,7 +519,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_HAVING1, agg));
-            assertEquals(String.format(SQL_WITH_HAVING1_EXPECTED, agg), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_HAVING1_EXPECTED, agg));
         }
 
         @ParameterizedTest(name = "aggregation {0} in HAVING with wrong table variant")
@@ -552,8 +528,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE1, agg)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_TABLE1, agg)))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @ParameterizedTest(name = "aggregation {0} in HAVING with wrong column")
@@ -562,8 +538,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_COLUMN, agg)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_HAVING_WRONG_COLUMN, agg)))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
@@ -571,9 +547,9 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_WITH_FUNCTION);
-            assertEquals(SQL_WITH_FUNCTION_EXPECTED, result);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_WITH_FUNCTION_WRONG_TABLE));
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_WITH_FUNCTION_WRONG_COLUMN));
+            assertThat(result).isEqualTo(SQL_WITH_FUNCTION_EXPECTED);
+            assertThatThrownBy(() -> guard.guard(SQL_WITH_FUNCTION_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
+            assertThatThrownBy(() -> guard.guard(SQL_WITH_FUNCTION_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -596,7 +572,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in WHERE with exact whitelist")
@@ -606,7 +582,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in HAVING with exact whitelist")
@@ -616,7 +592,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in SELECT with wildcard whitelist")
@@ -626,7 +602,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(".*"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in WHERE with wildcard whitelist")
@@ -636,7 +612,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(".*"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in HAVING with wildcard whitelist")
@@ -646,7 +622,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(".*"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in SELECT with regex whitelist")
@@ -657,7 +633,7 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Delete.*", "Insert.*",
                     "UpdateAll", "Modify.*", "delete.*", "insert.*", "update.*", "modify"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in WHERE with regex whitelist")
@@ -668,7 +644,7 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Delete.*", "Insert.*",
                     "UpdateAll", "Modify.*", "delete.*", "insert.*", "update.*", "modify"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} in HAVING with regex whitelist")
@@ -679,7 +655,7 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Delete.*", "Insert.*",
                     "UpdateAll", "Modify.*", "delete.*", "insert.*", "update.*", "modify"), dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "function {0} blocked with empty whitelist in SELECT")
@@ -688,7 +664,7 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun))).isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "function {0} blocked with empty whitelist in WHERE")
@@ -697,8 +673,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "function {0} blocked with empty whitelist in HAVING")
@@ -707,8 +683,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "function {0} blocked with wrong patterns in SELECT")
@@ -718,7 +694,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Dalete.*", "Iinsert.*",
                     "UupdateAll", "Moodify.*", "ddelete.*", "insertt.*", "uppdate.*", "moodify"), dialect);
-            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun))).isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "function {0} blocked with wrong patterns in WHERE")
@@ -728,8 +704,8 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Dalete.*", "Iinsert.*",
                     "UupdateAll", "Moodify.*", "ddelete.*", "insertt.*", "uppdate.*", "moodify"), dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "function {0} blocked with wrong patterns in HAVING")
@@ -739,8 +715,8 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("Dalete.*", "Iinsert.*",
                     "UupdateAll", "Moodify.*", "ddelete.*", "insertt.*", "uppdate.*", "moodify"), dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "not-allowed function {0} blocked in SELECT")
@@ -749,7 +725,7 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
-            assertThrows(GuardException.class, () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun))).isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "not-allowed function {0} blocked in WHERE")
@@ -758,8 +734,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "not-allowed function {0} blocked in HAVING")
@@ -768,8 +744,8 @@ public class SqlGuardTest {
                 throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
-            assertThrows(GuardException.class,
-                    () -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)));
+            assertThatThrownBy(() -> guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun)))
+                    .isInstanceOf(GuardException.class);
         }
 
         @ParameterizedTest(name = "allowed function {0} passes with specific whitelist in SELECT")
@@ -779,7 +755,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "allowed function {0} passes with specific whitelist in WHERE")
@@ -789,7 +765,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_WHERE, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED, fun));
         }
 
         @ParameterizedTest(name = "allowed function {0} passes with specific whitelist in HAVING")
@@ -799,7 +775,7 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, ALLOWED_FUNCTIONS, dialect);
             String result = guard.guard(String.format(SQL_WITH_ALLOWED_FUNCTION_IN_HAVING, fun));
-            assertEquals(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun), result);
+            assertThat(result).isEqualTo(String.format(SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED, fun));
         }
     }
 
@@ -863,62 +839,60 @@ public class SqlGuardTest {
         void testSubselectInSelectWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_SUBSELECT_IN_SELECT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_SUBSELECT_IN_SELECT_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testSubselectInSelectWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_SUBSELECT_IN_SELECT_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_SUBSELECT_IN_SELECT_WRONG_TABLE))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testSubselectInWhereWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_SUBSELECT_IN_WHERE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_SUBSELECT_IN_WHERE_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testSubselectInWhereWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_SUBSELECT_IN_WHERE_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_SUBSELECT_IN_WHERE_WRONG_TABLE))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler bug: NPE when resolving EXISTS with wrong columns - https://github.com/JSQLParser/JSqlParser/issues/2291")
         void testExistsWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_EXISTS_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_EXISTS_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler bug: NPE when resolving EXISTS - https://github.com/JSQLParser/JSqlParser/issues/2291")
         void testExistsWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_EXISTS_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_EXISTS_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testInSubselectWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_IN_SUBSELECT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_IN_SUBSELECT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testNotInSubselectWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_NOT_IN_SUBSELECT_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_NOT_IN_SUBSELECT_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -930,22 +904,22 @@ public class SqlGuardTest {
         void testOrderByWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_ORDER_BY_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_ORDER_BY_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testOrderByWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_ORDER_BY_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_ORDER_BY_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testOrderByExpressionWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_ORDER_BY_EXPRESSION_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_ORDER_BY_EXPRESSION_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -957,28 +931,28 @@ public class SqlGuardTest {
         void testCaseWhenWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CASE_WHEN_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CASE_WHEN_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCaseThenWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CASE_THEN_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CASE_THEN_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCaseElseWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CASE_ELSE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CASE_ELSE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCaseSwitchWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CASE_SWITCH_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CASE_SWITCH_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -987,90 +961,53 @@ public class SqlGuardTest {
     class SetOperationsSecurityTests {
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong columns in UNION second query not detected")
         void testUnionWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_UNION_WRONG_COLUMN),
-                    SQL_UNION_WRONG_COLUMN);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong tables in UNION second query not detected")
         void testUnionWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_UNION_WRONG_TABLE),
-                    SQL_UNION_WRONG_TABLE);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong columns in UNION ALL second query not detected")
         void testUnionAllWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_UNION_ALL_WRONG_COLUMN), SQL_UNION_ALL_WRONG_COLUMN);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_ALL_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong columns in INTERSECT second query not detected")
         void testIntersectWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_INTERSECT_WRONG_COLUMN), SQL_INTERSECT_WRONG_COLUMN);
+            assertThatThrownBy(() -> guard.guard(SQL_INTERSECT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong columns in EXCEPT second query not detected")
         void testExceptWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_EXCEPT_WRONG_COLUMN), SQL_EXCEPT_WRONG_COLUMN);
+            assertThatThrownBy(() -> guard.guard(SQL_EXCEPT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong columns in MINUS second query not detected")
         void testMinusWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_MINUS_WRONG_COLUMN),
-                    SQL_MINUS_WRONG_COLUMN);
+            assertThatThrownBy(() -> guard.guard(SQL_MINUS_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
-        @Disabled("jsqltranspiler limitation: wrong tables in MINUS second query not detected")
         void testMinusWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrowsOrShowResult(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_MINUS_WRONG_TABLE),
-                    SQL_MINUS_WRONG_TABLE);
+            assertThatThrownBy(() -> guard.guard(SQL_MINUS_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
-    }
-
-    private static <T extends Throwable> void assertThrowsOrShowResult(Class<T> expectedType,
-            ThrowingSupplier<String> supplier, String inputSql) {
-        try {
-            String result = supplier.get();
-            throw new AssertionError("Expected " + expectedType.getSimpleName() + " but got result.\n" + "Input:  "
-                    + inputSql.replace("\n", " ") + "\n" + "Output: " + result);
-        } catch (Throwable t) {
-            if (expectedType.isInstance(t)) {
-                return; // expected exception thrown
-            }
-            if (t instanceof AssertionError) {
-                throw (AssertionError) t;
-            }
-            throw new AssertionError("Expected " + expectedType.getSimpleName() + " but got "
-                    + t.getClass().getSimpleName() + ": " + t.getMessage(), t);
-        }
-    }
-
-    @FunctionalInterface
-    interface ThrowingSupplier<T> {
-        T get() throws Throwable;
     }
 
     @Nested
@@ -1081,28 +1018,28 @@ public class SqlGuardTest {
         void testCteWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CTE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCteWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CTE_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCteReferenceWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CTE_REFERENCE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_REFERENCE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testMultipleCteWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_MULTIPLE_CTE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_CTE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -1114,35 +1051,35 @@ public class SqlGuardTest {
         void testLeftJoinOnWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_LEFT_JOIN_ON_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_LEFT_JOIN_ON_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testRightJoinOnWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_RIGHT_JOIN_ON_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_RIGHT_JOIN_ON_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCrossJoinWhereWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_CROSS_JOIN_WHERE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CROSS_JOIN_WHERE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testFullJoinOnWrongTable(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_FULL_JOIN_ON_WRONG_TABLE));
+            assertThatThrownBy(() -> guard.guard(SQL_FULL_JOIN_ON_WRONG_TABLE)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testJoinSubselectWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_JOIN_SUBSELECT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_JOIN_SUBSELECT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -1154,84 +1091,84 @@ public class SqlGuardTest {
         void testBetweenWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_BETWEEN_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_BETWEEN_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testLikeWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_LIKE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_LIKE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testArithmeticWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_ARITHMETIC_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_ARITHMETIC_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testComparisonWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_COMPARISON_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_COMPARISON_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testAndWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_AND_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_AND_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testOrWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_OR_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_OR_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testNotWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_NOT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_NOT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testIsNullWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_IS_NULL_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_IS_NULL_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testIsNotNullWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_IS_NOT_NULL_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_IS_NOT_NULL_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testInListWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_IN_LIST_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_IN_LIST_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCoalesceWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_COALESCE_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_COALESCE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testNullifWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_NULLIF_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_NULLIF_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -1243,23 +1180,23 @@ public class SqlGuardTest {
         void testDeeplyNestedWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_DEEPLY_NESTED_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_DEEPLY_NESTED_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCorrelatedSubqueryWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("MAX", "AVG"), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_CORRELATED_SUBQUERY_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_CORRELATED_SUBQUERY_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testMultipleSubqueriesWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_MULTIPLE_SUBQUERIES_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_SUBQUERIES_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -1271,23 +1208,23 @@ public class SqlGuardTest {
         void testFunctionNestedWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_FUNCTION_NESTED_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_FUNCTION_NESTED_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testFunctionMultipleParamsWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_FUNCTION_MULTIPLE_PARAMS_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_FUNCTION_MULTIPLE_PARAMS_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testAggregateInSubselectWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("AVG"), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class,
-                    () -> guard.guard(SQL_AGGREGATE_IN_SUBSELECT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_AGGREGATE_IN_SUBSELECT_WRONG_COLUMN))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
@@ -1299,21 +1236,21 @@ public class SqlGuardTest {
         void testDistinctWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_DISTINCT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_DISTINCT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testAllWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_ALL_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_ALL_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
 
         @Test
         void testCountDistinctWrongColumn(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithOneTable2Col();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of("count"), dialect);
-            assertThrows(UnresolvableObjectsGuardException.class, () -> guard.guard(SQL_COUNT_DISTINCT_WRONG_COLUMN));
+            assertThatThrownBy(() -> guard.guard(SQL_COUNT_DISTINCT_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
