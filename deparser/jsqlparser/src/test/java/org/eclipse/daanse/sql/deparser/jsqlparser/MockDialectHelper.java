@@ -112,10 +112,10 @@ public class MockDialectHelper {
             return null;
         }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), anyString());
 
-        when(dialect.allowsAs()).thenReturn(true);
-        when(dialect.allowsFieldAs()).thenReturn(true);
+        when(dialect.allowsFromAlias()).thenReturn(true);
+        when(dialect.allowsFieldAlias()).thenReturn(true);
         when(dialect.needsExponent(any(), anyString())).thenReturn(false);
-        when(dialect.getDialectName()).thenReturn("sqlserver");
+        when(dialect.name()).thenReturn("sqlserver");
 
         return dialect;
     }
@@ -201,18 +201,18 @@ public class MockDialectHelper {
             return null;
         }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), anyString());
 
-        when(dialect.allowsAs()).thenReturn(true);
-        when(dialect.allowsFieldAs()).thenReturn(true);
+        when(dialect.allowsFromAlias()).thenReturn(true);
+        when(dialect.allowsFieldAlias()).thenReturn(true);
         when(dialect.needsExponent(any(), anyString())).thenReturn(false);
-        when(dialect.getDialectName()).thenReturn("mock");
+        when(dialect.name()).thenReturn("mock");
 
         return dialect;
     }
 
     public static Dialect createDialectWithoutAs() {
         Dialect dialect = createAnsiDialect();
-        when(dialect.allowsAs()).thenReturn(false);
-        when(dialect.allowsFieldAs()).thenReturn(false);
+        when(dialect.allowsFromAlias()).thenReturn(false);
+        when(dialect.allowsFieldAlias()).thenReturn(false);
         return dialect;
     }
 }

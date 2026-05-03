@@ -60,7 +60,7 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
         // Handle table alias
         Alias alias = table.getAlias();
         if (alias != null) {
-            if (dialect.allowsAs()) {
+            if (dialect.allowsFromAlias()) {
                 builder.append(" AS ");
             } else {
                 builder.append(" ");
@@ -93,7 +93,7 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
         // Handle alias
         Alias alias = selectItem.getAlias();
         if (alias != null) {
-            if (dialect.allowsFieldAs() && alias.isUseAs()) {
+            if (dialect.allowsFieldAlias() && alias.isUseAs()) {
                 builder.append(" AS ");
             } else {
                 builder.append(" ");
