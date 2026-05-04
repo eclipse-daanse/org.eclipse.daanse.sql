@@ -46,7 +46,7 @@ public class DeparserColumResolver extends JSQLColumResolver {
             select.accept((SelectVisitor<JdbcResultSetMetaData>) this, JdbcMetaData.copyOf(metaData));
         }
 
-        return  dialectDeparser.deparse(st, dialect);
+        return dialectDeparser.deparse(st, dialect);
     }
 
 }

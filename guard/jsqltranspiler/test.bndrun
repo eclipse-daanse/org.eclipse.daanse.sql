@@ -66,6 +66,9 @@
 	org.apache.felix.scr;version='[2.2.10,2.2.11)',\
 	org.eclipse.daanse.jdbc.db.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.jdbc.db.dialect.api;version='[0.0.1,0.0.2)',\
+	org.eclipse.daanse.jdbc.db.dialect.db.common;version='[0.0.1,0.0.2)',\
+	org.eclipse.daanse.jdbc.db.dialect.db.h2;version='[0.0.1,0.0.2)',\
+	org.eclipse.daanse.jdbc.db.record;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.deparser.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.deparser.jsqlparser;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.guard.api;version='[0.0.1,0.0.2)',\

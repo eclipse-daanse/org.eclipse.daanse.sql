@@ -14,6 +14,7 @@
 package org.eclipse.daanse.sql.deparser.jsqlparser;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.jdbc.db.dialect.api.IdentifierQuotingPolicy;
 
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.ExpressionVisitor;
@@ -44,17 +45,17 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
         String tableName = table.getName();
 
         if (catalog != null && !catalog.isEmpty()) {
-            dialect.quoteIdentifier(builder, catalog);
+            dialect.quoteIdentifierWith(catalog, builder, IdentifierQuotingPolicy.ALWAYS);
             builder.append(".");
         }
 
         if (schema != null && !schema.isEmpty()) {
-            dialect.quoteIdentifier(builder, schema);
+            dialect.quoteIdentifierWith(schema, builder, IdentifierQuotingPolicy.ALWAYS);
             builder.append(".");
         }
 
         if (tableName != null) {
-            dialect.quoteIdentifier(builder, tableName);
+            dialect.quoteIdentifierWith(tableName, builder, IdentifierQuotingPolicy.ALWAYS);
         }
 
         // Handle table alias

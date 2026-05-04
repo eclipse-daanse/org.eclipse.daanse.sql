@@ -20,6 +20,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.jdbc.db.dialect.api.IdentifierQuotingPolicy;
 
 public class MockDialectHelper {
 
@@ -76,6 +77,20 @@ public class MockDialectHelper {
             }
             return null;
         }).when(dialect).quoteIdentifier(any(StringBuilder.class), (String[]) any());
+
+        doAnswer(inv -> {
+            String val = inv.getArgument(0);
+            StringBuilder buf = inv.getArgument(1);
+            IdentifierQuotingPolicy policy = inv.getArgument(2);
+            if (val == null)
+                return null;
+            if (policy == IdentifierQuotingPolicy.NEVER) {
+                buf.append(val);
+            } else {
+                buf.append("[").append(val).append("]");
+            }
+            return null;
+        }).when(dialect).quoteIdentifierWith(anyString(), any(StringBuilder.class), any(IdentifierQuotingPolicy.class));
 
         doAnswer(inv -> {
             StringBuilder buf = inv.getArgument(0);
@@ -165,6 +180,20 @@ public class MockDialectHelper {
             }
             return null;
         }).when(dialect).quoteIdentifier(any(StringBuilder.class), (String[]) any());
+
+        doAnswer(inv -> {
+            String val = inv.getArgument(0);
+            StringBuilder buf = inv.getArgument(1);
+            IdentifierQuotingPolicy policy = inv.getArgument(2);
+            if (val == null)
+                return null;
+            if (policy == IdentifierQuotingPolicy.NEVER) {
+                buf.append(val);
+            } else {
+                buf.append(quoteChar).append(val).append(quoteChar);
+            }
+            return null;
+        }).when(dialect).quoteIdentifierWith(anyString(), any(StringBuilder.class), any(IdentifierQuotingPolicy.class));
 
         doAnswer(inv -> {
             StringBuilder buf = inv.getArgument(0);
