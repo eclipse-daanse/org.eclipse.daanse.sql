@@ -16,6 +16,7 @@ package org.eclipse.daanse.sql.guard.jsqltranspiler.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import org.mockito.ArgumentMatchers;
 import static org.mockito.Mockito.doAnswer;
@@ -244,7 +245,7 @@ public class SqlGuardTest {
 
     private static final String SQL_MULTIPLE_CTE_WRONG_COLUMN = """
             WITH cte1 AS (SELECT foo.id FROM foo),
-                 cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
+                cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
@@ -338,6 +339,19 @@ public class SqlGuardTest {
 
     private static final String SQL_VALID_ORDER_BY = """
             SELECT foo.id, foo.name FROM foo ORDER BY foo.id DESC, foo.name ASC""";
+
+    private static final String SQL_QUERY = """
+    SELECT
+            pc.EnglishProductCategoryName AS CategoryName,
+            count(*) AS NumberOfSales,
+            sum(f.OrderQuantity) AS TotalQuantity
+        FROM Fact f
+            JOIN Product p ON f.ProductKey = p.ProductKey
+            JOIN ProductSubcategory ps ON p.ProductSubcategoryKey = ps.ProductSubcategoryKey
+            JOIN ProductCategory pc ON ps.ProductCategoryKey = pc.ProductCategoryKey
+        GROUP BY pc.EnglishProductCategoryName
+        ORDER BY count(*) DESC
+    """;
 
     private static Dialect dialect;
 
@@ -1305,6 +1319,64 @@ public class SqlGuardTest {
             String result = guard.guard(SQL_VALID_ORDER_BY);
             assertNotNull(result);
         }
+
+        @Test
+        void testSql1(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseColumn colProductKeyFactTable = mock(DatabaseColumn.class);
+            when(colProductKeyFactTable.getName()).thenReturn("ProductKey");
+
+            DatabaseColumn colOrderQuantityFactTable = mock(DatabaseColumn.class);
+            when(colOrderQuantityFactTable.getName()).thenReturn("OrderQuantity");
+
+            DatabaseTable factTable = mock(DatabaseTable.class);
+            when(factTable.getName()).thenReturn("Fact");
+            when(factTable.getDatabaseColumns()).thenReturn(List.of(colProductKeyFactTable, colOrderQuantityFactTable));
+
+            DatabaseColumn colProductKeyProductTable = mock(DatabaseColumn.class);
+            when(colProductKeyProductTable.getName()).thenReturn("ProductKey");
+
+            DatabaseColumn colProductSubcategoryKeyProductTable = mock(DatabaseColumn.class);
+            when(colProductSubcategoryKeyProductTable.getName()).thenReturn("ProductSubcategoryKey");
+
+            DatabaseTable productTable = mock(DatabaseTable.class);
+            when(productTable.getName()).thenReturn("Product");
+            when(productTable.getDatabaseColumns()).thenReturn(List.of(colProductKeyProductTable, colProductSubcategoryKeyProductTable));
+
+            DatabaseColumn colProductSubcategoryKeyProductSubcategoryTable = mock(DatabaseColumn.class);
+            when(colProductSubcategoryKeyProductSubcategoryTable.getName()).thenReturn("ProductSubcategoryKey");
+
+            DatabaseColumn colProductCategoryKeyProductSubcategoryTable = mock(DatabaseColumn.class);
+            when(colProductCategoryKeyProductSubcategoryTable.getName()).thenReturn("ProductCategoryKey");
+
+            DatabaseTable productSubcategoryTable = mock(DatabaseTable.class);
+            when(productSubcategoryTable.getName()).thenReturn("ProductSubcategory");
+            when(productSubcategoryTable.getDatabaseColumns()).thenReturn(List.of(colProductSubcategoryKeyProductSubcategoryTable, colProductCategoryKeyProductSubcategoryTable));
+
+            DatabaseColumn colProductCategoryKeyProductCategoryTable = mock(DatabaseColumn.class);
+            when(colProductCategoryKeyProductCategoryTable.getName()).thenReturn("ProductCategoryKey");
+
+            DatabaseColumn colEnglishProductCategoryNameProductCategoryTable = mock(DatabaseColumn.class);
+            when(colEnglishProductCategoryNameProductCategoryTable.getName()).thenReturn("EnglishProductCategoryName");
+
+            DatabaseTable productCategoryTable = mock(DatabaseTable.class);
+            when(productCategoryTable.getName()).thenReturn("ProductCategory");
+            when(productCategoryTable.getDatabaseColumns()).thenReturn(List.of(colProductCategoryKeyProductCategoryTable, colEnglishProductCategoryNameProductCategoryTable));
+
+            DatabaseSchema databaseSchema = mock(DatabaseSchema.class);
+            when(databaseSchema.getName()).thenReturn("");
+            List<DatabaseTable> tables = List.of(factTable, productTable, productSubcategoryTable, productCategoryTable);
+            when(databaseSchema.getDatabaseTables()).thenReturn(tables);
+
+            DatabaseCatalog databaseCatalog = mock(DatabaseCatalog.class);
+            when(databaseCatalog.getName()).thenReturn(null);
+            when(databaseCatalog.getDatabaseSchemas()).thenReturn(List.of(databaseSchema));
+
+            SqlGuard guard = sqlGuardFactory.create("", "", databaseCatalog, List.of("count","sum"), dialect);
+            String result = guard.guard(SQL_QUERY);
+            assertNotNull(result);
+            assertEquals(result, "SELECT pc.EnglishProductCategoryName CategoryName, count(*) NumberOfSales, sum(f.OrderQuantity) TotalQuantity FROM Fact f JOIN Product p ON f.ProductKey = p.ProductKey JOIN ProductSubcategory ps ON p.ProductSubcategoryKey = ps.ProductSubcategoryKey JOIN ProductCategory pc ON ps.ProductCategoryKey = pc.ProductCategoryKey GROUP BY pc.EnglishProductCategoryName ORDER BY count(*) DESC");
+        }
+
     }
 
     private static void assertNotNull(Object obj) {
