@@ -14,6 +14,7 @@
 package org.eclipse.daanse.sql.deparser.jsqlparser;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.jdbc.db.dialect.api.IdentifierQuotingPolicy;
 
 import net.sf.jsqlparser.expression.DateValue;
 import net.sf.jsqlparser.expression.DoubleValue;
@@ -57,11 +58,13 @@ public class BasicDialectExpressionDeParser extends ExpressionDeParser {
             }
         }
 
+        // Qualifier (alias or fully-qualified name) is appended verbatim so an alias
+        // declared unquoted in the FROM clause keeps matching its column-reference
+        // qualifier; the column name is always quoted.
         if (tableName != null && !tableName.isEmpty()) {
-            dialect.quoteIdentifier(builder, tableName, tableColumn.getColumnName());
-        } else {
-            dialect.quoteIdentifier(builder, tableColumn.getColumnName());
+            builder.append(tableName).append('.');
         }
+        dialect.quoteIdentifierWith(tableColumn.getColumnName(), builder, IdentifierQuotingPolicy.ALWAYS);
 
         if (tableColumn.getArrayConstructor() != null) {
             tableColumn.getArrayConstructor().accept(this, context);

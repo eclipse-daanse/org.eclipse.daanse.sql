@@ -71,7 +71,9 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        assertThat(deparser.getBuilder().toString()).isEqualTo("\"tableName\".\"columnName\"");
+        // Qualifier is emitted verbatim (matches FROM-clause alias emission); column
+        // name is quoted under WHEN_NEEDED because it has mixed case
+        assertThat(deparser.getBuilder().toString()).isEqualTo("tableName.\"columnName\"");
     }
 
     @Test
@@ -83,7 +85,7 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        assertThat(deparser.getBuilder().toString()).isEqualTo("`tableName`.`columnName`");
+        assertThat(deparser.getBuilder().toString()).isEqualTo("tableName.`columnName`");
     }
 
     @Test
@@ -96,8 +98,8 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        // When table has alias, use alias name
-        assertThat(deparser.getBuilder().toString()).isEqualTo("\"t\".\"columnName\"");
+        // When table has alias, use alias name (verbatim, never quoted)
+        assertThat(deparser.getBuilder().toString()).isEqualTo("t.\"columnName\"");
     }
 
     @Test
@@ -109,8 +111,8 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        // Should use fully qualified name from table
-        assertThat(deparser.getBuilder().toString()).isEqualTo("\"schemaName.tableName\".\"columnName\"");
+        // Fully qualified name is emitted verbatim; only the column name goes through quoting
+        assertThat(deparser.getBuilder().toString()).isEqualTo("schemaName.tableName.\"columnName\"");
     }
 
     @Test

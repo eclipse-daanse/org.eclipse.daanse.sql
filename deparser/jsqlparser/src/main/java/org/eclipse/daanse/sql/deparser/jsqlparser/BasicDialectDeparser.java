@@ -23,8 +23,13 @@ import net.sf.jsqlparser.util.deparser.StatementDeParser;
 
 /**
  * Factory implementation for creating dialect-aware SQL deparsers.
+ *
+ * <p>Identifiers in the AST are expected to already be in their canonical form
+ * (resolved against the database catalog by the caller). The deparser then
+ * always wraps them in the dialect's quote character so the resulting SQL is
+ * resolved by the engine via case-sensitive lookup.
  */
-@Component(service = DialectDeparser.class,scope = ServiceScope.SINGLETON)
+@Component(service = DialectDeparser.class, scope = ServiceScope.SINGLETON)
 public class BasicDialectDeparser implements DialectDeparser {
 
     @Override
