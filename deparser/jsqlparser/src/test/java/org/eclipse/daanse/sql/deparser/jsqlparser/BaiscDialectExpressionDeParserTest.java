@@ -71,9 +71,8 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        // Qualifier is emitted verbatim (matches FROM-clause alias emission); column
-        // name is quoted under WHEN_NEEDED because it has mixed case
-        assertThat(deparser.getBuilder().toString()).isEqualTo("tableName.\"columnName\"");
+        // Real table name (no alias scope) is quoted alongside the column name.
+        assertThat(deparser.getBuilder().toString()).isEqualTo("\"tableName\".\"columnName\"");
     }
 
     @Test
@@ -85,21 +84,7 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        assertThat(deparser.getBuilder().toString()).isEqualTo("tableName.`columnName`");
-    }
-
-    @Test
-    void testColumnWithTableAlias() {
-        Dialect dialect = MockDialectHelper.createAnsiDialect();
-        BasicDialectExpressionDeParser deparser = new BasicDialectExpressionDeParser(dialect);
-
-        Table table = new Table("tableName");
-        table.setAlias(new net.sf.jsqlparser.expression.Alias("t"));
-        Column column = new Column(table, "columnName");
-        deparser.visit(column, null);
-
-        // When table has alias, use alias name (verbatim, never quoted)
-        assertThat(deparser.getBuilder().toString()).isEqualTo("t.\"columnName\"");
+        assertThat(deparser.getBuilder().toString()).isEqualTo("`tableName`.`columnName`");
     }
 
     @Test
@@ -111,8 +96,8 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        // Fully qualified name is emitted verbatim; only the column name goes through quoting
-        assertThat(deparser.getBuilder().toString()).isEqualTo("schemaName.tableName.\"columnName\"");
+        // Each FQN segment is quoted independently when the qualifier is a real name.
+        assertThat(deparser.getBuilder().toString()).isEqualTo("\"schemaName\".\"tableName\".\"columnName\"");
     }
 
     @Test

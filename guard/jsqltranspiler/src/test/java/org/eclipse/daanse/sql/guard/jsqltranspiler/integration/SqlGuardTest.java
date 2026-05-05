@@ -68,13 +68,13 @@ public class SqlGuardTest {
 
     private static final String SQL_WITH_ALLOWED_FUNCTION_IN_HAVING = "select foo.name from foo group by foo.name HAVING %s(foo.id) > 5";
 
-    private static final String SQL_WITH_FUNCTION_EXPECTED = "SELECT Trim( foo.\"name\" ) FROM \"sch\".\"foo\"";
+    private static final String SQL_WITH_FUNCTION_EXPECTED = "SELECT Trim( \"foo\".\"name\" ) FROM \"sch\".\"foo\"";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION_EXPECTED = "SELECT %s(foo.\"name\") FROM \"sch\".\"foo\"";
+    private static final String SQL_WITH_ALLOWED_FUNCTION_EXPECTED = "SELECT %s(\"foo\".\"name\") FROM \"sch\".\"foo\"";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED = "SELECT foo.\"name\" FROM \"sch\".\"foo\" WHERE %s(foo.\"name\") = 1";
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED = "SELECT \"foo\".\"name\" FROM \"sch\".\"foo\" WHERE %s(\"foo\".\"name\") = 1";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED = "SELECT foo.\"name\" FROM \"sch\".\"foo\" GROUP BY foo.\"name\" HAVING %s(foo.\"id\") > 5";
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED = "SELECT \"foo\".\"name\" FROM \"sch\".\"foo\" GROUP BY \"foo\".\"name\" HAVING %s(\"foo\".\"id\") > 5";
 
     private static final String SQL_WITH_HAVING_WRONG_COLUMN = """
             select %s(foo.id) from foo group by foo.name having foo.name1 = 'tets'""";
@@ -86,13 +86,13 @@ public class SqlGuardTest {
             select %s(foo.id) from foo group by foo.name having foo.name = 'tets'""";
 
     private static final String SQL_WITH_HAVING1_EXPECTED = """
-            SELECT %s(foo."id") FROM "sch"."foo" GROUP BY foo."name" HAVING foo."name" = 'tets'""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name" HAVING "foo"."name" = 'tets'""";
 
     private static final String SQL_WITH_HAVING = """
             select %s(foo.id) from foo group by foo.name having %s(foo.id) > 5""";
 
     private static final String SQL_WITH_HAVING_EXPECTED = """
-            SELECT %s(foo."id") FROM "sch"."foo" GROUP BY foo."name" HAVING %s(foo."id") > 5""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name" HAVING %s("foo"."id") > 5""";
 
     private static final String SQL_WITH_HAVING_WRONG_TABLE = """
             select %s(foo.id) from foo group by foo.name having %s(foo1.id) > 5""";
@@ -104,12 +104,12 @@ public class SqlGuardTest {
             select %s(foo.id)  from foo group by foo.name""";
 
     private static final String SQL_WITH_AGG_EXPECTED = """
-            SELECT %s(foo."id") FROM "sch"."foo" GROUP BY foo."name\"""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name\"""";
 
     private static final String SQL_WITH_GROUP = "select * from foo group by foo.id, foo.name";
 
     private static final String SQL_WITH_GROUP_EXPECTED = """
-            SELECT foo."id", foo."name" FROM "sch"."foo" GROUP BY foo."id", foo."name\"""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo" GROUP BY "foo"."id", "foo"."name\"""";
 
     private static final String TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH = "Table foo1 not found in schema []";
 
@@ -123,42 +123,42 @@ public class SqlGuardTest {
             select *, 5 as testColumn from foo where foo.id  = 10""";
 
     private static final String SQL_WITH_CUSTOM_COLUMN_EXPECTED = """
-            SELECT foo."id", foo."name", 5 AS testColumn FROM "sch"."foo" WHERE foo."id" = 10""";
+            SELECT "foo"."id", "foo"."name", 5 AS testColumn FROM "sch"."foo" WHERE "foo"."id" = 10""";
 
     private static final String SQL_WITH_IN = """
             select * from foo where foo.id in (select fooFact.id from fooFact)""";
 
     private static final String SQL_WITH_IN_EXPECTED = """
-            SELECT foo."id", foo."name" FROM "sch"."foo" WHERE foo."id" IN (SELECT fooFact."id" FROM "fooFact")""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo" WHERE "foo"."id" IN (SELECT "fooFact"."id" FROM "fooFact")""";
 
     private static final String TRIPLE_SELECT_SQL = """
             SELECT * FROM ( SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) a ) b""";
 
     private static final String TRIPLE_SELECT_SQL_EXPECTED = """
-            SELECT b."id", b."name", b."id_1", b."value" FROM (SELECT a."id", a."name", a."id_1", a."value" FROM (SELECT foo."id", foo."name", fooFact."id", fooFact."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON foo."id" = fooFact."id") a) b""";
+            SELECT b."id", b."name", b."id_1", b."value" FROM (SELECT a."id", a."name", a."id_1", a."value" FROM (SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id") a) b""";
 
     private static final String SELECT_INNER_JOIN_C_D = """
             SELECT * FROM ((SELECT * FROM foo) c inner join fooFact on c.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_C_D_EXPECTED = """
-            SELECT d."id", d."name", d."id_1", d."value" FROM ((SELECT foo."id", foo."name" FROM "sch"."foo") c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
+            SELECT d."id", d."name", d."id_1", d."value" FROM ((SELECT "foo"."id", "foo"."name" FROM "sch"."foo") c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
 
     private static final String SELECT_INNER_JOIN_D = """
             SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_D_EXPECTED = """
-            SELECT d."id", d."name", d."id_1", d."value" FROM (SELECT foo."id", foo."name", fooFact."id", fooFact."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON foo."id" = fooFact."id") d""";
+            SELECT d."id", d."name", d."id_1", d."value" FROM (SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id") d""";
 
     private static final String SELECT_INNER_JOIN = """
             select * from foo inner join fooFact on foo.id = fooFact.id""";
 
     private static final String SELECT_INNER_JOIN_EXPECTED = """
-            SELECT foo."id", foo."name", fooFact."id", fooFact."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON foo."id" = fooFact."id\"""";
+            SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id\"""";
 
     private static final String SELECT_FROM_FOO = "select * from foo";
 
     private static final String SELECT_FROM_FOO_RESULT = """
-            SELECT foo."id", foo."name" FROM "sch"."foo\"""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo\"""";
 
     private static final List<String> AGGREGATIONS = List.of("sum", "count", "distinctcount", "avg");
 
