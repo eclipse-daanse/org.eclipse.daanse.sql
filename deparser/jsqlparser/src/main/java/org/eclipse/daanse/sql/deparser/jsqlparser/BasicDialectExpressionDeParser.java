@@ -13,6 +13,10 @@
  */
 package org.eclipse.daanse.sql.deparser.jsqlparser;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Set;
+
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
 import org.eclipse.daanse.jdbc.db.dialect.api.IdentifierQuotingPolicy;
 
@@ -30,6 +34,7 @@ import net.sf.jsqlparser.util.deparser.ExpressionDeParser;
 public class BasicDialectExpressionDeParser extends ExpressionDeParser {
 
     private final Dialect dialect;
+    private final Deque<Set<String>> aliasScopes = new ArrayDeque<>();
 
     public BasicDialectExpressionDeParser(Dialect dialect) {
         super();
@@ -43,26 +48,53 @@ public class BasicDialectExpressionDeParser extends ExpressionDeParser {
         this.dialect = dialect;
     }
 
+    // Alias scope management — populated by BasicDialectSelectDeParser per PlainSelect.
+
+    void pushAliasScope(Set<String> aliases) {
+        aliasScopes.push(aliases);
+    }
+
+    void popAliasScope() {
+        aliasScopes.pop();
+    }
+
+    private boolean isDeclaredAlias(String name) {
+        for (Set<String> scope : aliasScopes) {
+            if (scope.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Identifier Quoting
 
     @Override
     public <S> StringBuilder visit(Column tableColumn, S context) {
         final Table table = tableColumn.getTable();
-        String tableName = null;
 
         if (table != null) {
-            if (table.getAlias() != null) {
-                tableName = table.getAlias().getName();
-            } else {
-                tableName = table.getFullyQualifiedName();
+            String name = table.getName();
+            if (name != null && !name.isEmpty()) {
+                if (isDeclaredAlias(name)) {
+                    // Alias declared in an enclosing FROM scope — emit verbatim so it
+                    // matches the unquoted alias declaration (case-folding compatible).
+                    builder.append(name).append('.');
+                } else {
+                    String catalog = table.getDatabaseName();
+                    String schema = table.getSchemaName();
+                    if (catalog != null && !catalog.isEmpty()) {
+                        dialect.quoteIdentifierWith(catalog, builder, IdentifierQuotingPolicy.ALWAYS);
+                        builder.append('.');
+                    }
+                    if (schema != null && !schema.isEmpty()) {
+                        dialect.quoteIdentifierWith(schema, builder, IdentifierQuotingPolicy.ALWAYS);
+                        builder.append('.');
+                    }
+                    dialect.quoteIdentifierWith(name, builder, IdentifierQuotingPolicy.ALWAYS);
+                    builder.append('.');
+                }
             }
-        }
-
-        // Qualifier (alias or fully-qualified name) is appended verbatim so an alias
-        // declared unquoted in the FROM clause keeps matching its column-reference
-        // qualifier; the column name is always quoted.
-        if (tableName != null && !tableName.isEmpty()) {
-            builder.append(tableName).append('.');
         }
         dialect.quoteIdentifierWith(tableColumn.getColumnName(), builder, IdentifierQuotingPolicy.ALWAYS);
 

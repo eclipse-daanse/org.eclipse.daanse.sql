@@ -116,6 +116,55 @@ class DialectStatementDeParserTest {
     }
 
     /**
+     * Regression: when a column reference is qualified by a real (unaliased) table
+     * name, the qualifier must be quoted just like the column name. Otherwise a
+     * case-folding engine like H2 will fail to resolve mixed-case real names.
+     */
+    @Test
+    void testQualifiedColumnQualifierWithRealTableName_IsQuoted() throws JSQLParserException {
+        Dialect dialect = MockDialectHelper.createAnsiDialect();
+        StringBuilder buffer = new StringBuilder();
+        BasicDialectStatementDeParser deparser = new BasicDialectStatementDeParser(buffer, dialect);
+
+        Statement stmt = CCJSqlParserUtil.parse(
+                "SELECT ProductCategory.EnglishProductCategoryName, sum(Fact.OrderQuantity) "
+                        + "FROM Fact JOIN ProductCategory ON Fact.cat = ProductCategory.cat");
+        stmt.accept(deparser);
+
+        String result = buffer.toString();
+        assertThat(result).contains("\"Fact\".\"OrderQuantity\"");
+        assertThat(result).contains("\"ProductCategory\".\"EnglishProductCategoryName\"");
+        assertThat(result).contains("\"Fact\".\"cat\"");
+        assertThat(result).contains("\"ProductCategory\".\"cat\"");
+        assertThat(result).doesNotContain("Fact.\"");
+        assertThat(result).doesNotContain("ProductCategory.\"");
+    }
+
+    /**
+     * Regression: when one table is aliased and another isn't, the alias qualifier
+     * stays unquoted and the real table-name qualifier gets quoted.
+     */
+    @Test
+    void testMixedAliasAndRealTableQualifiers() throws JSQLParserException {
+        Dialect dialect = MockDialectHelper.createAnsiDialect();
+        StringBuilder buffer = new StringBuilder();
+        BasicDialectStatementDeParser deparser = new BasicDialectStatementDeParser(buffer, dialect);
+
+        Statement stmt = CCJSqlParserUtil.parse(
+                "SELECT f.col1, ProductCategory.col2 "
+                        + "FROM Fact f JOIN ProductCategory ON f.cat = ProductCategory.cat");
+        stmt.accept(deparser);
+
+        String result = buffer.toString();
+        // Alias qualifier verbatim, real table qualifier quoted
+        assertThat(result).contains("f.\"col1\"");
+        assertThat(result).contains("\"ProductCategory\".\"col2\"");
+        assertThat(result).contains("f.\"cat\"");
+        assertThat(result).contains("\"ProductCategory\".\"cat\"");
+        assertThat(result).doesNotContain("\"f\".");
+    }
+
+    /**
      * Regression for the original H2 bug: a column reference's table-qualifier
      * must be emitted verbatim so it matches the unquoted alias declared in the
      * FROM clause. Mixed-case real table/column names are quoted as usual.
