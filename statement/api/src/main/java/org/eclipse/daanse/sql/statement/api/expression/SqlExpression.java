@@ -101,7 +101,8 @@ public sealed interface SqlExpression {
     }
 
     /**
-     * A portable well-known function call, identified by {@link KnownFunction}
+     * A portable well-known function call, identified by
+     * {@link org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction KnownFunction}
      * <em>intent</em> rather than a verbatim function name — the dialect's
      * {@code FunctionGenerator} chooses the spelling at render time (e.g.
      * {@code LENGTH} renders as {@code CHAR_LENGTH(x)} on ANSI but {@code LEN(x)}
