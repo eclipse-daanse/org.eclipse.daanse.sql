@@ -20,7 +20,7 @@ import org.eclipse.daanse.sql.statement.api.result.RowMapper;
 
 /**
  * Executes already-rendered SQL and maps result rows. This is the adaptable
- * seam: the JDBC implementation is {@link JdbcStatementExecutor}, but other
+ * seam: the JDBC implementation is {@code JdbcStatementExecutor}, but other
  * backends (a test double, a remote service, a cached source) can implement the
  * same contract.
  */

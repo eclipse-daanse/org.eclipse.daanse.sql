@@ -22,6 +22,9 @@ package org.eclipse.daanse.sql.statement.api.render;
  *                  statement nodes (a header comment, per-column and per-join
  *                  comments). Defaults to {@code false}; the executed SQL is
  *                  rendered with comments off so it stays byte-identical.
+ * @param commentStyle how comments are spelled when {@code comments} is on:
+ *                  {@code LINE} ({@code -- ...} on its own line) or
+ *                  {@code BLOCK} (inline {@code /* ... *}{@code /}).
  */
 public record RenderOptions(boolean formatted, String indent, boolean comments, CommentStyle commentStyle) {
 
