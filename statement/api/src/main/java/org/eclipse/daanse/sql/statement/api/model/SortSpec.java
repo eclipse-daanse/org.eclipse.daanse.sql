@@ -39,12 +39,12 @@ import java.util.Optional;
  *                         {@code "de_DE"}).
  */
 public record SortSpec(SortDirection direction, boolean nullable, NullOrder nullOrder, boolean prepend,
-        String nullSortValue, org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype nullSortDatatype,
+        String nullSortValue, org.eclipse.daanse.jdbc.db.api.type.Datatype nullSortDatatype,
         Optional<String> collation) {
 
     /** Compatibility constructor without a collation. */
     public SortSpec(SortDirection direction, boolean nullable, NullOrder nullOrder, boolean prepend,
-            String nullSortValue, org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype nullSortDatatype) {
+            String nullSortValue, org.eclipse.daanse.jdbc.db.api.type.Datatype nullSortDatatype) {
         this(direction, nullable, nullOrder, prepend, nullSortValue, nullSortDatatype, Optional.empty());
     }
 
@@ -75,7 +75,7 @@ public record SortSpec(SortDirection direction, boolean nullable, NullOrder null
      * @return a copy ordering nulls as if they held {@code value} (of type
      *         {@code datatype}), via the dialect's order-value generator.
      */
-    public SortSpec withNullSortValue(String value, org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype datatype) {
+    public SortSpec withNullSortValue(String value, org.eclipse.daanse.jdbc.db.api.type.Datatype datatype) {
         return new SortSpec(direction, nullable, nullOrder, prepend, value, datatype, collation);
     }
 

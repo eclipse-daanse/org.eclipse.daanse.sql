@@ -38,9 +38,11 @@ public sealed interface Predicate {
     /**
      * Row-value / tuple {@code IN}:
      * {@code (c1, c2, ...) IN ((v11, v12, ...), (v21, v22, ...), ...)}. Each row in
-     * {@code rows} must have the same arity as {@code columns}. Gate construction
-     * at the call site on {@code dialect.supportsMultiValueInExpr()}; dialects
-     * without it need an OR-of-ANDs expansion instead.
+     * {@code rows} must have the same arity as {@code columns}. Build tuples
+     * child-first (most specific column first, e.g. {@code (quarter, the_year)}).
+     * On a dialect without {@code supportsMultiValueInExpr()} the renderer degrades
+     * this to an OR-of-ANDs expansion whose pairs read parent-first (reverse tuple
+     * order).
      */
     record InTuple(List<SqlExpression> columns, List<List<SqlExpression>> rows) implements Predicate {
     }

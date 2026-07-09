@@ -19,12 +19,15 @@
     <artifactId>org.eclipse.daanse.sql.statement</artifactId>
     <version>${revision}</version>
   </parent>
-  <artifactId>org.eclipse.daanse.sql.statement.impl</artifactId>
-  <name>Daanse SQL Statement Implementation</name>
-  <description>Dialect-/JDBC-bound implementations: the DialectSqlRenderer
-    (model -> SQL via
-    the JDBC dialect API) and the JDBC StatementExecutor (run RenderedSql, map
-    rows).</description>
+  <artifactId>org.eclipse.daanse.sql.statement.demo</artifactId>
+  <name>Daanse SQL Query Builder Demo</name>
+  <description>Runnable demonstration of the SQL query builder: assembles
+    queries with the
+    dialect-free API and renders them with the ANSI dialect. Shows, in comments,
+    how a
+    future adapter (e.g. ROLAP or ORM) would translate its own model into the
+    builder
+    primitives. Not a production module.</description>
 
   <dependencies>
     <dependency>
@@ -34,12 +37,22 @@
     </dependency>
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
-      <artifactId>org.eclipse.daanse.jdbc.db.dialect.api</artifactId>
-      <version>0.0.1-SNAPSHOT</version>
+      <artifactId>org.eclipse.daanse.sql.statement.impl</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.2.224</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
       <artifactId>org.eclipse.daanse.jdbc.db.dialect.db.common</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.jdbc.db.dialect.db.mssqlserver</artifactId>
       <version>0.0.1-SNAPSHOT</version>
       <scope>test</scope>
     </dependency>

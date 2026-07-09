@@ -16,9 +16,9 @@ package org.eclipse.daanse.sql.statement.api.expression;
 import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.generator.BitOperation;
-import org.eclipse.daanse.jdbc.db.dialect.api.sql.OrderedColumn;
-import org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype;
+import org.eclipse.daanse.jdbc.db.api.sql.BitOperation;
+import org.eclipse.daanse.jdbc.db.api.sql.OrderedColumn;
+import org.eclipse.daanse.jdbc.db.api.type.Datatype;
 import org.eclipse.daanse.sql.statement.api.model.SelectStatement;
 
 /**

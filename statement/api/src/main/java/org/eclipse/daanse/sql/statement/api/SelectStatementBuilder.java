@@ -19,7 +19,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.generator.StatementHint;
-import org.eclipse.daanse.jdbc.db.dialect.api.type.BestFitColumnType;
+import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
 import org.eclipse.daanse.sql.statement.api.model.ColumnAlias;
@@ -60,6 +60,8 @@ public final class SelectStatementBuilder {
     private final List<GroupBy.GroupKey> groupKeys = new ArrayList<>();
     private final List<GroupBy.GroupingSet> groupingSets = new ArrayList<>();
     private final List<GroupBy.GroupingFunction> groupingFunctions = new ArrayList<>();
+    private boolean completeNonAggregatesGroupBy;
+    private final java.util.Set<Integer> groupByCompletionExempt = new java.util.HashSet<>();
     private final List<Predicate> having = new ArrayList<>();
     private final List<OrderKey> orderKeys = new ArrayList<>();
     private RowLimit rowLimit;
@@ -149,6 +151,31 @@ public final class SelectStatementBuilder {
 
     public SelectStatementBuilder groupOn(SqlExpression expression) {
         groupKeys.add(new GroupBy.GroupKey.Expr(expression));
+        return this;
+    }
+
+    /**
+     * Marks the group by as needing per-dialect completion: on dialects that do not allow
+     * non-aggregate select columns outside {@code GROUP BY}, the renderer appends every
+     * non-aggregate projection not already a key. Set this when the query genuinely groups
+     * (i.e. a member-enumeration read that placed keys/ordinals as group keys); leave it off
+     * for a query whose GROUP BY is incidental (e.g. a single non-level-dependent property on a
+     * non-grouping read), so the renderer does not over-group.
+     */
+    public SelectStatementBuilder completeNonAggregatesGroupBy() {
+        this.completeNonAggregatesGroupBy = true;
+        return this;
+    }
+
+    /**
+     * Exempts one projection from the dialect GROUP-BY completion (see
+     * {@link #completeNonAggregatesGroupBy()}). Use for a projection that is semantically an
+     * aggregate the renderer cannot recognise structurally — an arithmetic expression WRAPPING
+     * aggregates (e.g. a native TopCount/Order measure {@code (sum(a)-sum(b))/sum(b)}) — which
+     * must not be added to GROUP BY on restrictive dialects. No effect on permissive dialects.
+     */
+    public SelectStatementBuilder excludeFromGroupByCompletion(ProjectionRef ref) {
+        groupByCompletionExempt.add(ref.ordinal());
         return this;
     }
 
@@ -267,8 +294,18 @@ public final class SelectStatementBuilder {
     /** Produces the immutable {@link SelectStatement}. */
     public SelectStatement build() {
         GroupBy groupBy = new GroupBy(List.copyOf(groupKeys), List.copyOf(groupingSets),
-                List.copyOf(groupingFunctions));
-        return new SelectStatement(distinct, List.copyOf(projections), Optional.ofNullable(from), List.copyOf(filters),
+                List.copyOf(groupingFunctions), completeNonAggregatesGroupBy);
+        List<Projection> finalProjections = projections;
+        if (!groupByCompletionExempt.isEmpty()) {
+            finalProjections = new java.util.ArrayList<>(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                Projection p = projections.get(i);
+                finalProjections.add(groupByCompletionExempt.contains(i)
+                        ? new Projection(p.expression(), p.columnType(), p.alias(), p.comment(), true)
+                        : p);
+            }
+        }
+        return new SelectStatement(distinct, List.copyOf(finalProjections), Optional.ofNullable(from), List.copyOf(filters),
                 groupBy, List.copyOf(having), List.copyOf(orderKeys), Optional.ofNullable(rowLimit),
                 Optional.ofNullable(headerComment), new java.util.IdentityHashMap<>(filterComments),
                 Optional.ofNullable(footerComment), List.copyOf(statementHints));

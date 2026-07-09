@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction;
-import org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype;
+import org.eclipse.daanse.jdbc.db.api.type.Datatype;
 import org.eclipse.daanse.sql.statement.api.expression.ArithmeticOperator;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;

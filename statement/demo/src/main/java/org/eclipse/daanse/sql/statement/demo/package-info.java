@@ -12,10 +12,6 @@
  *   Stefan Bischof (bipolis.org) - initial
  */
 
-/**
- * Comparison of statements and SQL texts up to defined equivalences — the
- * promotion/verification gate consumers build on.
- */
 @org.osgi.annotation.bundle.Export
 @org.osgi.annotation.versioning.Version("0.0.1")
-package org.eclipse.daanse.sql.statement.compare;
+package org.eclipse.daanse.sql.statement.demo;
