@@ -13,7 +13,7 @@
  */
 package org.eclipse.daanse.sql.statement.api.render;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.type.Datatype;
+import org.eclipse.daanse.jdbc.db.api.type.Datatype;
 
 /**
  * One bind parameter of a rendered statement, in placeholder order.

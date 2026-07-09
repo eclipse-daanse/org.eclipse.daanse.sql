@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 import org.eclipse.daanse.jdbc.db.api.schema.SchemaReference;
 import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
 import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.jdbc.db.dialect.api.type.BestFitColumnType;
+import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
 import org.eclipse.daanse.sql.statement.api.expression.ComparisonOperator;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
@@ -35,6 +35,7 @@ import org.eclipse.daanse.sql.statement.api.model.InsertStatement;
 import org.eclipse.daanse.sql.statement.api.model.JoinKind;
 import org.eclipse.daanse.sql.statement.api.model.OrderKey;
 import org.eclipse.daanse.sql.statement.api.model.Projection;
+import org.eclipse.daanse.sql.statement.api.model.ProjectionRef;
 import org.eclipse.daanse.sql.statement.api.model.SelectStatement;
 import org.eclipse.daanse.sql.statement.api.model.SetOperation;
 import org.eclipse.daanse.sql.statement.api.model.SortSpec;
@@ -189,7 +190,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
                 .map(a -> dialect.quoteIdentifier(a.column()) + " = " + renderExpression(a.value()))
                 .collect(Collectors.joining(", ")));
         if (!upd.filters().isEmpty()) {
-            sb.append(" where ").append(renderPredicateList(upd.filters(), " and "));
+            sb.append(" where ").append(renderPredicateList(upd.filters(), " and ", true));
         }
         return RenderedSql.of(sb.toString(), List.of());
     }
@@ -198,7 +199,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
         StringBuilder sb = new StringBuilder("delete from ");
         appendQualifiedTable(sb, del.table());
         if (!del.filters().isEmpty()) {
-            sb.append(" where ").append(renderPredicateList(del.filters(), " and "));
+            sb.append(" where ").append(renderPredicateList(del.filters(), " and ", true));
         }
         return RenderedSql.of(sb.toString(), List.of());
     }
@@ -272,7 +273,129 @@ public final class DialectSqlRenderer implements SqlRenderer {
         return (blockComments(o) && c.isPresent()) ? " /* " + safeBlockComment(c.get()) + " */" : "";
     }
 
+    /**
+     * The dialect-free count-distinct SUBQUERY rewrite — the render-time relocation of the core
+     * {@code AbstractQuerySpec.distinctGenerateSql}. A flat aggregate carrying one or more
+     * {@code count(distinct col)} projections the live dialect cannot execute inline
+     * ({@code !allowsCountDistinct}; or {@code !allowsMultipleCountDistinct} for two or more distinct
+     * measures) is rewritten into the nested form
+     *
+     * <pre>
+     *   select "d0".., &lt;agg&gt;("m0").. from (
+     *       select [distinct] &lt;dimExpr&gt; as "d0".., &lt;measArg&gt; as "m0"..
+     *       from &lt;from&gt; where &lt;where&gt;
+     *       [group by every projection, when !allowsInnerDistinct]) as "dummyname"
+     *   group by "d0"..
+     * </pre>
+     *
+     * The builder ALWAYS emits the canonical flat {@code count(distinct col)}; only a restrictive
+     * dialect triggers this pass, so on every permissive dialect (the whole test corpus) this returns
+     * {@code null} and the output is byte-identical to a no-op. Each measure re-aggregates with the SAME
+     * function name minus {@code DISTINCT} ({@code count(distinct x) -> count("m0")}), which equals the
+     * legacy {@code aggregator.getNonDistinctAggregator()} because a distinct aggregator shares its SQL
+     * function name with its non-distinct sibling.
+     * <p>
+     * Returns {@code null} (render the statement as-is) when no rewrite is needed, or when the statement
+     * is not the flat aggregate shape this pass reproduces — grouping sets / grouping functions, an
+     * ORDER BY / HAVING / row limit, an already-DISTINCT select, an {@link SqlExpression.ExtraAggregate}
+     * measure, or a {@code count(*)} / multi-argument distinct measure. Core keeps those shapes on the
+     * recorder path, whose output already IS the nested form (it never presents a distinct aggregate
+     * projection here), so the two paths never collide.
+     */
+    private SelectStatement rewriteDistinctCountToSubquery(SelectStatement s) {
+        int k = 0;
+        for (Projection p : s.projections()) {
+            if (p.expression() instanceof SqlExpression.Aggregate a && a.distinct()) {
+                k++;
+            }
+        }
+        boolean needsRewrite = (k >= 1 && !dialect.allowsCountDistinct())
+                || (k >= 2 && !dialect.allowsMultipleCountDistinct());
+        if (!needsRewrite) {
+            return null;
+        }
+        // Only the flat aggregate shape is reproducible; anything richer stays flat (core routes those
+        // shapes to the recorder, which produces the nested form directly).
+        if (s.from().isEmpty() || s.distinct() || !s.groupBy().groupingSets().isEmpty()
+                || !s.groupBy().groupingFunctions().isEmpty() || !s.orderKeys().isEmpty()
+                || !s.having().isEmpty() || s.rowLimit().isPresent()) {
+            return null;
+        }
+        // Partition the flat projections: an aggregate projection is a measure (unwrapped to its sole
+        // argument inside the subquery); every other projection is a group-by dimension.
+        List<Projection> dims = new ArrayList<>();
+        List<SqlExpression.Aggregate> measures = new ArrayList<>();
+        List<Projection> measureProjs = new ArrayList<>();
+        for (Projection p : s.projections()) {
+            if (p.expression() instanceof SqlExpression.Aggregate a) {
+                if (a.arguments().size() != 1 || a.arguments().get(0) instanceof SqlExpression.Star) {
+                    return null; // count(*) / multi-argument aggregate — not reproducible; leave flat
+                }
+                measures.add(a);
+                measureProjs.add(p);
+            } else if (isAggregateProjection(p.expression())) {
+                return null; // ExtraAggregate — not reproducible; leave flat
+            } else {
+                dims.add(p);
+            }
+        }
+
+        boolean innerDistinct = dialect.allowsInnerDistinct();
+
+        // Inner subquery: dimension expressions aliased d{j}, then each measure's argument aliased m{i};
+        // DISTINCT when the dialect allows inner DISTINCT, else grouped by every projection (Greenplum).
+        List<Projection> innerProjections = new ArrayList<>();
+        for (int j = 0; j < dims.size(); j++) {
+            innerProjections.add(new Projection(dims.get(j).expression(), null,
+                    java.util.Optional.of(new org.eclipse.daanse.sql.statement.api.model.ColumnAlias("d" + j)),
+                    java.util.Optional.empty()));
+        }
+        for (int i = 0; i < measures.size(); i++) {
+            innerProjections.add(new Projection(measures.get(i).arguments().get(0), measureProjs.get(i).columnType(),
+                    java.util.Optional.of(new org.eclipse.daanse.sql.statement.api.model.ColumnAlias("m" + i)),
+                    java.util.Optional.empty()));
+        }
+        List<GroupBy.GroupKey> innerKeys = new ArrayList<>();
+        if (!innerDistinct) {
+            for (int idx = 0; idx < innerProjections.size(); idx++) {
+                innerKeys.add(new GroupBy.GroupKey.Ref(new ProjectionRef(idx, java.util.Optional.empty())));
+            }
+        }
+        SelectStatement inner = new SelectStatement(innerDistinct, innerProjections, s.from(), s.filters(),
+                new GroupBy(innerKeys, List.of(), List.of()), List.of(), List.of(), java.util.Optional.empty(),
+                java.util.Optional.empty(), s.filterComments());
+
+        // Outer wrapper: reference the subquery aliases (bare "d0" / "m0"), re-aggregate each measure with
+        // the SAME function WITHOUT distinct, group by the d{j} refs; FROM the "dummyname" derived table.
+        FromClause dummy = new FromClause.FromSubquery(inner,
+                new org.eclipse.daanse.sql.statement.api.model.TableAlias("dummyname"));
+        List<Projection> outerProjections = new ArrayList<>();
+        List<GroupBy.GroupKey> outerKeys = new ArrayList<>();
+        for (int j = 0; j < dims.size(); j++) {
+            outerProjections.add(new Projection(new SqlExpression.Column(java.util.Optional.empty(), "d" + j), null,
+                    java.util.Optional.empty(), java.util.Optional.empty()));
+            outerKeys.add(new GroupBy.GroupKey.Ref(new ProjectionRef(j, java.util.Optional.empty())));
+        }
+        for (int i = 0; i < measures.size(); i++) {
+            SqlExpression outerAgg = new SqlExpression.Aggregate(measures.get(i).name(), false,
+                    List.of(new SqlExpression.Column(java.util.Optional.empty(), "m" + i)));
+            outerProjections.add(new Projection(outerAgg, measureProjs.get(i).columnType(),
+                    java.util.Optional.empty(), java.util.Optional.empty()));
+        }
+        return new SelectStatement(false, outerProjections, java.util.Optional.of(dummy), List.of(),
+                new GroupBy(outerKeys, List.of(), List.of()), List.of(), List.of(), java.util.Optional.empty(),
+                s.headerComment(), java.util.Map.of(), s.footerComment(), s.statementHints());
+    }
+
     private RenderedSql renderSelect(SelectStatement s, RenderOptions options) {
+        // Count-distinct SUBQUERY rewrite (P2b): a flat count(distinct col) the live dialect cannot
+        // execute inline is degraded into the nested dummyname form here, once, before the normal
+        // render. Returns null (no rewrite) on every permissive dialect, so corpus output is unchanged;
+        // the rewritten statement carries no distinct aggregate, so the recursive render never re-triggers.
+        SelectStatement distinctRewrite = rewriteDistinctCountToSubquery(s);
+        if (distinctRewrite != null) {
+            return renderSelect(distinctRewrite, options);
+        }
         final String itemSep = fmtKw(", ", options);
         StringBuilder sb = new StringBuilder();
         List<BestFitColumnType> types = new ArrayList<>();
@@ -553,6 +676,32 @@ public final class DialectSqlRenderer implements SqlRenderer {
                 keyed.putIfAbsent(renderExpression(e), java.util.Optional.empty());
             }
         }
+        // Dialect completion: an engine that does not allow non-aggregate select columns outside
+        // GROUP BY needs EVERY non-aggregate projection grouped. The builder emits the canonical
+        // (permissive) form — only the keys it placed — and the completion rebuilds the group by in
+        // PROJECTION order here (every non-aggregate projection, then any non-projection keys the
+        // builder added). Projection order is exactly the order a restrictive-dialect builder used
+        // to place its keys, so this renders byte-identically to the pre-relocation SQL. On
+        // permissive dialects this branch is skipped, so the canonical form stands unchanged.
+        if (gb.completeNonAggregates() && !dialect.allowsSelectNotInGroupBy()) {
+            java.util.LinkedHashMap<String, java.util.Optional<String>> full = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < projections.size(); i++) {
+                Projection p = projections.get(i);
+                // Skip true aggregates AND projections the builder explicitly exempted (an arithmetic
+                // expression wrapping aggregates the structural check below cannot see — e.g. a native
+                // TopCount/Order measure), which must never become a GROUP-BY key.
+                if (isAggregateProjection(p.expression()) || p.groupByCompletionExempt()) {
+                    continue;
+                }
+                GroupBy.GroupKey.Ref ref =
+                        new GroupBy.GroupKey.Ref(new ProjectionRef(i, java.util.Optional.empty()));
+                full.putIfAbsent(renderGroupKey(ref, projections), p.comment());
+            }
+            // Preserve any explicit keys that are not plain projections (standalone expressions,
+            // grouping-set keys), appended after the projection-order columns.
+            keyed.forEach(full::putIfAbsent);
+            keyed = full;
+        }
         if (!keyed.isEmpty()) {
             sb.append(fmtKw(" group by ", options));
             String sep = fmtKw(", ", options);
@@ -567,6 +716,11 @@ public final class DialectSqlRenderer implements SqlRenderer {
                 sb.append(blockCommentAfter(entry.getValue(), options));
             }
         }
+    }
+
+    /** An aggregate/window projection — excluded from GROUP-BY completion (only non-aggregates group). */
+    private static boolean isAggregateProjection(SqlExpression e) {
+        return e instanceof SqlExpression.Aggregate || e instanceof SqlExpression.ExtraAggregate;
     }
 
     private java.util.Optional<String> groupKeyComment(GroupBy.GroupKey key, List<Projection> projections) {
@@ -616,6 +770,19 @@ public final class DialectSqlRenderer implements SqlRenderer {
         }
         boolean ascending = spec.direction() == SortDirection.ASC;
         boolean collateNullsLast = spec.nullOrder() != NullOrder.FIRST;
+        if (key.expression() instanceof SqlExpression.Ordinal) {
+            // Ordinal ORDER keys (set-operation wrappers order by 1, 2, ...) never carry a null
+            // collation. A dialect that emulates it wraps the key in CASE WHEN <expr> IS NULL, which
+            // on an ordinal tests the literal rather than the column it designates - a constant
+            // leading sort key, rejected in a UNION by the very requiresUnionOrderByOrdinal()
+            // dialects that force ordinals. Dialect.supportsNullsLast() cannot gate this: it defaults
+            // to true while OrderByGenerator.generateOrderByNulls() defaults to the CASE emulation,
+            // so the renderer cannot tell native spelling from emulation. Producers wanting a null
+            // collation must order on the expression, not on its ordinal; SortSpec.nullable is
+            // ignored here. Degrading HERE keeps producers capability-free (rolap doc 21).
+            return dialect.orderByGenerator().generateOrderItem(exprSql, false, ascending, collateNullsLast)
+                    .toString();
+        }
         if (spec.nullSortValue() != null) {
             // Order nulls as if they held nullSortValue (e.g. a parent-child hierarchy nullParentValue).
             return dialect.orderByGenerator().generateOrderItemForOrderValue(
@@ -737,8 +904,26 @@ public final class DialectSqlRenderer implements SqlRenderer {
                 "dialect '" + dialect.name() + "' does not support extra aggregate: " + spec));
     }
 
-    private String renderPredicateList(List<Predicate> predicates, String separator) {
-        return predicates.stream().map(this::renderPredicate).collect(Collectors.joining(separator));
+    private String renderPredicateList(List<Predicate> predicates, String separator, boolean andJoined) {
+        boolean guard = andJoined && predicates.size() > 1;
+        return predicates.stream()
+                .map(p -> guard ? renderAndConjunct(p) : renderPredicate(p))
+                .collect(Collectors.joining(separator));
+    }
+
+    /**
+     * One member of an AND list that has siblings: identical to {@link #renderPredicate} except that an
+     * InTuple degraded to a bare OR chain (see there) gets its grouping parenthesis here — without it the
+     * chain's OR would capture the sibling conjuncts. Byte-neutral for every other predicate (they are
+     * self-delimiting) and never used for a sole conjunct, whose bare chain is wrapped by the enclosing
+     * connective instead.
+     */
+    private String renderAndConjunct(Predicate p) {
+        String sql = renderPredicate(p);
+        if (p instanceof Predicate.InTuple && !dialect.supportsMultiValueInExpr()) {
+            return "(" + sql + ")";
+        }
+        return sql;
     }
 
     /**
@@ -748,7 +933,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
      */
     private String renderWhere(List<Predicate> preds, RenderOptions options, java.util.Map<Predicate, String> comments) {
         if (!options.comments() || comments.isEmpty()) {
-            return renderPredicateList(preds, fmtKw(" and ", options));
+            return renderPredicateList(preds, fmtKw(" and ", options), true);
         }
         String sep = fmtKw(" and ", options);
         StringBuilder b = new StringBuilder();
@@ -760,7 +945,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
             first = false;
             java.util.Optional<String> c = java.util.Optional.ofNullable(comments.get(p));
             b.append(lineCommentBefore(c, options, options.indent()));
-            b.append(renderPredicate(p));
+            b.append(preds.size() > 1 ? renderAndConjunct(p) : renderPredicate(p));
             b.append(blockCommentAfter(c, options));
         }
         return b.toString();
@@ -781,15 +966,20 @@ public final class DialectSqlRenderer implements SqlRenderer {
         if (p instanceof Predicate.InTuple it) {
             if (!dialect.supportsMultiValueInExpr()) {
                 // The dialect cannot evaluate a multi-column row-value IN (e.g. H2 mis-unifies the row
-                // types). Degrade to the equivalent OR-of-ANDs — the same shape the legacy
-                // AndPredicate.checkInList fallback produced when it cleared the IN-list bit key:
-                // ((c1 = v11 and c2 = v12) or (c1 = v21 and c2 = v22) or ...).
+                // types). Degrade to the equivalent OR-of-ANDs. Two shape rules:
+                //  * Column/value pairs render in REVERSE tuple order. Tuples are built child-first
+                //    (leaf level first, e.g. (quarter, the_year)); the expansion reads parent-first:
+                //    (the_year = 1997 and quarter = 'Q1') or (the_year = 1998 and quarter = 'Q2').
+                //  * Exactly one parenthesis per AND group, and NO outer parenthesis of its own: the
+                //    enclosing connective (an InTuple in a WHERE always arrives inside an And/Or, which
+                //    parenthesizes) supplies the single grouping layer around the OR chain. And-join
+                //    sites with sibling conjuncts add a guard parenthesis instead (renderPredicateList).
                 List<String> colSql = it.columns().stream().map(this::renderExpression).toList();
-                String ors = it.rows().stream()
+                return it.rows().stream()
                         .map(row -> {
                             StringBuilder b = new StringBuilder("(");
-                            for (int i = 0; i < colSql.size(); i++) {
-                                if (i > 0) {
+                            for (int i = colSql.size() - 1; i >= 0; i--) {
+                                if (i < colSql.size() - 1) {
                                     b.append(" and ");
                                 }
                                 b.append(colSql.get(i)).append(" = ").append(renderExpression(row.get(i)));
@@ -797,7 +987,6 @@ public final class DialectSqlRenderer implements SqlRenderer {
                             return b.append(")").toString();
                         })
                         .collect(Collectors.joining(" or "));
-                return "(" + ors + ")";
             }
             String cols = it.columns().stream().map(this::renderExpression).collect(Collectors.joining(", "));
             String rows = it.rows().stream()
@@ -833,7 +1022,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
             if (conn.operands().isEmpty()) {
                 return constantPredicate(and);
             }
-            return "(" + renderPredicateList(conn.operands(), and ? " and " : " or ") + ")";
+            return "(" + renderPredicateList(conn.operands(), and ? " and " : " or ", and) + ")";
         }
         if (p instanceof Predicate.Raw r) {
             return r.sql();

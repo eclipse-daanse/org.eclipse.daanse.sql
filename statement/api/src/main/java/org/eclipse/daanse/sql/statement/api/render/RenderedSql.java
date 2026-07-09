@@ -15,7 +15,7 @@ package org.eclipse.daanse.sql.statement.api.render;
 
 import java.util.List;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.type.BestFitColumnType;
+import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
 
 /**
  * The result of rendering a statement: the SQL text, the column types to read

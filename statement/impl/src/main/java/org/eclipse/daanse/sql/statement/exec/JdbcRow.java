@@ -17,7 +17,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.type.BestFitColumnType;
+import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
 import org.eclipse.daanse.sql.statement.api.exec.StatementExecutionException;
 import org.eclipse.daanse.sql.statement.api.result.Row;
 

@@ -53,8 +53,9 @@ public final class Predicates {
     /**
      * Row-value / tuple {@code IN}:
      * {@code (c1, c2, ...) IN ((v11, ...), (v21, ...), ...)}. Every row must match
-     * {@code columns} in arity. Gate at the call site on
-     * {@code dialect.supportsMultiValueInExpr()}.
+     * {@code columns} in arity. Build tuples child-first (most specific column
+     * first); dialects without multi-value IN render the parent-first OR-of-ANDs
+     * expansion instead (see {@code Predicate.InTuple}).
      */
     public static Predicate inTuple(List<SqlExpression> columns, List<List<SqlExpression>> rows) {
         List<List<SqlExpression>> copy = new java.util.ArrayList<>(rows.size());

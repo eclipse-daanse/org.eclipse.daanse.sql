@@ -27,8 +27,20 @@ import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
  *                          supports them)
  * @param groupingFunctions {@code GROUPING(expr)} columns added to the select
  *                          list
+ * @param completeNonAggregates when {@code true}, dialects that do NOT allow non-aggregate
+ *                          select columns outside {@code GROUP BY}
+ *                          ({@code !allowsSelectNotInGroupBy()}) have every non-aggregate
+ *                          projection not already a key appended to the group by at render time.
+ *                          The canonical (permissive-dialect) form groups only the keys the
+ *                          builder placed; the renderer completes it per dialect.
  */
-public record GroupBy(List<GroupKey> keys, List<GroupingSet> groupingSets, List<GroupingFunction> groupingFunctions) {
+public record GroupBy(List<GroupKey> keys, List<GroupingSet> groupingSets, List<GroupingFunction> groupingFunctions,
+        boolean completeNonAggregates) {
+
+    /** Backward-compatible: no dialect-completed grouping. */
+    public GroupBy(List<GroupKey> keys, List<GroupingSet> groupingSets, List<GroupingFunction> groupingFunctions) {
+        this(keys, groupingSets, groupingFunctions, false);
+    }
 
     /** True if there is nothing to group by. */
     public boolean isEmpty() {
