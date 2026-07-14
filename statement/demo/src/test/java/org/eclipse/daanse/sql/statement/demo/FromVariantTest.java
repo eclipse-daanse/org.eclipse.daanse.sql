@@ -17,10 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.Map;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
-import org.eclipse.daanse.jdbc.db.dialect.db.common.AnsiDialect;
-import org.eclipse.daanse.jdbc.db.dialect.db.mysql.MySqlDialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
+import org.eclipse.daanse.sql.dialect.db.common.AnsiDialect;
+import org.eclipse.daanse.sql.dialect.db.mysql.MySqlDialect;
 import org.eclipse.daanse.sql.statement.api.Expressions;
 import org.eclipse.daanse.sql.statement.api.From;
 import org.eclipse.daanse.sql.statement.api.SelectStatementBuilder;

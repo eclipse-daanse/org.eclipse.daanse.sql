@@ -16,9 +16,9 @@ package org.eclipse.daanse.sql.statement.api.expression;
 import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.sql.BitOperation;
-import org.eclipse.daanse.jdbc.db.api.sql.OrderedColumn;
-import org.eclipse.daanse.jdbc.db.api.type.Datatype;
+import org.eclipse.daanse.sql.model.sql.BitOperation;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.model.type.Datatype;
 import org.eclipse.daanse.sql.statement.api.model.SelectStatement;
 
 /**
@@ -102,7 +102,7 @@ public sealed interface SqlExpression {
 
     /**
      * A portable well-known function call, identified by
-     * {@link org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction KnownFunction}
+     * {@link org.eclipse.daanse.sql.dialect.api.generator.KnownFunction KnownFunction}
      * <em>intent</em> rather than a verbatim function name — the dialect's
      * {@code FunctionGenerator} chooses the spelling at render time (e.g.
      * {@code LENGTH} renders as {@code CHAR_LENGTH(x)} on ANSI but {@code LEN(x)}
@@ -117,7 +117,7 @@ public sealed interface SqlExpression {
      *                  renderer's dialect generator; the {@code Expressions}
      *                  factories validate it eagerly)
      */
-    record KnownCall(org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction function,
+    record KnownCall(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
             List<SqlExpression> arguments) implements SqlExpression {
         public KnownCall {
             arguments = List.copyOf(arguments);

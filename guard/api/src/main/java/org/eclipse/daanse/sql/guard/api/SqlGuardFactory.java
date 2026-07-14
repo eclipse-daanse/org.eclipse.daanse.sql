@@ -15,7 +15,7 @@ package org.eclipse.daanse.sql.guard.api;
 
 import java.util.List;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 
 public interface SqlGuardFactory {

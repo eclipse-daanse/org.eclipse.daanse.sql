@@ -16,13 +16,13 @@ package org.eclipse.daanse.sql.statement.api.model;
 import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 
 /**
  * A {@code DELETE FROM table [WHERE ...]} statement.
  *
- * @param table         the target table (shared jdbc.db identifier)
+ * @param table         the target table (shared sql.model identifier)
  * @param filters       {@code WHERE} predicates, combined with {@code AND}
  *                      (empty = delete all)
  * @param footerComment an optional trailing explanatory comment, appended on

@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<!--
+/*********************************************************************
+* Copyright (c) 2026 Contributors to the Eclipse Foundation.
+*
+* This program and the accompanying materials are made
+* available under the terms of the Eclipse Public License 2.0
+* which is available at https://www.eclipse.org/legal/epl-2.0/
+*
+* SPDX-License-Identifier: EPL-2.0
+**********************************************************************/
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.eclipse.daanse</groupId>
+    <artifactId>org.eclipse.daanse.pom.parent</artifactId>
+    <version>0.0.7</version>
+    <relativePath/>
+  </parent>
+  <artifactId>org.eclipse.daanse.sql.jdbc</artifactId>
+  <version>${revision}</version>
+  <packaging>pom</packaging>
+  <name>Eclipse Daanse SQL JDBC</name>
+
+  <properties>
+    <revision>0.0.1-SNAPSHOT</revision>
+    <slf4j.version>2.0.9</slf4j.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>compile</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <repositories>
+    <repository>
+      <id>ossrh</id>
+      <name>Sonatype Nexus Snapshots</name>
+      <url>https://central.sonatype.com/repository/maven-snapshots</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+  <description>JDBC binding for the Daanse SQL stack. Reads live database
+    metadata through java.sql.DatabaseMetaData into the org.eclipse.daanse.sql.model
+    vocabulary, provides per-vendor metadata providers, record implementations of the
+    schema types, and a CSV import utility.</description>
+  <modules>
+    <module>api</module>
+    <module>record</module>
+    <module>metadata</module>
+    <module>impl</module>
+    <module>importer</module>
+  </modules>
+</project>

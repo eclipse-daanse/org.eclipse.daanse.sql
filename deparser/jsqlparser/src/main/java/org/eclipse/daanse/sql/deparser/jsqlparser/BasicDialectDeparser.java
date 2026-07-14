@@ -13,7 +13,7 @@
  */
 package org.eclipse.daanse.sql.deparser.jsqlparser;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
 import org.eclipse.daanse.sql.deparser.api.DialectDeparser;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.ServiceScope;

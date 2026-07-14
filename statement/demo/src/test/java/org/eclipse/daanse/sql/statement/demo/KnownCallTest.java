@@ -18,10 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction;
-import org.eclipse.daanse.jdbc.db.dialect.db.common.AnsiDialect;
-import org.eclipse.daanse.jdbc.db.dialect.db.mssqlserver.MicrosoftSqlServerDialect;
-import org.eclipse.daanse.jdbc.db.dialect.db.mysql.MySqlDialect;
+import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
+import org.eclipse.daanse.sql.dialect.db.common.AnsiDialect;
+import org.eclipse.daanse.sql.dialect.db.mssqlserver.MicrosoftSqlServerDialect;
+import org.eclipse.daanse.sql.dialect.db.mysql.MySqlDialect;
 import org.eclipse.daanse.sql.statement.api.Expressions;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
 import org.eclipse.daanse.sql.statement.render.DialectSqlRenderer;

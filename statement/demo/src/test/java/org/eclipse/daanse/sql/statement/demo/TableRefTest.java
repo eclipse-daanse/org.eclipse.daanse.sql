@@ -17,12 +17,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.ColumnReference;
-import org.eclipse.daanse.jdbc.db.api.schema.SchemaReference;
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
-import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
-import org.eclipse.daanse.jdbc.db.api.type.Datatype;
-import org.eclipse.daanse.jdbc.db.dialect.db.common.AnsiDialect;
+import org.eclipse.daanse.sql.model.schema.ColumnReference;
+import org.eclipse.daanse.sql.model.schema.SchemaReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
+import org.eclipse.daanse.sql.model.type.Datatype;
+import org.eclipse.daanse.sql.dialect.db.common.AnsiDialect;
 import org.eclipse.daanse.sql.statement.api.DeleteStatementBuilder;
 import org.eclipse.daanse.sql.statement.api.Expressions;
 import org.eclipse.daanse.sql.statement.api.From;
@@ -32,7 +32,7 @@ import org.eclipse.daanse.sql.statement.api.model.TableAlias;
 import org.eclipse.daanse.sql.statement.render.DialectSqlRenderer;
 import org.junit.jupiter.api.Test;
 
-/** Uses the shared jdbc.db identifier types ({@code TableReference}/{@code ColumnReference}). */
+/** Uses the shared sql.model identifier types ({@code TableReference}/{@code ColumnReference}). */
 class TableRefTest {
 
     private final DialectSqlRenderer renderer = new DialectSqlRenderer(new AnsiDialect());

@@ -16,8 +16,8 @@ package org.eclipse.daanse.sql.statement.api;
 import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.generator.KnownFunction;
-import org.eclipse.daanse.jdbc.db.api.type.Datatype;
+import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
+import org.eclipse.daanse.sql.model.type.Datatype;
 import org.eclipse.daanse.sql.statement.api.expression.ArithmeticOperator;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
@@ -44,21 +44,21 @@ public final class Expressions {
     }
 
     /**
-     * A column from a jdbc.db
-     * {@link org.eclipse.daanse.jdbc.db.api.schema.ColumnReference}, qualified by
+     * A column from a sql.model
+     * {@link org.eclipse.daanse.sql.model.schema.ColumnReference}, qualified by
      * the given query alias. Only the column's {@code name()} is used; the
      * reference's own table is metadata and is <em>not</em> the in-query qualifier.
      */
-    public static SqlExpression column(TableAlias table, org.eclipse.daanse.jdbc.db.api.schema.ColumnReference column) {
+    public static SqlExpression column(TableAlias table, org.eclipse.daanse.sql.model.schema.ColumnReference column) {
         return new SqlExpression.Column(Optional.of(table.name()), column.name());
     }
 
     /**
-     * An unqualified column from a jdbc.db
-     * {@link org.eclipse.daanse.jdbc.db.api.schema.ColumnReference} (uses
+     * An unqualified column from a sql.model
+     * {@link org.eclipse.daanse.sql.model.schema.ColumnReference} (uses
      * {@code name()} only).
      */
-    public static SqlExpression column(org.eclipse.daanse.jdbc.db.api.schema.ColumnReference column) {
+    public static SqlExpression column(org.eclipse.daanse.sql.model.schema.ColumnReference column) {
         return new SqlExpression.Column(Optional.empty(), column.name());
     }
 

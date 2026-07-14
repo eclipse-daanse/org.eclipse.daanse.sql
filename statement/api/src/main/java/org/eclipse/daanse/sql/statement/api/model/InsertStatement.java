@@ -16,14 +16,14 @@ package org.eclipse.daanse.sql.statement.api.model;
 import java.util.List;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
 
 /**
  * An {@code INSERT INTO table (cols...)} statement, sourcing rows either from
  * inline {@code VALUES} or from a sub-query ({@code INSERT ... SELECT}).
  *
- * @param table         the target table (shared jdbc.db identifier)
+ * @param table         the target table (shared sql.model identifier)
  * @param columns       target column names (unquoted); empty means positional
  *                      insert
  * @param rows          inline value rows (each row's size should match

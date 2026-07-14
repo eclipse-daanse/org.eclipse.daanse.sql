@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
 import org.eclipse.daanse.sql.deparser.api.DialectDeparser;
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;

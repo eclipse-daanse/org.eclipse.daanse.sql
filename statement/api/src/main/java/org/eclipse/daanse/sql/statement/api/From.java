@@ -16,8 +16,8 @@ package org.eclipse.daanse.sql.statement.api;
 import java.util.Map;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.SchemaReference;
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.SchemaReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.model.FromClause;
 import org.eclipse.daanse.sql.statement.api.model.SelectStatement;

@@ -15,7 +15,7 @@ package org.eclipse.daanse.sql.statement.api.model;
 
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
 
 /**

@@ -79,6 +79,9 @@
   </dependencyManagement>
 
   <modules>
+    <module>model</module>
+    <module>dialect</module>
+    <module>jdbc</module>
     <module>guard</module>
     <module>deparser</module>
     <module>statement</module>
