@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
 import org.eclipse.daanse.sql.statement.api.model.InsertStatement;
 import org.eclipse.daanse.sql.statement.api.model.Statement;

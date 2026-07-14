@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.generator.StatementHint;
+import org.eclipse.daanse.sql.dialect.api.generator.StatementHint;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 
 /**

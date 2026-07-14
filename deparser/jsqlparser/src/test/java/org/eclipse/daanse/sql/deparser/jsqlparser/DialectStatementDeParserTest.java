@@ -15,7 +15,7 @@ package org.eclipse.daanse.sql.deparser.jsqlparser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
 import org.junit.jupiter.api.Test;
 
 import net.sf.jsqlparser.JSQLParserException;

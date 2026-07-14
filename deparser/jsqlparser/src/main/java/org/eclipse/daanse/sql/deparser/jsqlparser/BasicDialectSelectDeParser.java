@@ -16,8 +16,8 @@ package org.eclipse.daanse.sql.deparser.jsqlparser;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.jdbc.db.dialect.api.IdentifierQuotingPolicy;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.IdentifierQuotingPolicy;
 
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.ExpressionVisitor;

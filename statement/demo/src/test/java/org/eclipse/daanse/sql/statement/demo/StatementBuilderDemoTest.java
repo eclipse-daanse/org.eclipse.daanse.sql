@@ -15,9 +15,9 @@ package org.eclipse.daanse.sql.statement.demo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.jdbc.db.dialect.db.common.AnsiDialect;
-import org.eclipse.daanse.jdbc.db.dialect.db.mssqlserver.MicrosoftSqlServerDialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.db.common.AnsiDialect;
+import org.eclipse.daanse.sql.dialect.db.mssqlserver.MicrosoftSqlServerDialect;
 import org.eclipse.daanse.sql.statement.render.DialectSqlRenderer;
 import org.junit.jupiter.api.Test;
 

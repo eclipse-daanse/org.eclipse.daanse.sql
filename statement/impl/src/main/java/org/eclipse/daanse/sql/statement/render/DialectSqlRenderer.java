@@ -21,10 +21,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.eclipse.daanse.jdbc.db.api.schema.SchemaReference;
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
-import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
+import org.eclipse.daanse.sql.model.schema.SchemaReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
 import org.eclipse.daanse.sql.statement.api.expression.ComparisonOperator;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 import org.eclipse.daanse.sql.statement.api.expression.SqlExpression;
@@ -138,7 +138,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
 
     private RenderedSql renderWith(WithStatement with) {
         // CTE bodies render first, so their bind parameters precede the body's, in order.
-        List<org.eclipse.daanse.jdbc.db.dialect.api.generator.CteGenerator.Cte> ctes = new ArrayList<>();
+        List<org.eclipse.daanse.sql.dialect.api.generator.CteGenerator.Cte> ctes = new ArrayList<>();
         for (org.eclipse.daanse.sql.statement.api.model.CommonTableExpression cte : with.ctes()) {
             String body = renderInternal(cte.query(), RenderOptions.compact()).sql();
             // Quote the CTE name (so body references via From.table(name, ...) match the casing);
@@ -148,7 +148,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
                 name += "(" + cte.columns().stream().map(dialect::quoteIdentifier).collect(Collectors.joining(", "))
                         + ")";
             }
-            ctes.add(new org.eclipse.daanse.jdbc.db.dialect.api.generator.CteGenerator.Cte(name, body));
+            ctes.add(new org.eclipse.daanse.sql.dialect.api.generator.CteGenerator.Cte(name, body));
         }
         String withClause = dialect.cteGenerator().withClause(ctes, with.recursive());
         RenderedSql body = renderInternal(with.body(), RenderOptions.compact());
@@ -882,7 +882,7 @@ public final class DialectSqlRenderer implements SqlRenderer {
      * (the legacy code returned {@code null} for the same case).
      */
     private String renderExtraAggregate(SqlExpression.ExtraAggregate ea) {
-        org.eclipse.daanse.jdbc.db.dialect.api.generator.AggregationGenerator g = dialect.aggregationGenerator();
+        org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator g = dialect.aggregationGenerator();
         CharSequence operand = ea.operand().map(this::renderExpression).orElse(null);
         SqlExpression.ExtraAggregate.Spec spec = ea.spec();
         java.util.Optional<String> sql;

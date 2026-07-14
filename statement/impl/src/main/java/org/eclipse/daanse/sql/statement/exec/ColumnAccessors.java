@@ -16,7 +16,7 @@ package org.eclipse.daanse.sql.statement.exec;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import org.eclipse.daanse.jdbc.db.api.type.BestFitColumnType;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
 
 /**
  * Reads a single column from a {@link ResultSet} as the right Java type for a

@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--
+/*********************************************************************
+* Copyright (c) 2023 Contributors to the Eclipse Foundation.
+*
+* This program and the accompanying materials are made
+* available under the terms of the Eclipse Public License 2.0
+* which is available at https://www.eclipse.org/legal/epl-2.0/
+*
+* SPDX-License-Identifier: EPL-2.0
+**********************************************************************/
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.eclipse.daanse</groupId>
+    <artifactId>org.eclipse.daanse.pom.parent</artifactId>
+    <version>0.0.7</version>
+    <relativePath/>
+  </parent>
+  <artifactId>org.eclipse.daanse.sql.dialect</artifactId>
+  <version>${revision}</version>
+  <packaging>pom</packaging>
+  <name>Eclipse Daanse SQL Dialect</name>
+
+  <properties>
+    <revision>0.0.1-SNAPSHOT</revision>
+    <slf4j.version>2.0.9</slf4j.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+        <scope>compile</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <repositories>
+    <repository>
+      <id>ossrh</id>
+      <name>Sonatype Nexus Snapshots</name>
+      <url>https://central.sonatype.com/repository/maven-snapshots</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+  <description>Database dialect framework providing extensible support for
+    multiple database systems. Contains API definitions and concrete dialect
+    implementations for 25+ database systems including PostgreSQL, MySQL,
+    Oracle, SQL Server, H2, and more.</description>
+  <modules>
+    <module>api</module>
+    <module>db</module>
+  </modules>
+</project>

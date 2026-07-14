@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.eclipse.daanse.jdbc.db.api.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.statement.api.expression.Predicate;
 
 /**
@@ -45,7 +45,7 @@ public sealed interface FromClause {
     /**
      * A base table reference.
      *
-     * @param table   the (optionally schema-qualified) table, as the shared jdbc.db
+     * @param table   the (optionally schema-qualified) table, as the shared sql.model
      *                identifier
      * @param alias   the query-local table alias
      * @param filter  an optional per-table filter to add to {@code WHERE}
