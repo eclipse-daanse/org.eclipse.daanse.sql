@@ -94,7 +94,7 @@ public class OracleMetadataProvider implements MetadataProvider {
     @Override
     public List<Trigger> getAllTriggers(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
-                SELECT TRIGGER_NAME, TABLE_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, TRIGGER_BODY
+                SELECT TRIGGER_NAME, TABLE_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, WHEN_CLAUSE, TRIGGER_BODY
                 FROM ALL_TRIGGERS WHERE OWNER = ? ORDER BY TABLE_NAME, TRIGGER_NAME
                 """;
         String schemaName = resolveSchema(schema, connection);
@@ -115,7 +115,7 @@ public class OracleMetadataProvider implements MetadataProvider {
     public List<Trigger> getTriggers(Connection connection, String catalog, String schema, String tableName)
             throws SQLException {
         String sql = """
-                SELECT TRIGGER_NAME, TABLE_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, TRIGGER_BODY
+                SELECT TRIGGER_NAME, TABLE_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, WHEN_CLAUSE, TRIGGER_BODY
                 FROM ALL_TRIGGERS WHERE OWNER = ? AND TABLE_NAME = ?
                 ORDER BY TRIGGER_NAME
                 """;
@@ -876,6 +876,7 @@ public class OracleMetadataProvider implements MetadataProvider {
         String tableName = rs.getString("TABLE_NAME");
         String triggerType = rs.getString("TRIGGER_TYPE");
         String triggeringEvent = rs.getString("TRIGGERING_EVENT");
+        String whenClause = rs.getString("WHEN_CLAUSE");
 
         // TRIGGER_BODY is LONG type, wrap in try-catch
         String triggerBody;
@@ -890,10 +891,11 @@ public class OracleMetadataProvider implements MetadataProvider {
         TableReference tableRef = new TableReference(oSchema, tableName);
 
         TriggerTiming timing = mapOracleTriggerTiming(triggerType);
-        TriggerEvent event = mapOracleTriggerEvent(triggeringEvent);
+        List<TriggerEvent> events = mapOracleTriggerEvents(triggeringEvent);
         String orientation = parseOracleOrientation(triggerType);
 
-        return new TriggerRecord(new TriggerReference(tableRef, triggerName), timing, event,
+        return new TriggerRecord(new TriggerReference(tableRef, triggerName), timing, events,
+                Optional.ofNullable(whenClause).map(String::strip).filter(w -> !w.isEmpty()),
                 Optional.ofNullable(triggerBody), Optional.empty(), Optional.ofNullable(orientation));
     }
 
@@ -1088,17 +1090,21 @@ public class OracleMetadataProvider implements MetadataProvider {
     }
 
 
-    private static TriggerEvent mapOracleTriggerEvent(String triggeringEvent) {
+    private static List<TriggerEvent> mapOracleTriggerEvents(String triggeringEvent) {
         if (triggeringEvent == null) {
-            return TriggerEvent.INSERT;
+            return List.of(TriggerEvent.INSERT);
         }
-        // Take the first word: 'INSERT OR UPDATE' -> 'INSERT'
-        String firstWord = triggeringEvent.trim().split("\\s+")[0].toUpperCase();
-        return switch (firstWord) {
-        case "UPDATE" -> TriggerEvent.UPDATE;
-        case "DELETE" -> TriggerEvent.DELETE;
-        default -> TriggerEvent.INSERT;
-        };
+        // 'INSERT OR UPDATE OR DELETE' -> [INSERT, UPDATE, DELETE]
+        List<TriggerEvent> events = new ArrayList<>();
+        for (String word : triggeringEvent.trim().toUpperCase().split("\\s+OR\\s+")) {
+            switch (word.trim()) {
+            case "INSERT" -> events.add(TriggerEvent.INSERT);
+            case "UPDATE" -> events.add(TriggerEvent.UPDATE);
+            case "DELETE" -> events.add(TriggerEvent.DELETE);
+            default -> LOGGER.debug("Ignoring unsupported Oracle trigger event {}", word);
+            }
+        }
+        return events.isEmpty() ? List.of(TriggerEvent.INSERT) : List.copyOf(events);
     }
 
 
@@ -1189,10 +1195,15 @@ public class OracleMetadataProvider implements MetadataProvider {
         // grants,
         // and grants made by others are all returned. JDBC's getTablePrivileges only
         // returns direct grants to the connected user.
+        // ALL_TAB_PRIVS covers every object type — scope to table-like objects;
+        // everything else is reported via getAllObjectPrivileges.
         StringBuilder sql = new StringBuilder("""
-                SELECT OWNER, TABLE_NAME, GRANTOR, GRANTEE, PRIVILEGE, GRANTABLE
-                FROM ALL_TAB_PRIVS
-                WHERE OWNER = ?
+                SELECT TABLE_SCHEMA, TABLE_NAME, GRANTOR, GRANTEE, PRIVILEGE, GRANTABLE
+                FROM ALL_TAB_PRIVS t
+                WHERE TABLE_SCHEMA = ?
+                  AND EXISTS (SELECT 1 FROM ALL_OBJECTS o WHERE o.OWNER = t.TABLE_SCHEMA
+                        AND o.OBJECT_NAME = t.TABLE_NAME
+                        AND o.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW'))
                 """);
         boolean hasTableFilter = tableNamePattern != null && !tableNamePattern.isBlank()
                 && !"%".equals(tableNamePattern);
@@ -1226,6 +1237,39 @@ public class OracleMetadataProvider implements MetadataProvider {
         } catch (SQLException e) {
             LOGGER.debug("Could not read table privileges from ALL_TAB_PRIVS: {}", e.getMessage());
             return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege>> getAllObjectPrivileges(
+            Connection connection, String catalog, String schema) throws SQLException {
+        // Non-table objects from ALL_TAB_PRIVS: procedures, functions, packages,
+        // sequences, types, directories, ... (bodies excluded).
+        String sql = """
+                SELECT DISTINCT t.TABLE_NAME AS OBJECT_NAME, o.OBJECT_TYPE, t.GRANTOR, t.GRANTEE,
+                        t.PRIVILEGE, t.GRANTABLE
+                FROM ALL_TAB_PRIVS t
+                JOIN ALL_OBJECTS o ON o.OWNER = t.TABLE_SCHEMA AND o.OBJECT_NAME = t.TABLE_NAME
+                WHERE t.TABLE_SCHEMA = ?
+                  AND o.OBJECT_TYPE NOT IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+                  AND o.OBJECT_TYPE NOT LIKE '%BODY'
+                ORDER BY o.OBJECT_TYPE, OBJECT_NAME, t.PRIVILEGE, t.GRANTEE
+                """;
+        String schemaName = resolveSchema(schema, connection);
+        List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new org.eclipse.daanse.sql.jdbc.record.schema.ObjectPrivilegeRecord(
+                            rs.getString("OBJECT_TYPE"), Optional.empty(), Optional.of(schemaName),
+                            rs.getString("OBJECT_NAME"), Optional.ofNullable(rs.getString("GRANTOR")),
+                            rs.getString("GRANTEE"), rs.getString("PRIVILEGE"),
+                            Optional.ofNullable(rs.getString("GRANTABLE"))));
+                }
+            }
         }
         return Optional.of(List.copyOf(result));
     }
@@ -1410,11 +1454,13 @@ public class OracleMetadataProvider implements MetadataProvider {
             Connection connection, String catalog, String schemaPattern, String tableNamePattern,
             String columnNamePattern) throws SQLException {
         String sql = """
-                SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION,
-                        DATA_SCALE, NULLABLE, DATA_DEFAULT, COLUMN_ID
-                FROM ALL_TAB_COLS
-                WHERE OWNER = ? AND HIDDEN_COLUMN = 'NO'
-                ORDER BY OWNER, TABLE_NAME, COLUMN_ID
+                SELECT t.OWNER, t.TABLE_NAME, t.COLUMN_NAME, t.DATA_TYPE, t.DATA_LENGTH, t.DATA_PRECISION,
+                        t.DATA_SCALE, t.NULLABLE, t.DATA_DEFAULT, t.COLUMN_ID, c.COMMENTS
+                FROM ALL_TAB_COLS t
+                LEFT JOIN ALL_COL_COMMENTS c
+                        ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND c.COLUMN_NAME = t.COLUMN_NAME
+                WHERE t.OWNER = ? AND t.HIDDEN_COLUMN = 'NO'
+                ORDER BY t.OWNER, t.TABLE_NAME, t.COLUMN_ID
                 """;
         String schemaName = resolveSchema(schemaPattern, connection);
         List<org.eclipse.daanse.sql.model.schema.ColumnDefinition> out = new ArrayList<>();
@@ -1433,6 +1479,7 @@ public class OracleMetadataProvider implements MetadataProvider {
                     boolean scaleNull = rs.wasNull();
                     String nullable = rs.getString("NULLABLE");
                     String columnDefault = rs.getString("DATA_DEFAULT"); // bufferable here
+                    String comments = rs.getString("COMMENTS");
 
                     java.sql.JDBCType jdbcType = mapOracleType(dataType);
                     java.util.OptionalInt size;
@@ -1457,7 +1504,7 @@ public class OracleMetadataProvider implements MetadataProvider {
 
                     org.eclipse.daanse.sql.model.schema.ColumnMetaData meta = new org.eclipse.daanse.sql.jdbc.record.schema.ColumnMetaDataRecord(
                             jdbcType, dataType, size, scale, java.util.OptionalInt.empty(), n,
-                            java.util.OptionalInt.empty(), Optional.empty(),
+                            java.util.OptionalInt.empty(), Optional.ofNullable(comments),
                             Optional.ofNullable(columnDefault).map(String::trim).filter(s -> !s.isEmpty()),
                             org.eclipse.daanse.sql.model.schema.ColumnMetaData.AutoIncrement.UNKNOWN,
                             org.eclipse.daanse.sql.model.schema.ColumnMetaData.GeneratedColumn.UNKNOWN);

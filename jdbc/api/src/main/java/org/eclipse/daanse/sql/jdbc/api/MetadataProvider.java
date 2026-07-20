@@ -360,6 +360,15 @@ public interface MetadataProvider {
     }
 
     /**
+     * Privileges on non-table objects (schema, database, routine, sequence, ...);
+     * no JDBC equivalent exists.
+     */
+    default Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege>> getAllObjectPrivileges(
+            Connection connection, String catalog, String schema) throws SQLException {
+        return Optional.empty();
+    }
+
+    /**
      * Per-table alternative to
      * {@link java.sql.DatabaseMetaData#getColumnPrivileges(String, String, String, String)}.
      */

@@ -95,4 +95,19 @@ public interface StructureInfo {
         return List.of();
     }
 
+    /** @return the table privileges, empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege> tablePrivileges() {
+        return List.of();
+    }
+
+    /** @return the column privileges, empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege> columnPrivileges() {
+        return List.of();
+    }
+
+    /** @return privileges on non-table objects (schema, database, routine, ...), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges() {
+        return List.of();
+    }
+
 }

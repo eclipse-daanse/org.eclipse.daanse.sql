@@ -256,9 +256,23 @@ public class DatabaseServiceImpl implements DatabaseService {
             viewDefinitions = filteredViews;
         }
 
+        // Privileges — only via dialect providers; the plain-JDBC path stays without them.
+        List<org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege> tablePrivileges =
+                provider.getAllTablePrivileges(connection, null, null, null).orElse(List.of());
+        List<org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege> columnPrivileges = new ArrayList<>();
+        for (TableDefinition td : tables) {
+            String tpSchema = td.table().schema().map(SchemaReference::name).orElse(null);
+            provider.getColumnPrivileges(connection, null, tpSchema, td.table().name(), null)
+                    .ifPresent(columnPrivileges::addAll);
+        }
+
+        List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges =
+                provider.getAllObjectPrivileges(connection, null, null).orElse(List.of());
+
         StructureInfo structureInfo = new StructureInfoRecord(catalogs, schemas, tables, columns,
                 importedKeys, primaryKeys, triggers, sequences, checkConstraints, uniqueConstraints,
-                userDefinedTypes, viewDefinitions, procedures, functions, materializedViews, partitions);
+                userDefinedTypes, viewDefinitions, procedures, functions, materializedViews, partitions,
+                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges);
         return new MetaInfoRecord(databaseInfo, structureInfo, identifierInfo, typeInfos, indexInfos);
     }
 
