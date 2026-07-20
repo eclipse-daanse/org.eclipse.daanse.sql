@@ -13,6 +13,7 @@
 */
 package org.eclipse.daanse.sql.model.schema;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface Trigger extends Named {
@@ -32,6 +33,26 @@ public interface Trigger extends Named {
     TriggerTiming timing();
 
     TriggerEvent event();
+
+    /**
+     * All DML events this trigger fires on, in catalog order. Multi-event
+     * triggers ({@code BEFORE INSERT OR UPDATE}) list every event here while
+     * {@link #event()} keeps returning the first one.
+     *
+     * @return the events, never empty
+     */
+    default List<TriggerEvent> events() {
+        return List.of(event());
+    }
+
+    /**
+     * @return the {@code WHEN} condition guarding the trigger action (without
+     *         the {@code WHEN} keyword and outer parentheses), or empty if the
+     *         trigger is unconditional or the provider cannot read it
+     */
+    default Optional<String> whenCondition() {
+        return Optional.empty();
+    }
 
     /** @return the trigger body, or empty if not available */
     Optional<String> body();
