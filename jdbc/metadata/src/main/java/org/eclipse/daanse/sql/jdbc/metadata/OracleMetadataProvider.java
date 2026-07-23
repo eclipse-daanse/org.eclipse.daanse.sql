@@ -1201,7 +1201,7 @@ public class OracleMetadataProvider implements MetadataProvider {
                 SELECT TABLE_SCHEMA, TABLE_NAME, GRANTOR, GRANTEE, PRIVILEGE, GRANTABLE
                 FROM ALL_TAB_PRIVS t
                 WHERE TABLE_SCHEMA = ?
-                  AND EXISTS (SELECT 1 FROM ALL_OBJECTS o WHERE o.OWNER = t.TABLE_SCHEMA
+                    AND EXISTS (SELECT 1 FROM ALL_OBJECTS o WHERE o.OWNER = t.TABLE_SCHEMA
                         AND o.OBJECT_NAME = t.TABLE_NAME
                         AND o.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW'))
                 """);
@@ -1253,8 +1253,8 @@ public class OracleMetadataProvider implements MetadataProvider {
                 FROM ALL_TAB_PRIVS t
                 JOIN ALL_OBJECTS o ON o.OWNER = t.TABLE_SCHEMA AND o.OBJECT_NAME = t.TABLE_NAME
                 WHERE t.TABLE_SCHEMA = ?
-                  AND o.OBJECT_TYPE NOT IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
-                  AND o.OBJECT_TYPE NOT LIKE '%BODY'
+                    AND o.OBJECT_TYPE NOT IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+                    AND o.OBJECT_TYPE NOT LIKE '%BODY'
                 ORDER BY o.OBJECT_TYPE, OBJECT_NAME, t.PRIVILEGE, t.GRANTEE
                 """;
         String schemaName = resolveSchema(schema, connection);
