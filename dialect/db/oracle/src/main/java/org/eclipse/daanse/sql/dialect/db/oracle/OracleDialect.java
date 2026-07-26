@@ -619,4 +619,23 @@ public class OracleDialect extends AbstractJdbcDialect {
     }
 
     // RENAME COLUMN/TABLE/INDEX/CONSTRAINT inherit the SQL-99 default.
+
+    /** Oracle takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
+    @Override
+    public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
+                + quoteIdentifier(grantee);
+    }
 }

@@ -1087,4 +1087,50 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
     }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // No ADMIN OPTION and no grantor on SQL Server memberships.
+        String sql = """
+                SELECT rp.name AS role_name, mp.name AS grantee
+                FROM sys.database_role_members drm
+                JOIN sys.database_principals rp ON rp.principal_id = drm.role_principal_id
+                JOIN sys.database_principals mp ON mp.principal_id = drm.member_principal_id
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(), Optional.empty()));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // S/U = users; R/G = roles (groups join like roles). Application roles
+        // ('A') are excluded — not grantable to principals.
+        String sql = """
+                SELECT name, type FROM sys.database_principals
+                WHERE type IN ('S', 'U', 'R', 'G')
+                ORDER BY name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String type = rs.getString("type");
+                boolean user = "S".equalsIgnoreCase(type) || "U".equalsIgnoreCase(type);
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("name"),
+                        user ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
 }

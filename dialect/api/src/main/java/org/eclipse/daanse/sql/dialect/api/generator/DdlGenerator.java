@@ -702,4 +702,106 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         String c = tbl.schema().flatMap(SchemaReference::catalog).map(CatalogReference::name).orElse("");
         return c + "" + s;
     }
+
+    // -------------------- Privileges (GRANT/REVOKE) --------------------
+    // The grantor of a privilege is never rendered — it is implied by the
+    // session executing the statement.
+
+    /** {@code CREATE ROLE "x"}; users are not creatable (no credentials). */
+    default String createRole(String roleName) {
+        return "CREATE ROLE " + quoteIdentifier(roleName);
+    }
+
+    /** {@code DROP ROLE "x"}. */
+    default String dropRole(String roleName) {
+        return "DROP ROLE " + quoteIdentifier(roleName);
+    }
+
+    /** {@code GRANT <action> ON "s"."t" TO "g" [WITH GRANT OPTION]}. */
+    default String grantTablePrivilege(String action, TableReference table, String grantee,
+            boolean withGrantOption) {
+        return grantTablePrivilege(action, table, List.of(), grantee, withGrantOption);
+    }
+
+    /** {@code GRANT <action> ("c1", "c2") ON "s"."t" TO "g"} — empty columns = whole table. */
+    default String grantTablePrivilege(String action, TableReference table, List<String> columns,
+            String grantee, boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT ").append(action);
+        appendColumnRestriction(sb, columns);
+        sb.append(" ON ").append(qualified(table)).append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE <action> ON "s"."t" FROM "g"}. */
+    default String revokeTablePrivilege(String action, TableReference table, String grantee) {
+        return revokeTablePrivilege(action, table, List.of(), grantee);
+    }
+
+    /** {@code REVOKE <action> ("c1", "c2") ON "s"."t" FROM "g"}. */
+    default String revokeTablePrivilege(String action, TableReference table, List<String> columns,
+            String grantee) {
+        StringBuilder sb = new StringBuilder("REVOKE ").append(action);
+        appendColumnRestriction(sb, columns);
+        sb.append(" ON ").append(qualified(table)).append(" FROM ").append(quoteIdentifier(grantee));
+        return sb.toString();
+    }
+
+    private void appendColumnRestriction(StringBuilder sb, List<String> columns) {
+        if (columns != null && !columns.isEmpty()) {
+            sb.append(" (");
+            for (int i = 0; i < columns.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(quoteIdentifier(columns.get(i)));
+            }
+            sb.append(')');
+        }
+    }
+
+    /**
+     * {@code GRANT EXECUTE ON FUNCTION|PROCEDURE "s"."f" TO "g"}. No signature is
+     * rendered — PG accepts the bare name while it is unambiguous.
+     */
+    default String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(isFunction ? "FUNCTION " : "PROCEDURE ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE EXECUTE ON FUNCTION|PROCEDURE "s"."f" FROM "g"}. */
+    default String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + (isFunction ? "FUNCTION " : "PROCEDURE ")
+                + qualifiedRoutine(schemaName, routineName) + " FROM " + quoteIdentifier(grantee);
+    }
+
+    /** {@code GRANT "role" TO "g" [WITH ADMIN OPTION]} — role membership. */
+    default String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        StringBuilder sb = new StringBuilder("GRANT ").append(quoteIdentifier(roleName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withAdminOption) {
+            sb.append(" WITH ADMIN OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE "role" FROM "g"} — removes a role membership. */
+    default String revokeRole(String roleName, String grantee) {
+        return "REVOKE " + quoteIdentifier(roleName) + " FROM " + quoteIdentifier(grantee);
+    }
+
+    /** Schema-qualified routine name; the bare name when no schema is given. */
+    default String qualifiedRoutine(String schemaName, String routineName) {
+        return schemaName == null || schemaName.isBlank() ? quoteIdentifier(routineName)
+                : quoteIdentifier(schemaName, routineName);
+    }
 }

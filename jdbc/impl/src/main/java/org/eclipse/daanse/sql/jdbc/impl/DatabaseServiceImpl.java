@@ -269,10 +269,16 @@ public class DatabaseServiceImpl implements DatabaseService {
         List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges =
                 provider.getAllObjectPrivileges(connection, null, null).orElse(List.of());
 
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> roleMemberships =
+                provider.getAllRoleMemberships(connection).orElse(List.of());
+
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> principals =
+                provider.getAllPrincipals(connection).orElse(List.of());
+
         StructureInfo structureInfo = new StructureInfoRecord(catalogs, schemas, tables, columns,
                 importedKeys, primaryKeys, triggers, sequences, checkConstraints, uniqueConstraints,
                 userDefinedTypes, viewDefinitions, procedures, functions, materializedViews, partitions,
-                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges);
+                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals);
         return new MetaInfoRecord(databaseInfo, structureInfo, identifierInfo, typeInfos, indexInfos);
     }
 

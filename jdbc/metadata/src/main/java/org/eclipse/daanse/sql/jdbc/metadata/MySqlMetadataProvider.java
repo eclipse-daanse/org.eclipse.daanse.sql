@@ -883,4 +883,48 @@ public class MySqlMetadataProvider implements MetadataProvider {
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
     }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // mysql.role_edges (8.0+); needs privileges on the mysql schema.
+        String sql = """
+                SELECT FROM_USER AS role_name, TO_USER AS grantee, WITH_ADMIN_OPTION
+                FROM mysql.role_edges
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(),
+                        Optional.of("Y".equalsIgnoreCase(rs.getString("WITH_ADMIN_OPTION")) ? "YES" : "NO")));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // MySQL keeps no structural user/role distinction ("little to
+        // distinguish them") — every principal reports KIND_UNKNOWN.
+        // mysql.user needs privileges on the mysql schema.
+        String sql = "SELECT user FROM mysql.user ORDER BY user";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("user"),
+                        org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_UNKNOWN));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
 }

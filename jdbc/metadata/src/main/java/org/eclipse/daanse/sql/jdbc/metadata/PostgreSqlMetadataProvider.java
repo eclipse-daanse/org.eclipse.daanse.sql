@@ -982,16 +982,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String schemaName = resolveSchema(schema, connection);
         List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> result = new ArrayList<>();
 
-        String schemaSql = """
-                SELECT n.nspname AS object_name, 'SCHEMA' AS object_kind,
-                        pg_get_userbyid(a.grantor) AS grantor,
-                        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
-                        a.privilege_type, a.is_grantable
-                FROM pg_namespace n, aclexplode(n.nspacl) a
-                WHERE n.nspname = ?
-                """;
-        readObjectPrivileges(connection, schemaSql, schemaName, null, result);
-
+        // Schema privileges are deliberately not read — support is too opaque
+        // across dialects (Oracle: schema == user).
         String databaseSql = """
                 SELECT d.datname AS object_name, 'DATABASE' AS object_kind,
                         pg_get_userbyid(a.grantor) AS grantor,
@@ -1144,5 +1136,48 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                     .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // pg_auth_members: every membership edge incl. grantor and ADMIN OPTION.
+        String sql = """
+                SELECT m.rolname AS grantee, r.rolname AS role_name,
+                        g.rolname AS grantor, am.admin_option
+                FROM pg_auth_members am
+                JOIN pg_roles r ON r.oid = am.roleid
+                JOIN pg_roles m ON m.oid = am.member
+                LEFT JOIN pg_roles g ON g.oid = am.grantor
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.ofNullable(rs.getString("grantor")),
+                        Optional.of(rs.getBoolean("admin_option") ? "YES" : "NO")));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // pg_roles is world-readable; rolcanlogin separates users from roles.
+        String sql = "SELECT rolname, rolcanlogin FROM pg_roles ORDER BY rolname";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("rolname"),
+                        rs.getBoolean("rolcanlogin") ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER
+                                : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE));
+            }
+        }
+        return Optional.of(List.copyOf(result));
     }
 }
