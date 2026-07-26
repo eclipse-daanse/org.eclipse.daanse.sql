@@ -148,4 +148,10 @@ public class H2Dialect extends AbstractJdbcDialect {
     public boolean supportsListAgg() {
         return true;
     }
+
+    /** H2 has no ADMIN OPTION on role grants — the flag is ignored. */
+    @Override
+    public String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        return "GRANT " + quoteIdentifier(roleName) + " TO " + quoteIdentifier(grantee);
+    }
 }

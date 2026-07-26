@@ -1545,4 +1545,59 @@ public class OracleMetadataProvider implements MetadataProvider {
         default -> false;
         };
     }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // DBA_ROLE_PRIVS; fallback: own memberships via USER_ROLE_PRIVS.
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT GRANTEE, GRANTED_ROLE, ADMIN_OPTION FROM DBA_ROLE_PRIVS ORDER BY GRANTEE, GRANTED_ROLE");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("GRANTEE"), rs.getString("GRANTED_ROLE"),
+                        Optional.empty(), Optional.ofNullable(rs.getString("ADMIN_OPTION"))));
+            }
+            return Optional.of(List.copyOf(result));
+        } catch (SQLException e) {
+            result.clear();
+        }
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT USERNAME, GRANTED_ROLE, ADMIN_OPTION FROM USER_ROLE_PRIVS ORDER BY GRANTED_ROLE");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("USERNAME"), rs.getString("GRANTED_ROLE"),
+                        Optional.empty(), Optional.ofNullable(rs.getString("ADMIN_OPTION"))));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // DBA_USERS/DBA_ROLES need elevated rights; without them: empty.
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT USERNAME FROM DBA_USERS ORDER BY USERNAME");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("USERNAME"), org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT ROLE FROM DBA_ROLES ORDER BY ROLE");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("ROLE"), org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
 }

@@ -646,4 +646,34 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
             sb.append(", '").append(objectType).append("'");
         return sb.toString();
     }
+
+    /** SQL Server memberships are {@code ALTER ROLE}; there is no ADMIN OPTION — the flag is ignored. */
+    @Override
+    public String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        return "ALTER ROLE " + quoteIdentifier(roleName) + " ADD MEMBER " + quoteIdentifier(grantee);
+    }
+
+    @Override
+    public String revokeRole(String roleName, String grantee) {
+        return "ALTER ROLE " + quoteIdentifier(roleName) + " DROP MEMBER " + quoteIdentifier(grantee);
+    }
+
+    /** SQL Server takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
+    @Override
+    public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
+                + quoteIdentifier(grantee);
+    }
 }

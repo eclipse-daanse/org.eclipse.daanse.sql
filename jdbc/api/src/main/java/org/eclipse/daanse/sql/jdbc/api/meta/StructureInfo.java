@@ -110,4 +110,14 @@ public interface StructureInfo {
         return List.of();
     }
 
+    /** @return role membership edges (GRANT role TO grantee), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> roleMemberships() {
+        return List.of();
+    }
+
+    /** @return database principals (users and roles), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> principals() {
+        return List.of();
+    }
+
 }

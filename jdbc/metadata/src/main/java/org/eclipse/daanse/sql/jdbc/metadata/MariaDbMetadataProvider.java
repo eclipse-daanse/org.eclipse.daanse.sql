@@ -932,4 +932,47 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
     }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // mysql.roles_mapping; needs privileges on the mysql schema.
+        String sql = """
+                SELECT User AS grantee, Role AS role_name, Admin_option
+                FROM mysql.roles_mapping
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(),
+                        Optional.of("Y".equalsIgnoreCase(rs.getString("Admin_option")) ? "YES" : "NO")));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // MariaDB flags roles first-class (Is_role).
+        String sql = "SELECT User, Is_role FROM mysql.user ORDER BY User";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("User"),
+                        "Y".equalsIgnoreCase(rs.getString("Is_role")) ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE
+                                : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
 }

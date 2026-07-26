@@ -369,6 +369,24 @@ public interface MetadataProvider {
     }
 
     /**
+     * Role membership edges (GRANT role TO grantee); no JDBC equivalent.
+     * Empty when the dialect keeps none or the current user may not read them.
+     */
+    default Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(
+            Connection connection) throws SQLException {
+        return Optional.empty();
+    }
+
+    /**
+     * Database principals (users and roles), built-ins included; no JDBC
+     * equivalent. Empty when unreadable for the current user.
+     */
+    default Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(
+            Connection connection) throws SQLException {
+        return Optional.empty();
+    }
+
+    /**
      * Per-table alternative to
      * {@link java.sql.DatabaseMetaData#getColumnPrivileges(String, String, String, String)}.
      */
