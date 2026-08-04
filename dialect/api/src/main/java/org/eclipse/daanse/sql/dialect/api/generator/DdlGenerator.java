@@ -602,7 +602,7 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         if (orReplace && supportsCreateOrReplaceTrigger())
             sb.append("OR REPLACE ");
         sb.append("TRIGGER ");
-        sb.append(quoteIdentifier(triggerName));
+        sb.append(triggerName(triggerName, table));
         sb.append(' ').append(triggerTimingKeyword(timing)).append(' ').append(event);
         sb.append(" ON ").append(qualified(table));
         sb.append(' ').append(scope.forEachClause());
@@ -611,6 +611,14 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         }
         sb.append(' ').append(body);
         return sb.toString();
+    }
+
+    /**
+     * How a trigger name is written. Unqualified by default; a dialect that
+     * scopes a trigger to its table's schema has to say so in the name.
+     */
+    default String triggerName(String triggerName, TableReference table) {
+        return quoteIdentifier(triggerName);
     }
 
     default Optional<String> createTriggerProcedure(String procedureName, String schemaName, String body) {

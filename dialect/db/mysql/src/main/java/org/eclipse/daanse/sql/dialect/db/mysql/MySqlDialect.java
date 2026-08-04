@@ -569,6 +569,17 @@ public class MySqlDialect extends AbstractJdbcDialect {
         return createTrigger(triggerName, timing, event, table, scope, whenCondition, "CALL " + qualified + "()");
     }
 
+    /**
+     * MySQL and MariaDB scope a trigger to its table's schema, and the name has
+     * to say so. Left unqualified the server creates it in the session's current
+     * database and then refuses it: <em>Trigger in wrong schema</em>.
+     */
+    @Override
+    public String triggerName(String triggerName, org.eclipse.daanse.sql.model.schema.TableReference table) {
+        return table == null || table.schema().isEmpty() ? quoteIdentifier(triggerName)
+                : quoteIdentifier(table.schema().get().name(), triggerName);
+    }
+
     /** MySQL/MariaDB: {@code DROP PROCEDURE [IF EXISTS] schema.procedureName}. */
     @Override
     public Optional<String> dropProcedure(String procedureName, String schemaName, boolean ifExists) {
