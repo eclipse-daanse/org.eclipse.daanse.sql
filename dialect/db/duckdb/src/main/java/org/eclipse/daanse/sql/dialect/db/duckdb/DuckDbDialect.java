@@ -53,6 +53,21 @@ public class DuckDbDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "DUCKDB";
 
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * DuckDB has a native BOOLEAN, and it is still the wrong choice here: the
+     * consumers read boolean levels back with {@code ResultSet.getInt}, and
+     * DuckDB answers a native boolean column with the string "true", which
+     * {@code getInt} rejects. SMALLINT is what the legacy loader used, for the
+     * same reason.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
 
     /** JDBC-free constructor for SQL generation. */

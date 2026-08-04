@@ -32,6 +32,31 @@ public class SqliteDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "SQLITE";
 
+    /**
+     * No.
+     *
+     * <p>
+     * SQLite takes one writer at a time. Loading tables concurrently does not
+     * divide the work, it makes the connections starve each other on the shared
+     * cache — which is why the testkit used to compare against this dialect's
+     * name in two places.
+     */
+    @Override
+    public boolean supportsParallelLoading() {
+        return false;
+    }
+
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * SQLite has no boolean type; it stores 0 and 1 in an INTEGER affinity.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;

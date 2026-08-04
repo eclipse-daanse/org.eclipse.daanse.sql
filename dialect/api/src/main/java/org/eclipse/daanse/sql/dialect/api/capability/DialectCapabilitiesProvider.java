@@ -172,6 +172,13 @@ public interface DialectCapabilitiesProvider {
     /** @return true if parallel loading is supported */
     boolean supportsParallelLoading();
 
+    /**
+     * @return true if the database has transactions. ClickHouse has none: it
+     *         refuses {@code setAutoCommit(false)} outright, so a writer that
+     *         wraps a load in one transaction per table cannot even begin.
+     */
+    boolean supportsTransactions();
+
     /** @return true if batch operations are supported */
     boolean supportsBatchOperations();
 

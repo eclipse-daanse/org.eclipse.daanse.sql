@@ -31,6 +31,30 @@ public class MariaDBDialect extends MySqlDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "MARIADB";
 
+    /**
+     * {@code TINYINT(1)}.
+     *
+     * <p>
+     * MariaDB reads BOOLEAN as an alias for TINYINT(1); saying so outright keeps
+     * the emitted DDL the same as what the server stores.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "TINYINT(1)";
+    }
+
+    /**
+     * {@code DATETIME}.
+     *
+     * <p>
+     * MariaDB's TIMESTAMP only reaches from 1970 to 2038, like MySQL's. DATETIME
+     * spans years 1000 to 9999.
+     */
+    @Override
+    public String timestampTypeName() {
+        return "DATETIME";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
 
     /** JDBC-free constructor for SQL generation. */

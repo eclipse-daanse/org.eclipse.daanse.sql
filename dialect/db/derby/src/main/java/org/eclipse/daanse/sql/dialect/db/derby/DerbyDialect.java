@@ -32,6 +32,18 @@ public class DerbyDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "DERBY";
 
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * Derby gained a native BOOLEAN in 10.7, but boolean levels are read back
+     * with {@code ResultSet.getInt}, which it refuses on that type.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
     /** JDBC-free constructor for SQL generation. */
     public DerbyDialect() {
         super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());

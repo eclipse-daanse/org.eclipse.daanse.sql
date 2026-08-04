@@ -35,6 +35,101 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "CLICKHOUSE";
 
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * ClickHouse maps SMALLINT onto Int16 and reads it back as a number.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
+    /**
+     * No.
+     *
+     * <p>
+     * ClickHouse refuses {@code setAutoCommit(false)} with a
+     * {@code SQLFeatureNotSupportedException} — there is nothing to turn off,
+     * every statement stands alone. A writer that wraps a table load in one
+     * transaction cannot even begin.
+     */
+    @Override
+    public boolean supportsTransactions() {
+        return false;
+    }
+
+    /**
+     * Wraps a nullable column's type in {@code Nullable(…)}.
+     *
+     * <p>
+     * ClickHouse columns are not nullable by default and there is no
+     * {@code NULL} modifier to add afterwards — nullability is part of the type
+     * itself. A column declared {@code Int32} rejects every null; the same
+     * column declared {@code Nullable(Int32)} accepts them.
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        String type = super.nativeType(meta);
+        if (meta.nullability() == org.eclipse.daanse.sql.model.schema.ColumnMetaData.Nullability.NULLABLE) {
+            return "Nullable(" + type + ")";
+        }
+        return type;
+    }
+
+    /**
+     * Appends {@code ENGINE = MergeTree() ORDER BY (…)}.
+     *
+     * <p>
+     * ClickHouse refuses a table without one: <em>Code 42, ORDER BY or PRIMARY
+     * KEY clause is missing</em>. MergeTree is the general-purpose engine, and
+     * it sorts by the primary key where the schema declares one. Where it does
+     * not, {@code ORDER BY tuple()} says "no ordering" — the legal way to
+     * express what every other database means by a table without a key.
+     *
+     * <p>
+     * The {@code NOT NULL} the base implementation appends is left out here:
+     * nullability rides in the type (see {@link #nativeType}), and ClickHouse
+     * rejects the suffix.
+     */
+    @Override
+    public String createTable(org.eclipse.daanse.sql.model.schema.TableReference table,
+            List<org.eclipse.daanse.sql.model.schema.ColumnDefinition> columns,
+            org.eclipse.daanse.sql.model.schema.PrimaryKey primaryKey, boolean ifNotExists) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(ifNotExists && supportsCreateTableIfNotExists() ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ");
+        sb.append(qualified(table)).append(" (\n");
+        boolean first = true;
+        for (org.eclipse.daanse.sql.model.schema.ColumnDefinition cd : columns) {
+            if (!first) {
+                sb.append(",\n");
+            }
+            first = false;
+            sb.append("  ").append(quoteIdentifier(cd.column().name()));
+            sb.append(' ').append(nativeType(cd.columnMetaData()));
+            cd.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        }
+        sb.append("\n)");
+        sb.append(createTableSuffix(primaryKey == null ? List.of()
+                : primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
+        return sb.toString();
+    }
+
+    /**
+     * {@code ENGINE = MergeTree() ORDER BY (…)}. MergeTree is the
+     * general-purpose engine and sorts by the key where there is one; where
+     * there is none, {@code ORDER BY tuple()} is how ClickHouse spells "no
+     * ordering".
+     */
+    @Override
+    public String createTableSuffix(List<String> quotedOrderByColumns) {
+        if (quotedOrderByColumns == null || quotedOrderByColumns.isEmpty()) {
+            return " ENGINE = MergeTree() ORDER BY tuple()";
+        }
+        return " ENGINE = MergeTree() ORDER BY (" + String.join(", ", quotedOrderByColumns) + ")";
+    }
+
     /** JDBC-free constructor for SQL generation. */
     public ClickHouseDialect() {
         super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());

@@ -50,6 +50,29 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "MSSQL";
 
+    /**
+     * {@code BIT}.
+     *
+     * <p>
+     * SQL Server has no BOOLEAN at all; BIT is the type that carries it.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "BIT";
+    }
+
+    /**
+     * {@code DATETIME}.
+     *
+     * <p>
+     * SQL Server's TIMESTAMP is a row-version counter, not a point in time. DATETIME
+     * is the type that stores one.
+     */
+    @Override
+    public String timestampTypeName() {
+        return "DATETIME";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.CteGenerator cachedCteGenerator;

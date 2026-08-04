@@ -311,6 +311,25 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return "postgres";
     }
 
+    /**
+     * {@code ANALYZE}.
+     *
+     * <p>
+     * Without arguments PostgreSQL analyses every table of the current
+     * database. Measured over the legacy suite: 5:03 with, 7:18 without, and
+     * two queries ran into their timeout without it.
+     */
+    @Override
+    public java.util.Optional<String> analyzeSchema() {
+        return java.util.Optional.of("ANALYZE");
+    }
+
+    /** {@code ANALYZE <table>}. */
+    @Override
+    public java.util.Optional<String> analyzeTable(org.eclipse.daanse.sql.model.schema.TableReference table) {
+        return java.util.Optional.of("ANALYZE " + qualified(table));
+    }
+
     @Override
     public org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding caseFolding() {
         return org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding.LOWER;
