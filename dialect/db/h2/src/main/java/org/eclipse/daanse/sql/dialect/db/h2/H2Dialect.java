@@ -28,6 +28,26 @@ public class H2Dialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "H2";
 
+    /**
+     * {@code ANALYZE}.
+     *
+     * <p>
+     * H2 samples 10000 rows per table by default; {@code ANALYZE SAMPLE_SIZE 0}
+     * makes it read every row.
+     */
+    @Override
+    public java.util.Optional<String> analyzeSchema() {
+        return java.util.Optional.of("ANALYZE");
+    }
+
+    /**
+     * {@code ANALYZE TABLE <table>}.
+     */
+    @Override
+    public java.util.Optional<String> analyzeTable(org.eclipse.daanse.sql.model.schema.TableReference table) {
+        return java.util.Optional.of("ANALYZE TABLE " + qualified(table));
+    }
+
     /** JDBC-free constructor for SQL generation. */
     public H2Dialect() {
         super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());

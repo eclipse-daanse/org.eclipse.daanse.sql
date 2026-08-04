@@ -51,6 +51,31 @@ public class OracleDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "ORACLE";
 
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * Oracle has no BOOLEAN in SQL before 23c. SMALLINT is an alias for
+     * {@code NUMBER(38)} and reads back as a number.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
+    /**
+     * {@code DECIMAL(15,0)}.
+     *
+     * <p>
+     * Oracle has no BIGINT: {@code ORA-00902 invalid datatype}. Fifteen
+     * digits is what the legacy loader used, and it holds every value the
+     * datasets carry.
+     */
+    @Override
+    public String bigintTypeName() {
+        return "DECIMAL(15,0)";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
 
@@ -62,6 +87,17 @@ public class OracleDialect extends AbstractJdbcDialect {
     /** Construct from a captured snapshot — the canonical entry point. */
     public OracleDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData init) {
         super(init);
+    }
+
+    /**
+     * One. Oracle's {@code VALUES} clause takes a single tuple; loading several
+     * rows in one statement is written {@code INSERT ALL INTO t VALUES (…) INTO t
+     * VALUES (…) SELECT 1 FROM dual}, which is a different statement shape, not a
+     * longer {@code VALUES} list.
+     */
+    @Override
+    public int maxInsertRows() {
+        return 1;
     }
 
     /**

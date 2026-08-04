@@ -84,27 +84,92 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
             sb.append(")");
         }
         sb.append("\n)");
+        sb.append(createTableSuffix(primaryKey == null ? List.of()
+                : primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
         return sb.toString();
+    }
+
+    /**
+     * What has to follow the closing parenthesis of a {@code CREATE TABLE},
+     * empty for every dialect that needs nothing there.
+     *
+     * <p>
+     * ClickHouse is the one that does — it refuses a table without a storage
+     * engine and a sort order. Exposed separately from {@link #createTable} so
+     * that a caller assembling its own {@code CREATE TABLE} can obtain it too.
+     *
+     * @param quotedOrderByColumns the key columns, already quoted, or empty
+     *                             where the table has no key
+     */
+    default String createTableSuffix(List<String> quotedOrderByColumns) {
+        return "";
     }
 
     // -------------------- DML --------------------
 
     /** {@code INSERT INTO schema.table (col1, …) VALUES (?, …)} — parameterised. */
     default String insertInto(TableReference table, List<ColumnDefinition> columns) {
+        return insertInto(table, columns, 1);
+    }
+
+    /**
+     * How many value tuples one {@code INSERT} may carry on this dialect.
+     * Unlimited by default; a dialect whose grammar has no multi-row
+     * {@code VALUES} returns 1, and callers cap {@link #insertInto(TableReference,
+     * List, int)} by it rather than knowing dialects themselves.
+     */
+    default int maxInsertRows() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * {@code INSERT INTO schema.table (col1, …) VALUES (?, …), (?, …), …} with
+     * {@code rows} value tuples — parameterised. Ask {@link #maxInsertRows()}
+     * first; this throws rather than emitting SQL the dialect cannot parse.
+     *
+     * <p>
+     * One statement carrying many rows costs one execution instead of many. How
+     * much that is worth depends entirely on the driver: one that implements
+     * {@code executeBatch()} as a single protocol message gains nothing, while one
+     * that implements it as a loop over {@code execute()} gains the whole factor.
+     *
+     * <p>
+     * Callers must cap {@code rows} so that {@code rows × columns} stays under
+     * what the driver accepts — 65535 bound parameters on PostgreSQL, 2100 on SQL
+     * Server. A dialect whose grammar has no multi-row {@code VALUES} (Oracle
+     * wants {@code INSERT ALL}) overrides this to reject anything but 1.
+     *
+     * @param rows number of value tuples, at least 1
+     */
+    default String insertInto(TableReference table, List<ColumnDefinition> columns, int rows) {
         if (columns.isEmpty()) {
             throw new IllegalArgumentException("columns must not be empty for INSERT");
+        }
+        if (rows < 1) {
+            throw new IllegalArgumentException("rows must be at least 1, was " + rows);
+        }
+        if (rows > maxInsertRows()) {
+            throw new IllegalArgumentException(
+                    "this dialect takes at most " + maxInsertRows() + " value tuples per INSERT, was asked for " + rows);
         }
         StringBuilder sb = new StringBuilder("INSERT INTO ");
         sb.append(qualified(table));
         sb.append(" (");
         appendColumnList(sb, columns);
-        sb.append(") VALUES (");
-        for (int i = 0; i < columns.size(); i++) {
-            if (i > 0)
+        sb.append(") VALUES ");
+        for (int row = 0; row < rows; row++) {
+            if (row > 0) {
                 sb.append(", ");
-            sb.append('?');
+            }
+            sb.append('(');
+            for (int i = 0; i < columns.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append('?');
+            }
+            sb.append(')');
         }
-        sb.append(")");
         return sb.toString();
     }
 
@@ -584,10 +649,94 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return quoteIdentifier(schemaName, table.name());
     }
 
+    /**
+     * How this dialect spells a boolean column.
+     *
+     * <p>
+     * SQL-99 says {@code BOOLEAN} and that is the default, but the spelling is
+     * where the databases disagree most: SQL Server and Sybase have only
+     * {@code BIT}, MySQL and MariaDB read {@code BOOLEAN} as an alias for
+     * {@code TINYINT(1)}, and several engines are read back through
+     * {@code ResultSet.getInt}, which a native boolean column refuses.
+     */
+    default String booleanTypeName() {
+        return "BOOLEAN";
+    }
+
+    /**
+     * The statement that gathers optimizer statistics for the whole database,
+     * or empty where the dialect has none.
+     *
+     * <p>
+     * Worth running: measured over the legacy suite against PostgreSQL, 5:03
+     * with against 7:18 without, and without it two queries ran into their
+     * timeout because the planner had nothing to go on. Gather them once the
+     * indexes exist — Derby's and PostgreSQL's statistics describe index
+     * cardinalities.
+     */
+    default java.util.Optional<String> analyzeSchema() {
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * The statement that gathers statistics for one table, or empty where the
+     * dialect has none. The spelling differs even among those that have it:
+     * PostgreSQL takes the table straight after the keyword, H2 wants
+     * {@code TABLE} in between.
+     */
+    default java.util.Optional<String> analyzeTable(TableReference table) {
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * How this dialect spells a timestamp column.
+     *
+     * <p>
+     * SQL Server, MySQL, MariaDB and Sybase want {@code DATETIME}: their
+     * {@code TIMESTAMP} is something else entirely — on MySQL it only reaches
+     * back to 1970, so a birth date of 1946 is rejected outright.
+     */
+    default String timestampTypeName() {
+        return "TIMESTAMP";
+    }
+
+    /**
+     * How this dialect spells a 64-bit integer column.
+     *
+     * <p>
+     * SQL-99 has no {@code BIGINT} — it arrived with SQL:2003, which is why the
+     * CWM specification's catalogue of SQL-99 types does not list it either.
+     * Oracle and Firebird took that literally; Oracle answers
+     * {@code ORA-00902 invalid datatype}. Everything else in use accepts the
+     * name, so it stays the default and Oracle renders {@code DECIMAL(15,0)},
+     * as the legacy loader did.
+     */
+    default String bigintTypeName() {
+        return "BIGINT";
+    }
+
+    /**
+     * The physical type for a column, rendered from its JDBC type.
+     *
+     * <p>
+     * Deliberately <em>not</em> from {@link ColumnMetaData#typeName()}. A model
+     * that is to be created on ten databases can only state the logical type;
+     * which physical type carries it is the dialect's to say, and they disagree
+     * far more than SQL-99 suggests. A model saying {@code CHARACTER VARYING}
+     * is legal SQL-99 and unknown to SQL Server; one saying {@code TIMESTAMP}
+     * means something different to MySQL than to PostgreSQL.
+     *
+     * <p>
+     * The model's own name is used only when there is no JDBC type to render
+     * from — the escape hatch for a genuinely vendor-specific declaration.
+     */
     default String nativeType(ColumnMetaData meta) {
-        String tn = meta.typeName();
-        if (tn != null && !tn.isBlank() && !"UNKNOWN".equalsIgnoreCase(tn)) {
-            return applyLengthAndScale(tn, meta);
+        JDBCType jt = meta.dataType();
+        if (jt == null || jt == JDBCType.OTHER) {
+            String tn = meta.typeName();
+            if (tn != null && !tn.isBlank() && !"UNKNOWN".equalsIgnoreCase(tn)) {
+                return applyLengthAndScale(tn, meta);
+            }
         }
         return defaultTypeName(meta);
     }
@@ -664,30 +813,36 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         };
     }
 
-    private static String defaultTypeName(ColumnMetaData meta) {
+    // Not static: it asks the dialect how to spell the types the databases
+    // disagree about.
+    private String defaultTypeName(ColumnMetaData meta) {
         JDBCType jt = meta.dataType();
         OptionalInt size = meta.columnSize();
         OptionalInt scale = meta.decimalDigits();
         return switch (jt) {
-        case BIT, BOOLEAN -> "BOOLEAN";
+        case BIT, BOOLEAN -> booleanTypeName();
         case TINYINT -> "TINYINT";
         case SMALLINT -> "SMALLINT";
         case INTEGER -> "INTEGER";
-        case BIGINT -> "BIGINT";
+        case BIGINT -> bigintTypeName();
         case FLOAT, REAL -> "REAL";
         case DOUBLE -> "DOUBLE PRECISION";
+        // NUMERIC and DECIMAL are separate SQL types — NUMERIC has to hold
+        // exactly the declared precision, DECIMAL may hold more — and the model
+        // states which one it means, so it is not ours to collapse.
         case NUMERIC, DECIMAL -> {
+            String name = jt == JDBCType.NUMERIC ? "NUMERIC" : "DECIMAL";
             if (size.isPresent() && scale.isPresent()) {
-                yield "DECIMAL(" + size.getAsInt() + ", " + scale.getAsInt() + ")";
+                yield name + "(" + size.getAsInt() + ", " + scale.getAsInt() + ")";
             } else if (size.isPresent()) {
-                yield "DECIMAL(" + size.getAsInt() + ")";
+                yield name + "(" + size.getAsInt() + ")";
             } else {
-                yield "DECIMAL";
+                yield name;
             }
         }
         case DATE -> "DATE";
         case TIME, TIME_WITH_TIMEZONE -> "TIME";
-        case TIMESTAMP, TIMESTAMP_WITH_TIMEZONE -> "TIMESTAMP";
+        case TIMESTAMP, TIMESTAMP_WITH_TIMEZONE -> timestampTypeName();
         case CHAR -> size.isPresent() ? "CHAR(" + size.getAsInt() + ")" : "CHAR(1)";
         case VARCHAR, LONGVARCHAR, NVARCHAR, LONGNVARCHAR, NCHAR ->
             size.isPresent() ? "VARCHAR(" + size.getAsInt() + ")" : "VARCHAR(255)";

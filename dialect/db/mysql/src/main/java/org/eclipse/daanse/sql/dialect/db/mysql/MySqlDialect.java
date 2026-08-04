@@ -50,6 +50,31 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
 public class MySqlDialect extends AbstractJdbcDialect {
     private static final String SUPPORTED_PRODUCT_NAME = "MYSQL";
 
+    /**
+     * {@code TINYINT(1)}.
+     *
+     * <p>
+     * MySQL reads BOOLEAN as an alias for TINYINT(1); saying so outright keeps
+     * the emitted DDL the same as what the server stores.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "TINYINT(1)";
+    }
+
+    /**
+     * {@code DATETIME}.
+     *
+     * <p>
+     * MySQL's TIMESTAMP only reaches from 1970 to 2038 and is converted to UTC on the
+     * way in. DATETIME spans years 1000 to 9999 and stores what it is given -
+     * FoodMart holds birth dates from the 1940s.
+     */
+    @Override
+    public String timestampTypeName() {
+        return "DATETIME";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.CteGenerator cachedCteGenerator;
