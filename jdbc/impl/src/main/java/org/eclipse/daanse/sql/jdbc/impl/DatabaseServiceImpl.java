@@ -369,6 +369,18 @@ public class DatabaseServiceImpl implements DatabaseService {
         return structureInfo;
     }
 
+    /**
+     * The namespace a relation lives in. A driver that reports no schema keeps
+     * it in the catalog - MySQL and MariaDB call it a database - so the catalog
+     * name stands in. Without that a consumer grouping relations by schema
+     * loses every one of them on those servers.
+     */
+    private static Optional<SchemaReference> namespaceOf(Optional<String> catalogName, Optional<String> schemaName) {
+        Optional<CatalogReference> catalog = catalogName.map(CatalogReference::new);
+        return schemaName.map(sn -> new SchemaReference(catalog, sn))
+                .or(() -> catalogName.map(cn -> new SchemaReference(Optional.empty(), cn)));
+    }
+
     private List<CatalogReference> getCatalogs(DatabaseMetaData databaseMetaData) throws SQLException {
 
         List<CatalogReference> catalogs = new ArrayList<>();
@@ -500,7 +512,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 final Optional<String> oRefGen = getColumnValue(rs, columnNames, "REF_GENERATION");
 
                 Optional<CatalogReference> oCatRef = oCatalogName.map(cn -> new CatalogReference(cn));
-                Optional<SchemaReference> oSchemaRef = oSchemaName.map(sn -> new SchemaReference(oCatRef, sn));
+                Optional<SchemaReference> oSchemaRef = namespaceOf(oCatalogName, oSchemaName);
 
                 TableReference tableReference = new TableReference(oSchemaRef, tableName, tableType);
                 TableMetaData tableMetaData = new TableMetaDataRecord(oRemarks, oTypeCat, oTypeSchema, oTypeName,
@@ -730,7 +742,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 }
 
                 Optional<CatalogReference> oCatRef = oCatalogName.map(cn -> new CatalogReference(cn));
-                Optional<SchemaReference> oSchemaRef = oSchemaName.map(sn -> new SchemaReference(oCatRef, sn));
+                Optional<SchemaReference> oSchemaRef = namespaceOf(oCatalogName, oSchemaName);
 
                 JDBCType jdbcType;
                 try {
@@ -811,13 +823,13 @@ public class DatabaseServiceImpl implements DatabaseService {
 
                 // PK
                 Optional<CatalogReference> oCatRefPk = oCatalogNamePK.map(cn -> new CatalogReference(cn));
-                Optional<SchemaReference> oSchemaRefPk = oSchemaNamePk.map(sn -> new SchemaReference(oCatRefPk, sn));
+                Optional<SchemaReference> oSchemaRefPk = namespaceOf(oCatalogNamePK, oSchemaNamePk);
                 TableReference tableReferencePk = new TableReference(oSchemaRefPk, tableNamePk);
                 ColumnReference primaryKeyColumn = new ColumnReference(Optional.of(tableReferencePk), columNamePk);
 
                 // FK
                 Optional<CatalogReference> oCatRefFk = oCatalogNameFK.map(cn -> new CatalogReference(cn));
-                Optional<SchemaReference> oSchemaRefFk = oSchemaNameFk.map(sn -> new SchemaReference(oCatRefFk, sn));
+                Optional<SchemaReference> oSchemaRefFk = namespaceOf(oCatalogNameFK, oSchemaNameFk);
                 TableReference tableReferenceFk = new TableReference(oSchemaRefFk, tableNameFk);
                 ColumnReference foreignKeyColumn = new ColumnReference(Optional.of(tableReferenceFk), columNameFk);
 
@@ -927,7 +939,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 final String specificName = rs.getString("SPECIFIC_NAME");
 
                 Optional<CatalogReference> oCatRef = oCatalogName.map(CatalogReference::new);
-                Optional<SchemaReference> oSchemaRef = oSchemaName.map(sn -> new SchemaReference(oCatRef, sn));
+                Optional<SchemaReference> oSchemaRef = namespaceOf(oCatalogName, oSchemaName);
 
                 ProcedureReference reference = new ProcedureReference(oSchemaRef, procedureName, specificName);
 
@@ -1012,7 +1024,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 final String specificName = rs.getString("SPECIFIC_NAME");
 
                 Optional<CatalogReference> oCatRef = oCatalogName.map(CatalogReference::new);
-                Optional<SchemaReference> oSchemaRef = oSchemaName.map(sn -> new SchemaReference(oCatRef, sn));
+                Optional<SchemaReference> oSchemaRef = namespaceOf(oCatalogName, oSchemaName);
 
                 FunctionReference reference = new FunctionReference(oSchemaRef, functionName, specificName);
 
@@ -1157,13 +1169,13 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         // PK
         Optional<CatalogReference> oCatRefPk = oCatalogNamePK.map(CatalogReference::new);
-        Optional<SchemaReference> oSchemaRefPk = oSchemaNamePk.map(sn -> new SchemaReference(oCatRefPk, sn));
+        Optional<SchemaReference> oSchemaRefPk = namespaceOf(oCatalogNamePK, oSchemaNamePk);
         TableReference tableReferencePk = new TableReference(oSchemaRefPk, tableNamePk);
         ColumnReference primaryKeyColumn = new ColumnReference(Optional.of(tableReferencePk), columNamePk);
 
         // FK
         Optional<CatalogReference> oCatRefFk = oCatalogNameFK.map(CatalogReference::new);
-        Optional<SchemaReference> oSchemaRefFk = oSchemaNameFk.map(sn -> new SchemaReference(oCatRefFk, sn));
+        Optional<SchemaReference> oSchemaRefFk = namespaceOf(oCatalogNameFK, oSchemaNameFk);
         TableReference tableReferenceFk = new TableReference(oSchemaRefFk, tableNameFk);
         ColumnReference foreignKeyColumn = new ColumnReference(Optional.of(tableReferenceFk), columNameFk);
 
@@ -1208,7 +1220,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                     jdbcType = JDBCType.OTHER;
                 }
                 Optional<CatalogReference> catRef = oCat.map(CatalogReference::new);
-                Optional<SchemaReference> schemaRef = oSchema.map(sn -> new SchemaReference(catRef, sn));
+                Optional<SchemaReference> schemaRef = namespaceOf(oCat, oSchema);
                 result.add(new UserDefinedTypeRecord(
                         new UserDefinedTypeReference(schemaRef, typeName),
                         className, jdbcType, remarks));
@@ -1297,7 +1309,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 String columnUsage = rs.getString("COLUMN_USAGE");
 
                 Optional<CatalogReference> catRef = oCat.map(CatalogReference::new);
-                Optional<SchemaReference> schemaRef = oSchema.map(sn -> new SchemaReference(catRef, sn));
+                Optional<SchemaReference> schemaRef = namespaceOf(oCat, oSchema);
                 TableReference tableRef = new TableReference(schemaRef, tableName);
                 ColumnReference colRef = new ColumnReference(Optional.of(tableRef), columnName);
 
@@ -1322,7 +1334,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 Optional<String> isGrantable = Optional.ofNullable(rs.getString("IS_GRANTABLE"));
 
                 Optional<CatalogReference> catRef = oCat.map(CatalogReference::new);
-                Optional<SchemaReference> schemaRef = oSchema.map(sn -> new SchemaReference(catRef, sn));
+                Optional<SchemaReference> schemaRef = namespaceOf(oCat, oSchema);
                 TableReference tableRef = new TableReference(schemaRef, tableName);
 
                 result.add(new TablePrivilegeRecord(tableRef, grantor, grantee, privilege, isGrantable));
@@ -1388,7 +1400,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 String superTableName = rs.getString("SUPERTABLE_NAME");
 
                 Optional<CatalogReference> catRef = oCat.map(CatalogReference::new);
-                Optional<SchemaReference> schemaRef = oSchema.map(sn -> new SchemaReference(catRef, sn));
+                Optional<SchemaReference> schemaRef = namespaceOf(oCat, oSchema);
                 TableReference tableRef = new TableReference(schemaRef, tableName);
 
                 result.add(new SuperTableRecord(tableRef, superTableName));
