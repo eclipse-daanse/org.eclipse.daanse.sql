@@ -265,5 +265,4 @@ public class SqliteDialect extends AbstractJdbcDialect {
         cachedMergeGenerator = local;
         return local;
     }
-
 }

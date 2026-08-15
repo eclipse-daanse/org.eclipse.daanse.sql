@@ -199,7 +199,11 @@ public class CsvDataImporter implements FileSystemWatcherListener {
             List<ColumnDefinition> headersTypeList = getHeadersTypeList(types);
             if (it.hasNext()) {
                 createTable(connection, headersTypeList, tableDefinition);
-                insertTable(connection, it, headersTypeList, tableRef);
+                // skipLines = 2: the column-name line and the SQL-type line.
+                if (!DialectAwareLoader.loadNatively(connection, dialect, tableRef, headersTypeList, path,
+                        config.fieldSeparator(), 2, config.nullValue())) {
+                    insertTable(connection, it, headersTypeList, tableRef);
+                }
             }
 
         } catch (IOException e) {
@@ -241,7 +245,10 @@ public class CsvDataImporter implements FileSystemWatcherListener {
             LOGGER.debug("Created table in given database. {}", sql);
 
             stmt.execute(sql);
-            connection.commit();
+            if (!connection.getAutoCommit()) {
+                // commit() on an auto-commit connection is a JDBC error; DuckDB rejects it.
+                connection.commit();
+            }
         } catch (SQLException e) {
             throw new CsvDataImporterException("Exception wile create table", e);
         }
