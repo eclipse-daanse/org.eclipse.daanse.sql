@@ -218,4 +218,34 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return local;
     }
 
+
+    /**
+     * Bulk load via {@code read_csv}. Uses {@code header=false} with {@code skip}
+     * because {@code header=true} would take the type line as the first data row
+     * and turn every column into VARCHAR.
+     */
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.BulkLoadGenerator bulkLoadGenerator() {
+        return new org.eclipse.daanse.sql.dialect.api.generator.BulkLoadGenerator() {
+
+            @Override
+            public boolean supportsBulkLoad() {
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<String> loadFromDelimitedFile(
+                    org.eclipse.daanse.sql.model.schema.TableReference target, java.util.List<String> columns,
+                    java.nio.file.Path csvFile, char delimiter, int skipLines, String nullLiteral) {
+                String quotedColumns = columns.stream().map(DuckDbDialect.this::quoteIdentifier)
+                        .collect(java.util.stream.Collectors.joining(", "));
+                String file = csvFile.toAbsolutePath().toString().replace("'", "''");
+                return java.util.Optional.of("INSERT INTO " + qualified(target) + " (" + quotedColumns
+                        + ") SELECT * FROM read_csv('" + file + "', header=false, skip=" + skipLines + ", delim='"
+                        + (delimiter == '\'' ? "''" : String.valueOf(delimiter)) + "', nullstr='"
+                        + nullLiteral.replace("'", "''") + "')");
+            }
+        };
+    }
+
 }

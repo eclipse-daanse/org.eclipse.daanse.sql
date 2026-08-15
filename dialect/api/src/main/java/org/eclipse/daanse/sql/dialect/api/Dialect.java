@@ -158,6 +158,15 @@ public interface Dialect
     }
 
     /**
+     * Bulk-load statement emission ({@code CSVREAD}, {@code COPY},
+     * {@code LOAD DATA ...}).
+     */
+    default org.eclipse.daanse.sql.dialect.api.generator.BulkLoadGenerator bulkLoadGenerator() {
+        return new org.eclipse.daanse.sql.dialect.api.generator.BulkLoadGenerator() {
+        };
+    }
+
+    /**
      * Type-cast emission ({@code CAST(x AS T)}, {@code TRY_CAST},
      * {@code SAFE_CAST}).
      */

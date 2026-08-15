@@ -397,4 +397,5 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     public boolean supportsNthValue() {
         return true;
     }
+
 }
