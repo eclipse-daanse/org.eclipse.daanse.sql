@@ -12,6 +12,7 @@
 */
 package org.eclipse.daanse.sql.dialect.db.duckdb;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,6 +20,8 @@ import java.util.regex.PatternSyntaxException;
 
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+import org.eclipse.daanse.sql.model.sql.BitOperation;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 
 /**
  * Dialect for DuckDB (embedded, Postgres-flavored ANSI analytical database).
@@ -248,4 +251,103 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         };
     }
 
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        StringBuilder buf = new StringBuilder(64);
+        buf.append("STRING_AGG");
+        buf.append("( ");
+        if (distinct && (columns == null || columns.isEmpty())) { // DISTINCT has error if we have ORDER BY for duckDb
+            buf.append("DISTINCT ");
+        }
+        buf.append(operand);
+        if (separator != null) {
+            buf.append(", '").append(separator).append("' ");
+        }
+
+        if (columns != null && !columns.isEmpty()) {
+            buf.append("ORDER BY ");
+            buf.append(buildOrderedColumnsClause(columns));
+        }
+        buf.append(")");
+        // STRING_AGG(name, ', ' ORDER BY hire_date)
+
+        return java.util.Optional.of((buf).toString());
+    }
+
+
+    @Override
+    public java.util.Optional<String> generateBitAggregation(BitOperation operation, CharSequence operand) {
+        StringBuilder buf = new StringBuilder(64);
+        StringBuilder result = switch (operation) {
+        case AND -> buf.append("bit_and(").append(operand).append(")");
+        case OR -> buf.append("bit_or(").append(operand).append(")");
+        case XOR -> buf.append("bit_xor(").append(operand).append(")");
+        case NAND -> buf.append("~(bit_and(").append(operand).append("))");
+        case NOR -> buf.append("~(bit_or(").append(operand).append("))");
+        case NXOR -> buf.append("~(bit_xor(").append(operand).append("))");
+        };
+        return java.util.Optional.of(result.toString());
+    }
+
+    @Override
+    public boolean supportsBitAggregation(BitOperation operation) {
+        return true; // DucDb supports all bit operations
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileDisc(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("quantile_disc", percentile, desc, tableName, columnName)).toString());
+    }
+
+	@Override
+    public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("quantile_cont", percentile, desc, tableName, columnName)).toString());
+    }
+
+    public StringBuilder buildPercentileFunction(String functionName, double percentile, boolean desc, String tableName,
+            String columnName) {
+        StringBuilder buf = new StringBuilder(64);
+        buf.append(functionName).append("(");
+        if (tableName != null) {
+            quoteIdentifier(buf, tableName, columnName);
+        } else {
+            quoteIdentifier(buf, columnName);
+        }
+        buf.append(", ");
+        buf.append(percentile);
+        buf.append(")");
+        return buf;
+    }
+
+    @Override
+    public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
+            List<OrderedColumn> columns) {
+        return java.util.Optional
+                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+    }
+
+    @Override
+    public boolean supportsPercentileDisc() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsPercentileCont() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsNthValue() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
 }
