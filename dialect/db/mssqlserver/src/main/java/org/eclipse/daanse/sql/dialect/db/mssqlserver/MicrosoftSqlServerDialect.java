@@ -629,18 +629,27 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
 
     @Override
     public String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
         return spRename(qualified(table) + "." + quoteIdentifier(oldName), newName, "COLUMN");
     }
 
     /** SQL Server: {@code EXEC sp_rename 'schema.table', 'new'}. */
     @Override
     public String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
         return spRename(qualified(table), newName, null);
     }
 
     /** SQL Server: {@code EXEC sp_rename 'schema.table.idx', 'new', 'INDEX'}. */
     @Override
     public String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
         if (table == null) {
             throw new IllegalArgumentException("table must not be null for SQL Server sp_rename INDEX");
         }
@@ -653,6 +662,9 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
      */
     @Override
     public String renameConstraint(TableReference table, String oldName, String newName) {
+        if (!supportsRenameConstraint()) {
+            return null;
+        }
         return spRename(qualified(table) + "." + quoteIdentifier(oldName), newName, "OBJECT");
     }
 
@@ -668,6 +680,22 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         if (objectType != null)
             sb.append(", '").append(objectType).append("'");
         return sb.toString();
+    }
+
+    /**
+     * SQL Server: {@code sp_rename} technically renames a view, but it does not
+     * update the view's stored definition text or any dependent objects —
+     * treated as unsupported here rather than silently producing a broken view.
+     */
+    @Override
+    public boolean supportsRenameView() {
+        return false;
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.seq', 'new'}. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
     }
 
     /** SQL Server memberships are {@code ALTER ROLE}; there is no ADMIN OPTION — the flag is ignored. */
@@ -698,5 +726,14 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
         return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
                 + quoteIdentifier(grantee);
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.seq', 'new'}. */
+    @Override
+    public Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(spRename(quoteIdentifier(schemaName, name), newName, "OBJECT"));
     }
 }

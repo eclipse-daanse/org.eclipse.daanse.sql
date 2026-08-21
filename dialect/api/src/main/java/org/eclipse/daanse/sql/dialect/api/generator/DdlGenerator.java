@@ -292,21 +292,33 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     }
 
     default String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME COLUMN ")
                 .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
     }
 
     default String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME TO ")
                 .append(quoteIdentifier(newName)).toString();
     }
 
     default String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
         return new StringBuilder("ALTER INDEX ").append(quoteIdentifier(oldName)).append(" RENAME TO ")
                 .append(quoteIdentifier(newName)).toString();
     }
 
     default String renameConstraint(TableReference table, String oldName, String newName) {
+        if (!supportsRenameConstraint()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME CONSTRAINT ")
                 .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
     }
@@ -966,5 +978,108 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     default String qualifiedRoutine(String schemaName, String routineName) {
         return schemaName == null || schemaName.isBlank() ? quoteIdentifier(routineName)
                 : quoteIdentifier(schemaName, routineName);
+    }
+
+    /** @return true if {@code renameTable} renders a valid statement */
+    default boolean supportsRenameTable() {
+        return true;
+    }
+
+    /** @return true if {@code renameColumn} renders a valid statement */
+    default boolean supportsRenameColumn() {
+        return true;
+    }
+
+    /** @return true if {@code renameIndex} renders a valid statement */
+    default boolean supportsRenameIndex() {
+        return true;
+    }
+
+    /** @return true if {@code renameConstraint} renders a valid statement */
+    default boolean supportsRenameConstraint() {
+        return true;
+    }
+
+    /**
+     * @return true if {@code renameTables} renders ONE statement that applies all
+     *         renames atomically (MySQL family {@code RENAME TABLE a TO b, c TO d},
+     *         ClickHouse {@code RENAME TABLE}); false when the default renders one
+     *         statement per pair with no atomicity guarantee
+     */
+    default boolean supportsAtomicMultiRenameTable() {
+        return false;
+    }
+
+    /** @return true if {@code renameView} renders a valid statement */
+    default boolean supportsRenameView() {
+        return true;
+    }
+
+    /** @return true if {@code renameTrigger} renders a valid statement */
+    default boolean supportsRenameTrigger() {
+        return false;
+    }
+
+    /** @return true if {@code renameSequence} renders a valid statement */
+    default boolean supportsRenameSequence() {
+        return false;
+    }
+
+    /** One table-rename step of a multi-rename. */
+    record TableRename(TableReference table, String newName) {
+    }
+
+    /**
+     * Renames several tables. Atomic (one statement, e.g. the classic
+     * {@code a→tmp, b→a, tmp→b} swap) when {@code supportsAtomicMultiRenameTable()};
+     * otherwise one {@code renameTable} statement per step, in list order, no
+     * atomicity guarantee. Empty when any step is unsupported.
+     */
+    default List<String> renameTables(List<TableRename> renames) {
+        if (!supportsRenameTable() || renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        return renames.stream().map(r -> renameTable(r.table(), r.newName())).toList();
+    }
+
+    /** {@code ALTER VIEW schema.view RENAME TO new}. Null when unsupported. */
+    default String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("ALTER VIEW ").append(qualified(view)).append(" RENAME TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * PostgreSQL shape: {@code ALTER TRIGGER name ON schema.table RENAME TO new} —
+     * the trigger's table is part of the statement, so it is part of the
+     * signature. Null when unsupported (the default flag is false; PostgreSQL and
+     * Oracle switch it on).
+     */
+    default String renameTrigger(String triggerName, TableReference table, String newName) {
+        if (!supportsRenameTrigger()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TRIGGER ").append(quoteIdentifier(triggerName)).append(" ON ")
+                .append(qualified(table)).append(" RENAME TO ").append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code ALTER SEQUENCE schema.name RENAME TO new}. Empty when unsupported. */
+    default Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringBuilder("ALTER SEQUENCE ").append(quoteIdentifier(schemaName, name))
+                .append(" RENAME TO ").append(quoteIdentifier(newName)).toString());
+    }
+
+    /**
+     * Rename with the column's full definition in hand. The default ignores the
+     * metadata; the MySQL family uses it to render the pre-8.0/10.5.2
+     * {@code ALTER TABLE t CHANGE old new <definition>} fallback.
+     */
+    default String renameColumn(TableReference table, String oldName, String newName, ColumnMetaData currentMeta) {
+        return renameColumn(table, oldName, newName);
     }
 }

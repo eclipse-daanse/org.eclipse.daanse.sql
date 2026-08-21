@@ -173,6 +173,40 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return Optional.of(sb.toString());
     }
 
+    /** DuckDB has no {@code ALTER INDEX ... RENAME} — verified unsupported. */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false;
+    }
+
+    /** DuckDB has no constraint rename — verified unsupported. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /**
+     * True — DuckDB supports the ANSI {@code RENAME TO} syntax. It still rejects
+     * it at runtime with a "Dependency Error" if the table has a dependent
+     * object (e.g. an index); that's a runtime constraint, not a syntax gap, so
+     * the flag stays true and callers must handle the failure themselves.
+     */
+    @Override
+    public boolean supportsRenameTable() {
+        return true;
+    }
+
+    /**
+     * True — DuckDB supports the ANSI {@code RENAME COLUMN} syntax. Same runtime
+     * caveat as {@link #supportsRenameTable}: rejected with a "Dependency Error"
+     * when the column has a dependent index, not because the syntax is
+     * unsupported.
+     */
+    @Override
+    public boolean supportsRenameColumn() {
+        return true;
+    }
+
     /** DuckDB supports {@code GROUPING SETS}, {@code ROLLUP} and {@code CUBE}. */
     @Override
     public boolean supportsGroupingSets() {

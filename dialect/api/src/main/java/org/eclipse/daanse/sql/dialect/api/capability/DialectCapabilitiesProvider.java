@@ -42,7 +42,9 @@ public interface DialectCapabilitiesProvider {
                 dropIndexRequiresTable(), supportsCreateTableIfNotExists(), supportsCreateIndexIfNotExists(),
                 supportsDropIndexIfExists(), supportsCreateOrReplaceView(), supportsCreateOrReplaceTrigger(),
                 supportsDropViewIfExists(), supportsDropConstraintIfExists(), supportsDropTableIfExists(),
-                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength());
+                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength(),
+                supportsRenameTable(), supportsRenameColumn(), supportsRenameIndex(), supportsRenameConstraint(),
+                supportsAtomicMultiRenameTable(), supportsRenameView(), supportsRenameTrigger(), supportsRenameSequence());
     }
 
     int getMaxColumnNameLength();
@@ -239,4 +241,21 @@ public interface DialectCapabilitiesProvider {
     default boolean supportsNullsLast() {
         return true;
     }
+
+    boolean supportsRenameSequence();
+
+    boolean supportsRenameTrigger();
+
+    boolean supportsRenameView();
+
+    boolean supportsAtomicMultiRenameTable();
+
+    boolean supportsRenameConstraint();
+
+    boolean supportsRenameIndex();
+
+    boolean supportsRenameColumn();
+
+    boolean supportsRenameTable();
+
 }

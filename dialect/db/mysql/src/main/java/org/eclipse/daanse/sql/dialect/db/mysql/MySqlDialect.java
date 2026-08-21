@@ -622,11 +622,64 @@ public class MySqlDialect extends AbstractJdbcDialect {
     // it.
 
     /**
+     * MySQL 8.0+. Overridden by {@code MariaDBDialect}: its native rename landed
+     * at 10.5.2, not comparable to MySQL's 8.0 cut since MariaDB's own
+     * major/minor numbering (10.x/11.x) needs its own gate.
+     */
+    protected boolean supportsNativeRenameColumn() {
+        return dialectVersion.isUnknownOrAtLeast(8, 0);
+    }
+
+    /**
+     * MySQL 8.0+: ANSI {@code RENAME COLUMN}. Before 8.0, null —
+     * {@code supportsRenameColumn()} stays true because the capability is
+     * expressed through the {@code currentMeta} overload's {@code CHANGE}
+     * fallback instead.
+     */
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn() || !supportsNativeRenameColumn()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME COLUMN ")
+                .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * MySQL 8.0+: delegates to the metadata-free form. Before 8.0:
+     * {@code ALTER TABLE t CHANGE old new <definition>} — needs
+     * {@code currentMeta} to restate the column's full definition.
+     */
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName, ColumnMetaData currentMeta) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
+        if (supportsNativeRenameColumn()) {
+            return renameColumn(table, oldName, newName);
+        }
+        if (currentMeta == null) {
+            throw new IllegalArgumentException("currentMeta must not be null for the CHANGE-based rename fallback");
+        }
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" CHANGE ")
+                .append(quoteIdentifier(oldName)).append(' ').append(quoteIdentifier(newName)).append(' ')
+                .append(nativeType(currentMeta));
+        if (currentMeta.nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        currentMeta.columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        return sb.toString();
+    }
+
+    /**
      * MySQL: {@code ALTER TABLE x RENAME INDEX old TO new} — index names are
      * table-scoped.
      */
     @Override
     public String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
         if (table == null) {
             throw new IllegalArgumentException("table must not be null for MySQL RENAME INDEX");
         }
@@ -638,6 +691,43 @@ public class MySqlDialect extends AbstractJdbcDialect {
     @Override
     public String renameConstraint(TableReference table, String oldName, String newName) {
         return null;
+    }
+
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /** MySQL/MariaDB rename views with RENAME TABLE. */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(view)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code RENAME TABLE a TO b, c TO d} — one atomic statement (table swap). */
+    @Override
+    public List<String> renameTables(List<TableRename> renames) {
+        if (renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sb = new StringBuilder("RENAME TABLE ");
+        for (int i = 0; i < renames.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            TableRename r = renames.get(i);
+            sb.append(qualified(r.table())).append(" TO ").append(quoteIdentifier(r.newName()));
+        }
+        return List.of(sb.toString());
+    }
+
+    @Override
+    public boolean supportsAtomicMultiRenameTable() {
+        return true;
     }
 
     private static org.eclipse.daanse.sql.dialect.api.DialectInitData initDataFor(java.sql.Connection c) {

@@ -22,10 +22,8 @@
 
 package org.eclipse.daanse.sql.dialect.db.mariadb;
 
-import java.util.List;
-import java.util.Optional;
-
 import org.eclipse.daanse.sql.dialect.db.mysql.MySqlDialect;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 
 public class MariaDBDialect extends MySqlDialect {
 
@@ -93,6 +91,37 @@ public class MariaDBDialect extends MySqlDialect {
     @Override
     public boolean supportsDropConstraintIfExists() {
         return dialectVersion.isUnknownOrAtLeast(10, 5);
+    }
+
+    /**
+     * MariaDB's native {@code RENAME COLUMN} landed in 10.5.2 — not comparable to
+     * MySQL's inherited 8.0 threshold, since MariaDB's own 10.x/11.x numbering
+     * would always satisfy {@code isUnknownOrAtLeast(8, 0)}. Below 10.5,
+     * {@link #renameColumn(TableReference, String, String)} falls back to null.
+     */
+    @Override
+    protected boolean supportsNativeRenameColumn() {
+        return dialectVersion.isUnknownOrAtLeast(10, 5);
+    }
+
+    @Override
+    public boolean supportsRenameSequence() {
+        return dialectVersion.isUnknownOrAtLeast(10, 5);
+    }
+
+    /**
+     * MariaDB ≥ 10.5.2: {@code ALTER TABLE "schema"."seq" RENAME TO "new"} —
+     * sequences live in the table namespace, so there is no
+     * {@code ALTER SEQUENCE ... RENAME TO} (verified live).
+     */
+    @Override
+    public java.util.Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return java.util.Optional.empty();
+        }
+        String qualified = schemaName != null && !schemaName.isBlank() ? quoteIdentifier(schemaName, name)
+                : quoteIdentifier(name);
+        return java.util.Optional.of("ALTER TABLE " + qualified + " RENAME TO " + quoteIdentifier(newName));
     }
 
     @Override
