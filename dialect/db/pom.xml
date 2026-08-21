@@ -39,5 +39,6 @@
     <module>oracle</module>
     <module>postgresql</module>
     <module>sqlite</module>
+    <module>consistency-test</module>
   </modules>
 </project>

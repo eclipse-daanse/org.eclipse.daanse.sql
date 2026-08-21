@@ -20,6 +20,7 @@ package org.eclipse.daanse.sql.dialect.db.clickhouse;
 
 import java.util.List;
 
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
@@ -150,6 +151,18 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
         return false;
     }
 
+    /** ClickHouse has no index rename — it has no b-tree index DDL at all (see {@link #supportsIndexDdl}). */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false; // skipping indexes: only DROP INDEX / ADD INDEX
+    }
+
+    /** ClickHouse has no constraint rename. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
     @Override
     public boolean supportsCreateOrReplaceView() {
         return false;
@@ -236,4 +249,51 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
     public boolean supportsListAgg() {
         return true;
     }
+
+    /** ClickHouse: {@code RENAME TABLE a TO b} — there is no ALTER TABLE … RENAME TO. */
+    @Override
+    public String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(table)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * ClickHouse views are table-like; {@code RENAME TABLE} covers them. Renders
+     * the statement directly rather than delegating to {@link #renameTable} so
+     * the two capability flags stay independent.
+     */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(view)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code RENAME TABLE a TO b, c TO d} — one atomic statement. */
+    @Override
+    public List<String> renameTables(List<TableRename> renames) {
+        if (renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sb = new StringBuilder("RENAME TABLE ");
+        for (int i = 0; i < renames.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            TableRename r = renames.get(i);
+            sb.append(qualified(r.table())).append(" TO ").append(quoteIdentifier(r.newName()));
+        }
+        return List.of(sb.toString());
+    }
+
+    @Override
+    public boolean supportsAtomicMultiRenameTable() {
+        return true;
+    }
+
 }

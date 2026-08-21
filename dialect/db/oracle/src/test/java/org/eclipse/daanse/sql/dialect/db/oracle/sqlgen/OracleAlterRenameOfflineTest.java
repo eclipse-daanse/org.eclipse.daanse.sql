@@ -30,6 +30,7 @@ class OracleAlterRenameOfflineTest {
 
     private static final SchemaReference S = new SchemaReference(Optional.empty(), "HR");
     private static final TableReference T = new TableReference(Optional.of(S), "EMPLOYEES", TableReference.TYPE_TABLE);
+    private static final TableReference V = new TableReference(Optional.of(S), "V_EMP", TableReference.TYPE_VIEW);
 
     private final OracleDialect dialect = new OracleDialect();
 
@@ -75,5 +76,23 @@ class OracleAlterRenameOfflineTest {
                 .isEqualTo("ALTER INDEX \"IDX_OLD\" RENAME TO \"IDX_NEW\"");
         assertThat(dialect.ddlGenerator().renameConstraint(T, "OLD_FK", "NEW_FK"))
                 .isEqualTo("ALTER TABLE \"HR\".\"EMPLOYEES\" RENAME CONSTRAINT \"OLD_FK\" TO \"NEW_FK\"");
+    }
+
+    @Test
+    void renameView_uses_unqualified_RENAME() {
+        assertThat(dialect.ddlGenerator().renameView(V, "V_STAFF"))
+                .isEqualTo("RENAME \"V_EMP\" TO \"V_STAFF\"");
+    }
+
+    @Test
+    void renameTrigger_uses_ALTER_TRIGGER_with_no_ON_clause() {
+        assertThat(dialect.ddlGenerator().renameTrigger("TRG_AUDIT", T, "TRG_LOG"))
+                .isEqualTo("ALTER TRIGGER \"TRG_AUDIT\" RENAME TO \"TRG_LOG\"");
+    }
+
+    @Test
+    void renameSequence_uses_unqualified_RENAME() {
+        assertThat(dialect.ddlGenerator().renameSequence("HR", "SEQ_EMP", "SEQ_STAFF"))
+                .contains("RENAME \"SEQ_EMP\" TO \"SEQ_STAFF\"");
     }
 }

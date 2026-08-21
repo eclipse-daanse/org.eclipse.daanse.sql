@@ -23,6 +23,7 @@ import java.util.List;
 
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 
 /**
  * @author jhyde
@@ -82,6 +83,18 @@ public class DerbyDialect extends AbstractJdbcDialect {
 
     @Override
     public boolean supportsDropConstraintIfExists() {
+        return false;
+    }
+
+    /** Derby has no constraint rename — verified unsupported. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /** Derby has no {@code RENAME VIEW} — verified unsupported. */
+    @Override
+    public boolean supportsRenameView() {
         return false;
     }
 
@@ -157,4 +170,47 @@ public class DerbyDialect extends AbstractJdbcDialect {
     public String name() {
         return SUPPORTED_PRODUCT_NAME.toLowerCase();
     }
+
+    /**
+     * Derby: {@code RENAME TABLE "schema"."old" TO "new"} — its own statement
+     * shape, not the SQL-99 {@code ALTER TABLE ... RENAME TO ...} default. The
+     * new name is unqualified; only the source side carries the schema.
+     */
+    @Override
+    public String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(table)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * Derby: {@code RENAME COLUMN "schema"."table"."old" TO "new"} — the column
+     * being renamed is addressed as a schema-qualified {@code table.column} path,
+     * not the SQL-99 {@code ALTER TABLE ... RENAME COLUMN ...} default.
+     */
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
+        return new StringBuilder("RENAME COLUMN ").append(qualified(table)).append('.')
+                .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * Derby: {@code RENAME INDEX "old" TO "new"} — unqualified and with no
+     * owning table, unlike the SQL-99 {@code ALTER INDEX ... RENAME TO ...}
+     * default.
+     */
+    @Override
+    public String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
+        return new StringBuilder("RENAME INDEX ").append(quoteIdentifier(oldName)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
 }

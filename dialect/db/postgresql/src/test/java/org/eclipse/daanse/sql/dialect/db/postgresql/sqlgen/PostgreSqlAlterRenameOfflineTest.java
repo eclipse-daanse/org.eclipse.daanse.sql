@@ -12,12 +12,14 @@ package org.eclipse.daanse.sql.dialect.db.postgresql.sqlgen;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.JDBCType;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.TableRename;
 import org.eclipse.daanse.sql.dialect.db.postgresql.PostgreSqlDialect;
 import org.eclipse.daanse.sql.jdbc.record.schema.ColumnMetaDataRecord;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,8 @@ class PostgreSqlAlterRenameOfflineTest {
 
     private static final SchemaReference S = new SchemaReference(Optional.empty(), "PUBLIC");
     private static final TableReference T = new TableReference(Optional.of(S), "EMPLOYEES", TableReference.TYPE_TABLE);
+    private static final TableReference T2 = new TableReference(Optional.of(S), "DEPARTMENTS", TableReference.TYPE_TABLE);
+    private static final TableReference V = new TableReference(Optional.of(S), "V_EMP", TableReference.TYPE_VIEW);
 
     private final PostgreSqlDialect dialect = new PostgreSqlDialect();
 
@@ -83,5 +87,34 @@ class PostgreSqlAlterRenameOfflineTest {
     void renameConstraint_emits_RENAME_CONSTRAINT() {
         assertThat(dialect.ddlGenerator().renameConstraint(T, "OLD_FK", "NEW_FK"))
                 .isEqualTo("ALTER TABLE \"PUBLIC\".\"EMPLOYEES\" RENAME CONSTRAINT \"OLD_FK\" TO \"NEW_FK\"");
+    }
+
+    @Test
+    void renameView_emits_ALTER_VIEW_RENAME_TO() {
+        assertThat(dialect.ddlGenerator().renameView(V, "V_STAFF"))
+                .isEqualTo("ALTER VIEW \"PUBLIC\".\"V_EMP\" RENAME TO \"V_STAFF\"");
+    }
+
+    @Test
+    void renameTrigger_emits_ALTER_TRIGGER_ON_table() {
+        assertThat(dialect.ddlGenerator().renameTrigger("TRG_AUDIT", T, "TRG_LOG"))
+                .isEqualTo("ALTER TRIGGER \"TRG_AUDIT\" ON \"PUBLIC\".\"EMPLOYEES\" RENAME TO \"TRG_LOG\"");
+    }
+
+    @Test
+    void renameSequence_emits_ALTER_SEQUENCE_RENAME_TO() {
+        assertThat(dialect.ddlGenerator().renameSequence("PUBLIC", "SEQ_EMP", "SEQ_STAFF"))
+                .contains("ALTER SEQUENCE \"PUBLIC\".\"SEQ_EMP\" RENAME TO \"SEQ_STAFF\"");
+    }
+
+    @Test
+    void renameTables_emits_one_ALTER_TABLE_per_step_in_order_not_atomic() {
+        assertThat(dialect.ddlGenerator().supportsAtomicMultiRenameTable()).isFalse();
+        assertThat(dialect.ddlGenerator().renameTables(List.of(
+                new TableRename(T, "STAFF"),
+                new TableRename(T2, "DEPTS"))))
+                .containsExactly(
+                        "ALTER TABLE \"PUBLIC\".\"EMPLOYEES\" RENAME TO \"STAFF\"",
+                        "ALTER TABLE \"PUBLIC\".\"DEPARTMENTS\" RENAME TO \"DEPTS\"");
     }
 }

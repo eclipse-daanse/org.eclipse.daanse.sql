@@ -656,6 +656,18 @@ public class OracleDialect extends AbstractJdbcDialect {
 
     // RENAME COLUMN/TABLE/INDEX/CONSTRAINT inherit the SQL-99 default.
 
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO newname}. */
+    @Override
+    public boolean supportsRenameTrigger() {
+        return true;
+    }
+
+    /** Oracle: {@code RENAME oldname TO newname} — also used for views and sequences. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
     /** Oracle takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
     @Override
     public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
@@ -673,5 +685,38 @@ public class OracleDialect extends AbstractJdbcDialect {
     public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
         return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
                 + quoteIdentifier(grantee);
+    }
+
+    /**
+     * Oracle renames views with the standalone {@code RENAME old TO new}, which
+     * only works in the current schema — no qualification of either side.
+     */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME ").append(quoteIdentifier(view.name())).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO new} — no table clause. */
+    @Override
+    public String renameTrigger(String triggerName, TableReference table, String newName) {
+        if (!supportsRenameTrigger()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TRIGGER ").append(quoteIdentifier(triggerName)).append(" RENAME TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code RENAME old TO new} — current schema only. */
+    @Override
+    public Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringBuilder("RENAME ").append(quoteIdentifier(name)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString());
     }
 }

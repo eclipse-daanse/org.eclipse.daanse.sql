@@ -87,6 +87,24 @@ public class SqliteDialect extends AbstractJdbcDialect {
         return false;
     }
 
+    /** SQLite has no {@code ALTER INDEX ... RENAME}. */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false;
+    }
+
+    /** SQLite can't rename constraints — same reason it can't drop them. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /** SQLite has no {@code ALTER VIEW ... RENAME}. */
+    @Override
+    public boolean supportsRenameView() {
+        return false;
+    }
+
     @Override
     public boolean supportsDropTableCascade() {
         return false;

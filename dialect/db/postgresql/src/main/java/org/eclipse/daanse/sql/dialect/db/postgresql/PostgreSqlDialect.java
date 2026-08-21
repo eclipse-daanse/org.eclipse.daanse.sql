@@ -242,6 +242,21 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return java.util.List.of(sb.toString());
     }
 
+    /**
+     * PostgreSQL: {@code ALTER TRIGGER name ON table RENAME TO newname} — unlike
+     * most objects, a trigger rename needs the owning table.
+     */
+    @Override
+    public boolean supportsRenameTrigger() {
+        return true;
+    }
+
+    /** PostgreSQL: {@code ALTER SEQUENCE name RENAME TO newname}. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
     @Override
     public StringBuilder generateOrderByNulls(CharSequence expr, boolean ascending, boolean collateNullsLast) {
         // Support for "ORDER BY ... NULLS LAST" was introduced in Postgres 8.3.
