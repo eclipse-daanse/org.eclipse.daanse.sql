@@ -57,6 +57,7 @@ public class TranspilerSqlGuard implements SqlGuard {
     private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
     private static final String NOTHING_WAS_SELECTED = "Nothing was selected.";
     private static final String QUERY_HAS_DISAllOWED_FUNCTIONS = "Query has disallowed functions.";
+    private static final String COULD_NOT_VALIDATE = "Statement could not be validated.";
     private static final Logger LOGGER = LoggerFactory.getLogger(TranspilerSqlGuard.class);
     private JdbcMetaData jdbcMetaDataToCopy;
     private List<String> whitelistFunctionsPatterns = new ArrayList<String>();
@@ -176,6 +177,11 @@ public class TranspilerSqlGuard implements SqlGuard {
         } catch (CatalogNotFoundException | ColumnNotFoundException | SchemaNotFoundException
             | TableNotDeclaredException | TableNotFoundException ex) {
             throw new UnresolvableObjectsGuardException(ex.getMessage());
+        } catch (RuntimeException ex) {
+            // Fail closed: any unexpected error while validating untrusted SQL must
+            // deny the statement, never let it through or leak an internal exception.
+            LOGGER.atWarn().setCause(ex).log(COULD_NOT_VALIDATE);
+            throw new GuardException(COULD_NOT_VALIDATE);
         }
 
     }
