@@ -269,6 +269,19 @@ public class SqlGuardTest {
     private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
 
     private static final String DELETE_IS_NOT_PERMITTED = "DELETE is not permitted.";
+
+    private static final String SQL_SELECT_INTO = "SELECT foo.id INTO bar FROM foo";
+
+    private static final String SQL_SELECT_FOR_UPDATE = "SELECT foo.id FROM foo FOR UPDATE";
+
+    private static final String SQL_SELECT_FOR_SHARE = "SELECT foo.id FROM foo FOR SHARE";
+
+    private static final String SQL_UNION_FOR_UPDATE = """
+            SELECT foo.id FROM foo UNION SELECT fooFact.id FROM fooFact FOR UPDATE""";
+
+    private static final String SELECT_INTO_IS_NOT_PERMITTED = "SELECT INTO is not permitted.";
+
+    private static final String ROW_LOCKING_IS_NOT_PERMITTED = "Row locking (FOR UPDATE/SHARE) is not permitted.";
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
 
@@ -1086,6 +1099,50 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             assertNotNull(guard.guard(SQL_VALID_CTE));
+        }
+    }
+
+    @Nested
+    @DisplayName("Side-Effecting Select Security Tests (SELECT INTO / FOR UPDATE)")
+    class SideEffectingSelectSecurityTests {
+
+        // These parse as a Select but are not read-only: SELECT INTO writes a table,
+        // FOR UPDATE/SHARE takes row locks. They must be rejected by the read-only gate.
+
+        @Test
+        void testSelectInto(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_INTO))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForShare(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_SHARE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testUnionForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
         }
     }
 
