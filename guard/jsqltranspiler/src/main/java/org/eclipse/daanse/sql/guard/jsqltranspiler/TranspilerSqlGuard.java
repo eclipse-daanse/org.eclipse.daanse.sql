@@ -16,6 +16,7 @@ package org.eclipse.daanse.sql.guard.jsqltranspiler;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -90,6 +91,13 @@ public class TranspilerSqlGuard implements SqlGuard {
 
             // we can test for SELECT, though in practise it won't protect us from harmful statements
             if (st instanceof Select) {
+
+                // A statement can parse as a Select yet still carry a data-modifying
+                // statement wrapped in a WITH item (e.g. WITH x AS (UPDATE ...) SELECT ...).
+                // The resolver does not populate its update/insert column lists for that
+                // case, so reject it explicitly before anything else.
+                validateReadOnly((Select) st);
+
                 resolver.resolve(st);
 
                 // select columns should not be empty
@@ -170,6 +178,18 @@ public class TranspilerSqlGuard implements SqlGuard {
             throw new UnresolvableObjectsGuardException(ex.getMessage());
         }
 
+    }
+
+    private static void validateReadOnly(Select select) throws GuardException {
+        Optional<String> violation = new ReadOnlyStatementValidator().firstViolation(select);
+        if (violation.isPresent()) {
+            String message = violation.get();
+            LOGGER.atInfo().log(message);
+            if (ReadOnlyStatementValidator.STATEMENT_IS_NOT_PERMITTED.equals(message)) {
+                throw new UnallowedStatementTypeGuardException(message);
+            }
+            throw new GuardException(message);
+        }
     }
 
     private static JdbcMetaData calculateMetaData(String currentCatalogName, String currentSchemaName,

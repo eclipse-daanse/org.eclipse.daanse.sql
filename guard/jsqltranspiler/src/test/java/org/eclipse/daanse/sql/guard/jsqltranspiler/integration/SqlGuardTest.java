@@ -242,6 +242,33 @@ public class SqlGuardTest {
             WITH cte1 AS (SELECT foo.id FROM foo),
                  cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
+
+    private static final String SQL_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='pwned' WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_UPDATE_ALL_ROWS = """
+            WITH x AS (UPDATE foo SET name='pwned') SELECT id FROM foo""";
+
+    private static final String SQL_MULTIPLE_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='a' RETURNING id),
+                 y AS (UPDATE foo SET name='b' RETURNING id)
+            SELECT id FROM foo""";
+
+    private static final String SQL_CTE_INSERT = """
+            WITH x AS (INSERT INTO foo (id, name) VALUES (1, 'a') RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_DELETE = """
+            WITH x AS (DELETE FROM foo WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_NESTED_SUBQUERY_CTE_UPDATE = """
+            SELECT foo.id FROM foo
+            WHERE foo.id IN (SELECT sub.id FROM (WITH y AS (UPDATE foo SET name='z' RETURNING id) SELECT id FROM foo) sub)""";
+
+    private static final String UPDATE_IS_NOT_PERMITTED = "UPDATE is not permitted.";
+
+    private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
+
+    private static final String DELETE_IS_NOT_PERMITTED = "DELETE is not permitted.";
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
 
@@ -990,6 +1017,75 @@ public class SqlGuardTest {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_CTE_WRONG_COLUMN)).isInstanceOf(UnresolvableObjectsGuardException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("CTE Data-Modifying (DML) Security Tests")
+    class CteDmlSecurityTests {
+
+        // A data-modifying CTE parses as a Select and resolves against the whitelisted
+        // table, so it must be rejected by the read-only gate, not the column resolver.
+
+        @Test
+        void testCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteUpdateAllRows(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE_ALL_ROWS))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testMultipleCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteInsert(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_INSERT))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(INSERT_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteDelete(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_DELETE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(DELETE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testNestedSubqueryCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_NESTED_SUBQUERY_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testValidCteStillPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertNotNull(guard.guard(SQL_VALID_CTE));
         }
     }
 
