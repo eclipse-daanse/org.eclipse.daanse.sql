@@ -284,6 +284,12 @@ public class OracleDialect extends AbstractJdbcDialect {
         StringBuilder mappedFlags = new StringBuilder();
         String[][] mapping = new String[][] { { "c", "c" }, { "i", "i" }, { "m", "m" } };
         javaRegex = extractEmbeddedFlags(javaRegex, mapping, mappedFlags);
+        if (mappedFlags.toString().contains("m")) {
+            // MDX MATCHES is anchored over the WHOLE value; Oracle's POSIX
+            // regex has no \A/\z, and under the m flag ^/$ anchor per
+            // line - no correct rendering, the calc engine takes over
+            return Optional.empty();
+        }
 
         final Matcher escapeMatcher = DialectUtil.ESCAPE_PATTERN.matcher(javaRegex);
         while (escapeMatcher.find()) {
@@ -295,7 +301,8 @@ public class OracleDialect extends AbstractJdbcDialect {
         sb.append("REGEXP_LIKE(");
         sb.append(source);
         sb.append(", ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches; POSIX has no non-capturing group
+        quoteStringLiteral(sb, "^(" + javaRegex + ")$");
         sb.append(", ");
         quoteStringLiteral(sb, mappedFlags.toString());
         sb.append(")");

@@ -59,13 +59,19 @@ class OracleDialectTest {
     void testGenerateRegularExpression_CaseInsensitive() throws Exception {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", "(?i)|(?u).*a.*").get()
                 .toString();
-        assertEquals("table.column IS NOT NULL AND REGEXP_LIKE(table.column, '.*a.*', 'i')", sql);
+        assertEquals("table.column IS NOT NULL AND REGEXP_LIKE(table.column, '^(.*a.*)$', 'i')", sql);
+    }
+
+    @Test
+    void testGenerateRegularExpression_MultilineFlag() throws Exception {
+        assertTrue(dialect.regexGenerator().generateRegularExpression("table.column", "(?m).*a.*").isEmpty(),
+                "under (?m) Oracle's ^/$ anchor per line, not per value - no correct rendering");
     }
 
     @Test
     void testGenerateRegularExpression_CaseSensitive() throws Exception {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", ".*a.*").get().toString();
-        assertEquals("table.column IS NOT NULL AND REGEXP_LIKE(table.column, '.*a.*', '')", sql);
+        assertEquals("table.column IS NOT NULL AND REGEXP_LIKE(table.column, '^(.*a.*)$', '')", sql);
     }
 }
 //End OracleDialectTest.java

@@ -54,6 +54,41 @@ class H2DialectTest {
     }
 
     @Nested
+    @DisplayName("Regular Expression Tests")
+    class RegularExpressionTests {
+
+        @Test
+        void testAllowsRegularExpressionInWhereClause() {
+            assertTrue(dialect.allowsRegularExpressionInWhereClause());
+        }
+
+        @Test
+        void testGenerateRegularExpression_InvalidRegex() {
+            assertTrue(dialect.regexGenerator().generateRegularExpression("table.column", "(a").isEmpty(),
+                    "Invalid regex should be ignored");
+        }
+
+        @Test
+        void testGenerateRegularExpression_CaseInsensitive() {
+            String sql = dialect.regexGenerator()
+                    .generateRegularExpression("table.column", "(?i)|(?u).*a.*").orElseThrow();
+            // pattern anchored: MDX MATCHES is Pattern.matches, H2 REGEXP_LIKE finds
+            assertEquals(
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z', 'i')",
+                    sql);
+        }
+
+        @Test
+        void testGenerateRegularExpression_CaseSensitive() {
+            String sql = dialect.regexGenerator()
+                    .generateRegularExpression("table.column", ".*a.*").orElseThrow();
+            assertEquals(
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z')",
+                    sql);
+        }
+    }
+
+    @Nested
     @DisplayName("Bit Aggregation Tests")
     class BitAggregationTests {
 

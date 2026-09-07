@@ -57,7 +57,7 @@ class ImpalaDialectTest {
         assertTrue(sql.contains("UPPER"));
         assertTrue(sql.contains("cast(table.column as string)"));
         assertTrue(sql.contains("REGEXP"));
-        assertTrue(sql.contains("'.*A.*'"));
+        assertTrue(sql.contains("'\\A(?:.*A.*)\\z'"));
     }
 
     @Test
@@ -66,7 +66,7 @@ class ImpalaDialectTest {
         assertFalse(sql.contains("UPPER"));
         assertTrue(sql.contains("cast(table.column as string)"));
         assertTrue(sql.contains("REGEXP"));
-        assertTrue(sql.contains("'.*1.*'"));
+        assertTrue(sql.contains("'\\A(?:.*1.*)\\z'"));
     }
 
     @Test

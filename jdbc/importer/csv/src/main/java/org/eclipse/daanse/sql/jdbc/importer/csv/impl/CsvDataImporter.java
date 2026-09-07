@@ -167,8 +167,8 @@ public class CsvDataImporter implements FileSystemWatcherListener {
 
             String statementCreateSchema = dialect.ddlGenerator().createSchema(s.name(), true);
 
-            try {
-                connection.createStatement().execute(statementCreateSchema);
+            try (Statement stmt = connection.createStatement()) {
+                stmt.execute(statementCreateSchema);
             } catch (SQLException e) {
                 // https://github.com/h2database/h2database/issues/4188
                 // throw new CsvDataImporterException(EXCEPTION_WHILE_CREATING_SCHEMA, e);
@@ -279,6 +279,7 @@ public class CsvDataImporter implements FileSystemWatcherListener {
             }
             ps.addBatch();
             ps.clearParameters();
+            count++;
             if (count % config.batchSize() == 0) {
                 ps.executeBatch();
                 LOGGER.debug("execute batch time {}", (System.currentTimeMillis() - start));
@@ -286,7 +287,6 @@ public class CsvDataImporter implements FileSystemWatcherListener {
                 LOGGER.debug("execute commit time {}", (System.currentTimeMillis() - start));
                 start = System.currentTimeMillis();
             }
-            count++;
         }
 
         ps.executeBatch();
@@ -450,7 +450,7 @@ public class CsvDataImporter implements FileSystemWatcherListener {
 
     @Override
     public void handleInitialPaths(List<Path> initialPaths) {
-        initialPaths.parallelStream().forEach(this::checkPathAndLoadCsv);
+        initialPaths.forEach(this::checkPathAndLoadCsv);
     }
 
     @Override
