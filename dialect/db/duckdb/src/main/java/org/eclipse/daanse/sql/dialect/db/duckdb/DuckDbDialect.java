@@ -302,7 +302,7 @@ public class DuckDbDialect extends AbstractJdbcDialect {
                 .of((buildPercentileFunction("quantile_disc", percentile, desc, tableName, columnName)).toString());
     }
 
-	@Override
+    @Override
     public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
             String columnName) {
         return java.util.Optional
@@ -329,6 +329,20 @@ public class DuckDbDialect extends AbstractJdbcDialect {
             List<OrderedColumn> columns) {
         return java.util.Optional
                 .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+    }
+
+    /**
+     * No.
+     *
+     * <p>
+     * DuckDB, like SQLite, is single-writer: concurrent {@code CREATE TABLE}
+     * transactions from separate connections against the same database
+     * conflict on the shared catalog ("Catalog write-write conflict") instead
+     * of dividing the work.
+     */
+    @Override
+    public boolean supportsParallelLoading() {
+        return false;
     }
 
     @Override
