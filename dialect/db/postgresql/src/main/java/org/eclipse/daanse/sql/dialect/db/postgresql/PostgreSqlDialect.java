@@ -27,6 +27,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -45,6 +46,8 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
  * @since Nov 23, 2008
  */
 public class PostgreSqlDialect extends AbstractJdbcDialect {
+
+    private static final Pattern LEADING_EMBEDDED_OPTIONS = Pattern.compile("^(?:\\(\\?[a-zA-Z-]+\\))+");
 
     // Lazy-initialized generator caches — built on first call. Stateless
     // implementations that capture the dialect's quoter / version, so safe
@@ -290,7 +293,17 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         sb.append("cast(");
         sb.append(source);
         sb.append(" as text) ~ ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches; \A/\Z stay string anchors even
+        // under newline-sensitive matching ((?m) maps to Postgres' n mode).
+        // Postgres allows embedded options only at the very start of an ARE,
+        // so a leading (?i)-style block goes in front of the anchor.
+        String options = "";
+        final Matcher optionsMatcher = LEADING_EMBEDDED_OPTIONS.matcher(javaRegex);
+        if (optionsMatcher.find()) {
+            options = optionsMatcher.group();
+            javaRegex = javaRegex.substring(optionsMatcher.end());
+        }
+        quoteStringLiteral(sb, options + "\\A(?:" + javaRegex + ")\\Z");
         return Optional.of(sb.toString());
     }
 

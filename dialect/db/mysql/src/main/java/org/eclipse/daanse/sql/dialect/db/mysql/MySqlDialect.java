@@ -399,10 +399,12 @@ public class MySqlDialect extends AbstractJdbcDialect {
             sb.append(")");
         }
         sb.append(" REGEXP ");
+        // MDX MATCHES is anchored (Pattern.matches); REGEXP is contains —
+        // anchor AFTER the case fold, or the fold would turn \z into \Z
         if (caseSensitive) {
-            quoteStringLiteral(sb, javaRegex);
+            quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
         } else {
-            quoteStringLiteral(sb, javaRegex.toUpperCase());
+            quoteStringLiteral(sb, "\\A(?:" + javaRegex.toUpperCase() + ")\\z");
         }
         return Optional.of(sb.toString());
     }

@@ -205,7 +205,7 @@ public class TranspilerSqlGuard implements SqlGuard {
         for (DatabaseSchema schema : databaseCatalog.getDatabaseSchemas()) {
             for (DatabaseTable table : schema.getDatabaseTables()) {
 
-                List<JdbcColumn> jdbcColumns = table.getDatabaseColumns().parallelStream()
+                List<JdbcColumn> jdbcColumns = table.getDatabaseColumns().stream()
                         .map(c -> new JdbcColumn(c.getName())).toList();
                 jdbcMetaData.addTable(schema.getName(), table.getName(), jdbcColumns);
             }

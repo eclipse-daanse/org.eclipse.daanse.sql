@@ -164,7 +164,8 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         sb.append(" IS NOT NULL AND regexp_matches(CAST(");
         sb.append(source);
         sb.append(" AS VARCHAR), ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches (RE2 supports \A and \z)
+        quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
         if (mappedFlags.length() > 0) {
             sb.append(", ");
             quoteStringLiteral(sb, mappedFlags.toString());

@@ -76,5 +76,5 @@ public @interface CsvDataImporterConfig {
      * @return Batch Size. Use Batch operation if dialect support it
      */
     @AttributeDefinition(description = "batchSize", defaultValue = "5000")
-    int batchSize() default 1000;
+    int batchSize() default 5000;
 }

@@ -28,6 +28,53 @@ public class H2Dialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "H2";
 
+    @Override
+    public boolean allowsRegularExpressionInWhereClause() {
+        return true;
+    }
+
+    /**
+     * {@code source IS NOT NULL AND REGEXP_LIKE(source, pattern[, flags])}.
+     *
+     * <p>H2 evaluates REGEXP_LIKE with java.util.regex FIND semantics, while
+     * the MDX MATCHES operator is anchored ({@code Pattern.matches}) — the
+     * pattern is therefore wrapped in {@code \A(?:...)\z} so the SQL result
+     * equals the calc engine's. Embedded flags are extracted BEFORE anchoring
+     * (they only match at the start of the expression).
+     */
+    @Override
+    public Optional<String> generateRegularExpression(String source, String javaRegex) {
+        try {
+            java.util.regex.Pattern.compile(javaRegex);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            // Not a valid Java regex. Too risky to continue.
+            return Optional.empty();
+        }
+        javaRegex = org.eclipse.daanse.sql.dialect.db.common.DialectUtil.cleanUnicodeAwareCaseFlag(javaRegex);
+        StringBuilder mappedFlags = new StringBuilder();
+        String[][] mapping = new String[][] { { "c", "c" }, { "i", "i" }, { "m", "m" } };
+        javaRegex = extractEmbeddedFlags(javaRegex, mapping, mappedFlags);
+
+        final java.util.regex.Matcher escapeMatcher =
+                org.eclipse.daanse.sql.dialect.db.common.DialectUtil.ESCAPE_PATTERN.matcher(javaRegex);
+        while (escapeMatcher.find()) {
+            javaRegex = javaRegex.replace(escapeMatcher.group(1), escapeMatcher.group(2));
+        }
+        final StringBuilder sb = new StringBuilder();
+        sb.append(source);
+        sb.append(" IS NOT NULL AND ");
+        sb.append("REGEXP_LIKE(");
+        sb.append(source);
+        sb.append(", ");
+        quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
+        if (mappedFlags.length() > 0) {
+            sb.append(", ");
+            quoteStringLiteral(sb, mappedFlags.toString());
+        }
+        sb.append(")");
+        return Optional.of(sb.toString());
+    }
+
     /**
      * {@code ANALYZE}.
      *
