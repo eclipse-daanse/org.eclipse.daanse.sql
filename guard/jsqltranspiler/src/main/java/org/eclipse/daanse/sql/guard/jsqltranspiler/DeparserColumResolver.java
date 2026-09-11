@@ -21,9 +21,11 @@ import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectVisitor;
+import net.sf.jsqlparser.util.TablesNamesFinder;
 
 public class DeparserColumResolver extends JSQLColumResolver {
 
@@ -44,9 +46,29 @@ public class DeparserColumResolver extends JSQLColumResolver {
         if (st instanceof Select) {
             Select select = (Select) st;
             select.accept((SelectVisitor<JdbcResultSetMetaData>) this, JdbcMetaData.copyOf(metaData));
+            stripCurrentCatalogQualifier(select);
         }
 
         return dialectDeparser.deparse(st, dialect);
+    }
+
+    // The resolver only ever fills in a catalog qualifier that is missing; it never clears one that
+    // was already explicit in the query, even when it names the current catalog. The database
+    // connection is already scoped to that catalog, so only the schema-qualified name may be sent.
+    private void stripCurrentCatalogQualifier(Select select) {
+        String currentCatalogName = metaData.getCurrentCatalogName();
+        if (currentCatalogName == null || currentCatalogName.isEmpty()) {
+            return;
+        }
+        new TablesNamesFinder<Void>() {
+            @Override
+            public <S> Void visit(Table table, S context) {
+                if (currentCatalogName.equalsIgnoreCase(table.getUnquotedDatabaseName())) {
+                    table.setDatabaseName(null);
+                }
+                return super.visit(table, context);
+            }
+        }.getTables((Statement) select);
     }
 
 }

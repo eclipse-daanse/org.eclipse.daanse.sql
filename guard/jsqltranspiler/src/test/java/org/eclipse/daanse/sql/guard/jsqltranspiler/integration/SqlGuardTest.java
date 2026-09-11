@@ -377,6 +377,12 @@ public class SqlGuardTest {
 
     private static Dialect dialect;
 
+    private static final String CAT = "FoodMart";
+
+    private static final String SELECT_FROM_QUALIFIED_FOO = "select * from sch.foo";
+
+    private static final String SELECT_FROM_CATALOG_QUALIFIED_FOO = "select * from FoodMart.sch.foo";
+
     @BeforeAll
     public static void setUp() {
         dialect = new H2Dialect();
@@ -1407,6 +1413,45 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_VALID_ORDER_BY);
             assertNotNull(result);
+        }
+    }
+
+    @Nested
+    @DisplayName("current catalog and schema")
+    class CurrentCatalogAndSchema {
+
+        @Test
+        void aBareNameResolvesInTheCurrentSchema(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aSchemaQualifiedNameResolvesTheSameWay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_QUALIFIED_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aCatalogQualifiedNameResolvesWhenTheCatalogIsTheCurrentOne(@InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            String emitted = guard.guard(SELECT_FROM_CATALOG_QUALIFIED_FOO);
+            // Settles §4.3: the database must receive the two-part name.
+            assertThat(emitted).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aBareNameWithNoCurrentSchemaIsReportedAsUnknown(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, "", schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SELECT_FROM_FOO)).isInstanceOf(UnresolvableObjectsGuardException.class);
+        }
+
+        @Test
+        void aForeignCatalogIsRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from Other.sch.foo"))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 
