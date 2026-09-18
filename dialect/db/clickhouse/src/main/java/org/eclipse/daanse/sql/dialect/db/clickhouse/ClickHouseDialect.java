@@ -296,4 +296,22 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /** {@code ALTER TABLE t MODIFY COMMENT '…'}; {@code null} clears it. */
+    @Override
+    public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        return java.util.Optional.of("ALTER TABLE " + qualified(table) + " MODIFY COMMENT " + chLiteral(comment));
+    }
+
+    /** {@code ALTER TABLE t COMMENT COLUMN c '…'}; {@code null} clears it. */
+    @Override
+    public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        return java.util.Optional.of("ALTER TABLE " + qualified(table) + " COMMENT COLUMN "
+                + quoteIdentifier(columnName) + " " + chLiteral(comment));
+    }
+
+    private static String chLiteral(String comment) {
+        String s = comment == null ? "" : comment;
+        return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
 }

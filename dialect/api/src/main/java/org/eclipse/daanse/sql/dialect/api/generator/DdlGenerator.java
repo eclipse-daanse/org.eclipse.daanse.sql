@@ -648,6 +648,38 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return Optional.empty();
     }
 
+    // -------------------- comments --------------------
+
+    /**
+     * {@code COMMENT ON TABLE schema.table IS '…'}; a {@code null} comment
+     * removes it ({@code IS NULL}).
+     *
+     * @return empty when the dialect cannot store table comments
+     */
+    default Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + commentLiteral(comment));
+    }
+
+    /**
+     * {@code COMMENT ON COLUMN schema.table.column IS '…'}; a {@code null}
+     * comment removes it.
+     *
+     * @param currentMeta the column's current definition — required by dialects
+     *                    that can only set a column comment by restating the
+     *                    whole column (MySQL/MariaDB); may be {@code null} otherwise
+     * @return empty when the dialect cannot store column comments
+     */
+    default Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
+                + commentLiteral(comment));
+    }
+
+    /** ANSI string literal for a comment ({@code '} doubled), or {@code NULL}. */
+    private static String commentLiteral(String comment) {
+        return comment == null ? "NULL" : "'" + comment.replace("'", "''") + "'";
+    }
+
     default java.util.List<String> dropTriggerOnTable(String triggerName, TableReference table, boolean ifExists) {
         return java.util.List.of(dropTrigger(triggerName, ifExists));
     }

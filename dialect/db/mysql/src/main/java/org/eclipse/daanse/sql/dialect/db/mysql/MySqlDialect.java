@@ -620,6 +620,39 @@ public class MySqlDialect extends AbstractJdbcDialect {
                 .append(nullable ? " NULL" : " NOT NULL").toString();
     }
 
+    /** {@code ALTER TABLE t COMMENT = '…'} — MySQL has no COMMENT ON; {@code null} clears it. */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("ALTER TABLE " + qualified(table) + " COMMENT = " + mysqlLiteral(comment));
+    }
+
+    /**
+     * {@code ALTER TABLE t MODIFY COLUMN c <type> [NOT NULL] [DEFAULT d] COMMENT '…'}
+     * — MySQL can only set a column comment by restating the whole column, so
+     * type, nullability and default come from {@code currentMeta}.
+     */
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        if (currentMeta == null) {
+            throw new IllegalArgumentException("currentMeta must not be null for a MySQL column comment");
+        }
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY COLUMN ")
+                .append(quoteIdentifier(columnName)).append(' ').append(nativeType(currentMeta));
+        if (currentMeta.nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        currentMeta.columnDefault().filter(d -> !d.isBlank()).ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        sb.append(" COMMENT ").append(mysqlLiteral(comment));
+        return Optional.of(sb.toString());
+    }
+
+    /** MySQL string literal: {@code '} and {@code \} escaped; {@code null} becomes the empty comment. */
+    private static String mysqlLiteral(String comment) {
+        String s = comment == null ? "" : comment;
+        return "'" + s.replace("\\", "\\\\").replace("'", "''") + "'";
+    }
+
     // SET DEFAULT / DROP DEFAULT inherit the SQL-99 default — MySQL 8.0+ accepts
     // it.
 

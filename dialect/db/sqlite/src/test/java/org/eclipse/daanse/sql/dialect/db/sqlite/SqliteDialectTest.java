@@ -89,4 +89,13 @@ class SqliteDialectTest {
     private static SqliteDialect withVersion(int major, int minor) {
         return new SqliteDialect(DialectInitData.ansiDefaults().withVersion(major, minor));
     }
+
+    @Test
+    void comments_are_not_supported() {
+        SqliteDialect d = new SqliteDialect();
+        org.eclipse.daanse.sql.model.schema.TableReference t = new org.eclipse.daanse.sql.model.schema.TableReference(
+                java.util.Optional.empty(), "t", org.eclipse.daanse.sql.model.schema.TableReference.TYPE_TABLE);
+        assertThat(d.commentOnTable(t, "x")).isEmpty();
+        assertThat(d.commentOnColumn(t, "c", "x", null)).isEmpty();
+    }
 }

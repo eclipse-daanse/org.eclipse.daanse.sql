@@ -213,4 +213,15 @@ public class DerbyDialect extends AbstractJdbcDialect {
                 .append(quoteIdentifier(newName)).toString();
     }
 
+    /** Derby cannot store comments on tables or columns. */
+    @Override
+    public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        return java.util.Optional.empty();
+    }
+
+    @Override
+    public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        return java.util.Optional.empty();
+    }
 }

@@ -15,6 +15,10 @@ import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport;
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
+import java.util.OptionalInt;
+import java.sql.JDBCType;
 import java.util.List;
 import java.util.OptionalLong;
 
@@ -116,5 +120,27 @@ class MySqlGeneratorsTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("CONCAT");
         assertThatThrownBy(() -> d.functionGenerator().generateKnownFunction(KnownFunction.INDEX_OF, List.of("n")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INDEX_OF");
+    }
+
+    @Test
+    void comment_on_table_uses_alter_table() {
+        assertThat(d.commentOnTable(table("app", "users"), "it's").orElseThrow())
+                .isEqualTo("ALTER TABLE `app`.`users` COMMENT = 'it''s'");
+        assertThat(d.commentOnTable(table("app", "users"), null).orElseThrow()).endsWith("COMMENT = ''");
+    }
+
+    @Test
+    void comment_on_column_restates_the_column() {
+        String sql = d.commentOnColumn(table("app", "users"), "name", "full\\name",
+                GeneratorTestSupport.columnMeta(JDBCType.VARCHAR, OptionalInt.of(50),
+                        ColumnMetaData.Nullability.NO_NULLS)).orElseThrow();
+        assertThat(sql).startsWith("ALTER TABLE `app`.`users` MODIFY COLUMN `name` VARCHAR(50) NOT NULL")
+                .endsWith(" COMMENT 'full\\\\name'");
+    }
+
+    @Test
+    void comment_on_column_requires_meta() {
+        assertThatThrownBy(() -> d.commentOnColumn(table("app", "users"), "name", "x", null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

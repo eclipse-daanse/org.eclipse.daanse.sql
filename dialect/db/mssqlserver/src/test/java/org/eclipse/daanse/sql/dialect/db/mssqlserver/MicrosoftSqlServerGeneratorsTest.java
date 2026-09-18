@@ -133,4 +133,18 @@ class MicrosoftSqlServerGeneratorsTest {
         assertThatThrownBy(() -> d.functionGenerator().generateKnownFunction(KnownFunction.NOW, List.of("x")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("NOW");
     }
+
+    @Test
+    void comment_uses_ms_description_extended_property() {
+        String table = d.commentOnTable(table("dbo", "USERS"), "it's").orElseThrow();
+        assertThat(table).startsWith("IF EXISTS (SELECT 1 FROM sys.extended_properties")
+                .contains("EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = N'it''s'")
+                .contains("ELSE EXEC sys.sp_addextendedproperty")
+                .contains("@level1type = N'TABLE', @level1name = N'USERS'")
+                .doesNotContain("@level2type");
+        String column = d.commentOnColumn(table("dbo", "USERS"), "NAME", "x", null).orElseThrow();
+        assertThat(column).contains("COLUMNPROPERTY(").contains("@level2type = N'COLUMN', @level2name = N'NAME'");
+        assertThat(d.commentOnTable(table("dbo", "USERS"), null).orElseThrow())
+                .contains("sp_dropextendedproperty").doesNotContain("@value");
+    }
 }
