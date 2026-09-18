@@ -75,4 +75,10 @@ class PostgreSqlGeneratorsTest {
     void comment_null_removes_it() {
         assertThat(d.commentOnTable(table("public", "USERS"), null).orElseThrow()).endsWith(" IS NULL");
     }
+
+    @Test
+    void rename_index_is_schema_qualified() {
+        assertThat(d.renameIndex("ix_old", "ix_new", table("sales", "t")))
+                .isEqualTo("ALTER INDEX \"sales\".\"ix_old\" RENAME TO \"ix_new\"");
+    }
 }

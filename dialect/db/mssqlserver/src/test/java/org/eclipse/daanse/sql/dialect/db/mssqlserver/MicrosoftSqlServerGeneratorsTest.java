@@ -147,4 +147,10 @@ class MicrosoftSqlServerGeneratorsTest {
         assertThat(d.commentOnTable(table("dbo", "USERS"), null).orElseThrow())
                 .contains("sp_dropextendedproperty").doesNotContain("@value");
     }
+
+    @Test
+    void rename_constraint_uses_the_schema_scoped_name() {
+        assertThat(d.renameConstraint(table("dbo", "T"), "PK_OLD", "PK_NEW"))
+                .isEqualTo("EXEC sp_rename '\"dbo\".\"PK_OLD\"', 'PK_NEW', 'OBJECT'");
+    }
 }

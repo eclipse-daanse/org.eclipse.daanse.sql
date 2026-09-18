@@ -47,7 +47,7 @@ class H2AlterRenameOfflineTest {
     @Test
     void renameIndex_uses_ANSI_default() {
         assertThat(dialect.ddlGenerator().renameIndex("IDX_OLD", "IDX_NEW", T))
-                .isEqualTo("ALTER INDEX \"IDX_OLD\" RENAME TO \"IDX_NEW\"");
+                .isEqualTo("ALTER INDEX \"PUBLIC\".\"IDX_OLD\" RENAME TO \"IDX_NEW\"");
     }
 
     @Test

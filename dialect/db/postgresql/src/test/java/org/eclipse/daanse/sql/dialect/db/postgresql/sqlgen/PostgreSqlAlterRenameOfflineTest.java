@@ -80,7 +80,7 @@ class PostgreSqlAlterRenameOfflineTest {
     @Test
     void renameIndex_emits_ALTER_INDEX() {
         assertThat(dialect.ddlGenerator().renameIndex("IDX_OLD", "IDX_NEW", T))
-                .isEqualTo("ALTER INDEX \"IDX_OLD\" RENAME TO \"IDX_NEW\"");
+                .isEqualTo("ALTER INDEX \"PUBLIC\".\"IDX_OLD\" RENAME TO \"IDX_NEW\"");
     }
 
     @Test
