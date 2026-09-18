@@ -665,7 +665,11 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         if (!supportsRenameConstraint()) {
             return null;
         }
-        return spRename(qualified(table) + "." + quoteIdentifier(oldName), newName, "OBJECT");
+        // constraints are schema-scoped objects: sp_rename wants schema.constraint, not table.constraint
+        String old = table.schema().isPresent()
+                ? quoteIdentifier(table.schema().get().name(), oldName).toString()
+                : quoteIdentifier(oldName);
+        return spRename(old, newName, "OBJECT");
     }
 
     /**

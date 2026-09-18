@@ -307,11 +307,19 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
                 .append(quoteIdentifier(newName)).toString();
     }
 
+    /**
+     * {@code ALTER INDEX schema.old RENAME TO new}. Index names are schema-scoped
+     * (PostgreSQL, H2, Oracle), so the old name is qualified with the table's
+     * schema — unqualified it would only be found on the search path.
+     */
     default String renameIndex(String oldName, String newName, TableReference table) {
         if (!supportsRenameIndex()) {
             return null;
         }
-        return new StringBuilder("ALTER INDEX ").append(quoteIdentifier(oldName)).append(" RENAME TO ")
+        String old = table != null && table.schema().isPresent()
+                ? quoteIdentifier(table.schema().get().name(), oldName).toString()
+                : quoteIdentifier(oldName);
+        return new StringBuilder("ALTER INDEX ").append(old).append(" RENAME TO ")
                 .append(quoteIdentifier(newName)).toString();
     }
 

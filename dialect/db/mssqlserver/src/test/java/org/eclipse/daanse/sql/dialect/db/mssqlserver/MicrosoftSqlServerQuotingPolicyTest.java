@@ -50,7 +50,9 @@ class MicrosoftSqlServerQuotingPolicyTest {
     @Test
     void renameConstraint_via_spRename_unquoted() {
         assertThat(dialectNever().ddlGenerator().renameConstraint(EMP, "PK_OLD", "PK_NEW"))
-                .doesNotContainPattern("\\[[^]]*\\]").contains("EMPLOYEES").contains("PK_OLD").contains("PK_NEW");
+                // constraints are schema-scoped: schema.constraint, not table.constraint
+                .doesNotContainPattern("\\[[^]]*\\]").contains("dbo.PK_OLD").doesNotContain("EMPLOYEES")
+                .contains("PK_NEW");
     }
 
     @Test
