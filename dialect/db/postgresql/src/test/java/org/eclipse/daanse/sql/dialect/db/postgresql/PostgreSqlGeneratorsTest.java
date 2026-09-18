@@ -14,10 +14,20 @@ import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport
 import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport.upsertSpec;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport.upsertSpecDoNothing;
 
+import java.sql.JDBCType;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
+import org.eclipse.daanse.sql.jdbc.record.schema.ColumnDefinitionRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.ColumnMetaDataRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.PrimaryKeyRecord;
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
+import org.eclipse.daanse.sql.model.schema.ColumnReference;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.junit.jupiter.api.Test;
 
 /** Smoke tests for PostgreSQL's engine-specific overrides of new generators. */
@@ -80,5 +90,19 @@ class PostgreSqlGeneratorsTest {
     void rename_index_is_schema_qualified() {
         assertThat(d.renameIndex("ix_old", "ix_new", table("sales", "t")))
                 .isEqualTo("ALTER INDEX \"sales\".\"ix_old\" RENAME TO \"ix_new\"");
+    }
+
+    @Test
+    void create_table_names_the_primary_key() {
+        TableReference t = table("sales", "t");
+        ColumnDefinition id = new ColumnDefinitionRecord(new ColumnReference(Optional.of(t), "id"),
+                new ColumnMetaDataRecord(JDBCType.INTEGER, "INTEGER", OptionalInt.empty(), OptionalInt.empty(),
+                        OptionalInt.empty(), ColumnMetaData.Nullability.NO_NULLS, OptionalInt.empty(),
+                        Optional.empty(), Optional.empty(), ColumnMetaData.AutoIncrement.UNKNOWN,
+                        ColumnMetaData.GeneratedColumn.UNKNOWN));
+        assertThat(d.createTable(t, List.of(id), new PrimaryKeyRecord(t, List.of(id.column()), Optional.of("pk_t")),
+                false)).contains("CONSTRAINT \"pk_t\" PRIMARY KEY (\"id\")");
+        assertThat(d.createTable(t, List.of(id), new PrimaryKeyRecord(t, List.of(id.column()), Optional.empty()),
+                false)).contains(",\n  PRIMARY KEY (\"id\")").doesNotContain("CONSTRAINT");
     }
 }

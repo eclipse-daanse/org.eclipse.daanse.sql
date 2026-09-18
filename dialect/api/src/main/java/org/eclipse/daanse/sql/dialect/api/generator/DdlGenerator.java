@@ -78,7 +78,10 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
             cd.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
         }
         if (primaryKey != null && !primaryKey.columns().isEmpty()) {
-            sb.append(",\n  PRIMARY KEY (");
+            sb.append(",\n  ");
+            primaryKey.constraintName().filter(n -> supportsNamedPrimaryKey())
+                    .ifPresent(n -> sb.append("CONSTRAINT ").append(quoteIdentifier(n)).append(' '));
+            sb.append("PRIMARY KEY (");
             sb.append(String.join(", ",
                     primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
             sb.append(")");
@@ -1037,6 +1040,15 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** @return true if {@code renameConstraint} renders a valid statement */
     default boolean supportsRenameConstraint() {
+        return true;
+    }
+
+    /**
+     * @return true if {@code createTable} may name the primary key
+     *         ({@code CONSTRAINT name PRIMARY KEY (…)}); without it the
+     *         database picks the name and a later rename or drop by name misses
+     */
+    default boolean supportsNamedPrimaryKey() {
         return true;
     }
 
