@@ -62,4 +62,17 @@ class PostgreSqlGeneratorsTest {
         String sql = d.mergeGenerator().upsert(spec, List.of("1", "'foo'")).orElseThrow();
         assertThat(sql).contains("ON CONFLICT (\"ID\") DO NOTHING");
     }
+
+    @Test
+    void comment_on_table_and_column_standard_form() {
+        assertThat(d.commentOnTable(table("public", "USERS"), "it's the users").orElseThrow())
+                .isEqualTo("COMMENT ON TABLE \"public\".\"USERS\" IS 'it''s the users'");
+        assertThat(d.commentOnColumn(table("public", "USERS"), "NAME", "full name", null).orElseThrow())
+                .isEqualTo("COMMENT ON COLUMN \"public\".\"USERS\".\"NAME\" IS 'full name'");
+    }
+
+    @Test
+    void comment_null_removes_it() {
+        assertThat(d.commentOnTable(table("public", "USERS"), null).orElseThrow()).endsWith(" IS NULL");
+    }
 }

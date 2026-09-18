@@ -726,4 +726,21 @@ public class OracleDialect extends AbstractJdbcDialect {
         return Optional.of(new StringBuilder("RENAME ").append(quoteIdentifier(name)).append(" TO ")
                 .append(quoteIdentifier(newName)).toString());
     }
+
+    /** Oracle has no {@code IS NULL} form — an empty string literal removes the comment. */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + oracleLiteral(comment));
+    }
+
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
+                + oracleLiteral(comment));
+    }
+
+    private static String oracleLiteral(String comment) {
+        return "'" + (comment == null ? "" : comment.replace("'", "''")) + "'";
+    }
 }

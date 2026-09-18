@@ -93,4 +93,12 @@ class OracleGeneratorsTest {
                 () -> d.functionGenerator().generateKnownFunction(KnownFunction.INDEX_OF, List.of("n", "h", "z")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INDEX_OF");
     }
+
+    @Test
+    void comment_null_becomes_empty_literal() {
+        assertThat(d.commentOnTable(table("APP", "USERS"), null).orElseThrow())
+                .isEqualTo("COMMENT ON TABLE \"APP\".\"USERS\" IS ''");
+        assertThat(d.commentOnColumn(table("APP", "USERS"), "NAME", "it's", null).orElseThrow())
+                .isEqualTo("COMMENT ON COLUMN \"APP\".\"USERS\".\"NAME\" IS 'it''s'");
+    }
 }

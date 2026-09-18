@@ -13,6 +13,7 @@
  */
 package org.eclipse.daanse.sql.dialect.db.hive;
 
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.util.List;
@@ -120,4 +121,21 @@ public class HiveDialect extends AbstractJdbcDialect {
         return SUPPORTED_PRODUCT_NAME.toLowerCase();
     }
 
+    /** {@code ALTER TABLE t SET TBLPROPERTIES ('comment' = '…')}; {@code null} clears it. */
+    @Override
+    public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        String s = comment == null ? "" : comment;
+        return java.util.Optional.of("ALTER TABLE " + qualified(table) + " SET TBLPROPERTIES ('comment' = '"
+                + s.replace("\\", "\\\\").replace("'", "\\'") + "')");
+    }
+
+    /**
+     * Hive can only change a column comment through {@code CHANGE COLUMN} with
+     * the full column type — not supported here.
+     */
+    @Override
+    public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        return java.util.Optional.empty();
+    }
 }

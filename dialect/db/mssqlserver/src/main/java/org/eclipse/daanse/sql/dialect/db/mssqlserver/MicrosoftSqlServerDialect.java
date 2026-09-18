@@ -736,4 +736,42 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         }
         return Optional.of(spRename(quoteIdentifier(schemaName, name), newName, "OBJECT"));
     }
+
+    /**
+     * SQL Server has no COMMENT ON — comments are the {@code MS_Description}
+     * extended property. Update when present, add otherwise; {@code null}
+     * drops it. The schema defaults to {@code dbo}.
+     */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of(msDescription(table, null, comment));
+    }
+
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of(msDescription(table, columnName, comment));
+    }
+
+    private String msDescription(TableReference table, String columnName, String comment) {
+        String schema = table.schema().map(s -> s.name()).orElse("dbo");
+        String levels = "@level0type = N'SCHEMA', @level0name = " + nLiteral(schema)
+                + ", @level1type = N'TABLE', @level1name = " + nLiteral(table.name())
+                + (columnName == null ? "" : ", @level2type = N'COLUMN', @level2name = " + nLiteral(columnName));
+        String object = "OBJECT_ID(" + nLiteral(quoteIdentifier(schema, table.name()).toString()) + ")";
+        String minor = columnName == null ? "0"
+                : "COLUMNPROPERTY(" + object + ", " + nLiteral(columnName) + ", 'ColumnId')";
+        String exists = "EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = " + object
+                + " AND minor_id = " + minor + " AND name = N'MS_Description')";
+        if (comment == null) {
+            return "IF " + exists + " EXEC sys.sp_dropextendedproperty @name = N'MS_Description', " + levels;
+        }
+        String value = "@name = N'MS_Description', @value = " + nLiteral(comment) + ", " + levels;
+        return "IF " + exists + " EXEC sys.sp_updateextendedproperty " + value
+                + " ELSE EXEC sys.sp_addextendedproperty " + value;
+    }
+
+    private static String nLiteral(String s) {
+        return "N'" + s.replace("'", "''") + "'";
+    }
 }
