@@ -599,8 +599,10 @@ public class OracleDialect extends AbstractJdbcDialect {
         sb.append(") REFERENCES ").append(qualified(referencedTable)).append(" (");
         appendQuotedCsv(sb, referencedColumns);
         sb.append(")");
-        if (onDelete != null && !onDelete.isBlank())
-            sb.append(" ON DELETE ").append(onDelete);
+        // Oracle only knows ON DELETE CASCADE / SET NULL; NO ACTION is the implicit
+        // behavior and RESTRICT / SET DEFAULT do not exist — writing them is ORA-02000.
+        if (onDelete != null && (onDelete.equalsIgnoreCase("CASCADE") || onDelete.equalsIgnoreCase("SET NULL")))
+            sb.append(" ON DELETE ").append(onDelete.toUpperCase());
         // Oracle: no ON UPDATE clause — silently drop {@code onUpdate}.
         return sb.toString();
     }

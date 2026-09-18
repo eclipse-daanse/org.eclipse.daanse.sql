@@ -101,4 +101,14 @@ class OracleGeneratorsTest {
         assertThat(d.commentOnColumn(table("APP", "USERS"), "NAME", "it's", null).orElseThrow())
                 .isEqualTo("COMMENT ON COLUMN \"APP\".\"USERS\".\"NAME\" IS 'it''s'");
     }
+
+    @Test
+    void foreign_key_writes_only_actions_oracle_knows() {
+        String noAction = d.addForeignKeyConstraint(table("APP", "O"), "FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "NO ACTION", "NO ACTION");
+        assertThat(noAction).doesNotContain(" ON DELETE").doesNotContain(" ON UPDATE");
+        String cascade = d.addForeignKeyConstraint(table("APP", "O"), "FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "cascade", null);
+        assertThat(cascade).endsWith(" ON DELETE CASCADE");
+    }
 }

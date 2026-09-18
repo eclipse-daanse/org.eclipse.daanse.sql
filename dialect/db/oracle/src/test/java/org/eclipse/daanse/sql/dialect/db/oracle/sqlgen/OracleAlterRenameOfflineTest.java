@@ -73,7 +73,7 @@ class OracleAlterRenameOfflineTest {
         assertThat(dialect.ddlGenerator().renameTable(T, "STAFF"))
                 .isEqualTo("ALTER TABLE \"HR\".\"EMPLOYEES\" RENAME TO \"STAFF\"");
         assertThat(dialect.ddlGenerator().renameIndex("IDX_OLD", "IDX_NEW", T))
-                .isEqualTo("ALTER INDEX \"IDX_OLD\" RENAME TO \"IDX_NEW\"");
+                .isEqualTo("ALTER INDEX \"HR\".\"IDX_OLD\" RENAME TO \"IDX_NEW\"");
         assertThat(dialect.ddlGenerator().renameConstraint(T, "OLD_FK", "NEW_FK"))
                 .isEqualTo("ALTER TABLE \"HR\".\"EMPLOYEES\" RENAME CONSTRAINT \"OLD_FK\" TO \"NEW_FK\"");
     }
