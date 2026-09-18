@@ -166,4 +166,9 @@ class ClickHouseDialectTest {
             assertEquals("groupArrayArray( column1)", result);
         }
     }
+
+    @Test
+    void primaryKeyStaysUnnamed() {
+        assertFalse(dialect.supportsNamedPrimaryKey());
+    }
 }

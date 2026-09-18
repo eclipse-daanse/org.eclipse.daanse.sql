@@ -138,4 +138,10 @@ public class HiveDialect extends AbstractJdbcDialect {
             org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
         return java.util.Optional.empty();
     }
+
+    /** Hive has no named table constraints; the primary key stays unnamed. */
+    @Override
+    public boolean supportsNamedPrimaryKey() {
+        return false;
+    }
 }

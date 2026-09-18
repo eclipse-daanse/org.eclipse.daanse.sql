@@ -314,4 +314,10 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
         String s = comment == null ? "" : comment;
         return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'";
     }
+
+    /** ClickHouse has no named table constraints; the primary key stays unnamed. */
+    @Override
+    public boolean supportsNamedPrimaryKey() {
+        return false;
+    }
 }
