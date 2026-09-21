@@ -14,6 +14,7 @@ import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstIntEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirst;
+import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirstWithParams;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,6 +28,7 @@ import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -75,6 +77,19 @@ class MariaDBGeneratorsRoundTripTest {
         String tail = dialect.paginationGenerator().paginate(OptionalLong.of(2), OptionalLong.of(1));
         assertThat(tail).isEqualTo(" LIMIT 1, 2");
         assertSelectIdRowCountAndFirst(conn, "SELECT id FROM `rt`.`users` ORDER BY id" + tail, 2, 2);
+    }
+
+    @Test
+    void pagination_limit_offset_executesPlaceholders() throws SQLException {
+        PreparedPaging preparedPaging = dialect.paginationGenerator().paginatePrepared(false, false);
+        assertThat(preparedPaging.clause()).isEqualTo("");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(true, false);
+        assertThat(preparedPaging.clause()).isEqualTo("LIMIT ?");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(false, true);
+        assertThat(preparedPaging.clause()).isEqualTo("OFFSET ?");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(true, true);
+        assertThat(preparedPaging.clause()).isEqualTo("LIMIT ? OFFSET ?");
+        assertSelectIdRowCountAndFirstWithParams(conn, "SELECT id FROM `rt`.`users` ORDER BY id" + preparedPaging.clause(), List.of(2, 1), 2, 2);
     }
 
     @Test
