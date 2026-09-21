@@ -39,6 +39,18 @@ class MySqlGeneratorsTest {
     }
 
     @Test
+    void pagination_offset_limit_placeholders() {
+        assertThat(d.paginationGenerator().paginatePrepared(false, false).clause())
+                .isEqualTo("");
+        assertThat(d.paginationGenerator().paginatePrepared(true, true).clause())
+        .isEqualTo("LIMIT ? OFFSET ?");
+        assertThat(d.paginationGenerator().paginatePrepared(true, false).clause())
+        .isEqualTo("LIMIT ?");
+        assertThat(d.paginationGenerator().paginatePrepared(false, true).clause())
+        .isEqualTo("OFFSET ?");
+    }
+
+    @Test
     void pagination_limit_only() {
         assertThat(d.paginationGenerator().paginate(OptionalLong.of(20), OptionalLong.empty())).isEqualTo(" LIMIT 20");
     }

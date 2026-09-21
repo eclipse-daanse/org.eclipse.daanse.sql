@@ -18,12 +18,15 @@ import java.util.Optional;
 
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class H2Dialect extends AbstractJdbcDialect {
 
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
     private static final Logger LOGGER = LoggerFactory.getLogger(H2Dialect.class);
 
     private static final String SUPPORTED_PRODUCT_NAME = "H2";
@@ -221,4 +224,59 @@ public class H2Dialect extends AbstractJdbcDialect {
     public String grantRole(String roleName, String grantee, boolean withAdminOption) {
         return "GRANT " + quoteIdentifier(roleName) + " TO " + quoteIdentifier(grantee);
     }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator paginationGenerator() {
+        var local = cachedPaginationGenerator;
+        if (local != null)
+            return local;
+        local = new org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator() {
+            @Override
+            public String paginate(java.util.OptionalLong limit, java.util.OptionalLong offset) {
+                if (limit.isEmpty() && offset.isEmpty())
+                    return "";
+                StringBuilder sb = new StringBuilder();
+                if (limit.isPresent()) {
+                    long l = limit.getAsLong();
+                    if (l < 0)
+                        throw new IllegalArgumentException("limit must be >= 0");
+                    sb.append(" LIMIT ").append(l);
+                } else {
+                    sb.append(" LIMIT -1");
+                }
+                if (offset.isPresent()) {
+                    long o = offset.getAsLong();
+                    if (o < 0)
+                        throw new IllegalArgumentException("offset must be >= 0");
+                    sb.append(" OFFSET ").append(o);
+                }
+                return sb.toString();
+            }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
+            }
+        };
+        cachedPaginationGenerator = local;
+        return local;
+    }
+
 }

@@ -12,9 +12,11 @@ package org.eclipse.daanse.sql.dialect.db.testsupport;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 
 /**
  * ResultSet assertion helpers shared by per-engine generator round-trip tests.
@@ -45,6 +47,27 @@ public final class RoundTripAssertions {
                 if (count == 0)
                     firstId = rs.getInt(1);
                 count++;
+            }
+            assertThat(count).as("row count").isEqualTo(expectedCount);
+            assertThat(firstId).as("first id").isEqualTo(expectedFirstId);
+        }
+    }
+
+    public static void assertSelectIdRowCountAndFirstWithParams(Connection conn, String selectIdSql, List<Integer> params, int expectedCount,
+            int expectedFirstId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(selectIdSql);) {
+            int index = 1;
+            for (Integer param : params) {
+                ps.setInt(index++, param);
+            }
+            int count = 0;
+            int firstId = -1;
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    if (count == 0)
+                        firstId = rs.getInt(1);
+                    count++;
+                }
             }
             assertThat(count).as("row count").isEqualTo(expectedCount);
             assertThat(firstId).as("first id").isEqualTo(expectedFirstId);

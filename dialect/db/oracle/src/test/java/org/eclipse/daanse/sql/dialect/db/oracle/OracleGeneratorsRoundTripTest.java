@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertExecuteUpdateAffected;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirst;
+import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirstWithParams;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -26,6 +27,7 @@ import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -82,6 +84,20 @@ class OracleGeneratorsRoundTripTest {
         assertThat(tail).contains("OFFSET 1 ROWS").contains("FETCH NEXT 2 ROWS ONLY");
         String schema = CONTAINER.getUsername().toUpperCase();
         assertSelectIdRowCountAndFirst(conn, "SELECT id FROM \"" + schema + "\".\"USERS\" ORDER BY id" + tail, 2, 2);
+    }
+
+    @Test
+    void pagination_limit_offset_executesPlaceholders() throws SQLException {
+        PreparedPaging preparedPaging = dialect.paginationGenerator().paginatePrepared(false, false);
+        assertThat(preparedPaging.clause()).isEqualTo("");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(true, false);
+        assertThat(preparedPaging.clause()).isEqualTo("OFFSET ? ROWS");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(false, true);
+        assertThat(preparedPaging.clause()).isEqualTo("FETCH NEXT ? ROWS ONLY");
+        preparedPaging = dialect.paginationGenerator().paginatePrepared(true, true);
+        assertThat(preparedPaging.clause()).isEqualTo("OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+        String schema = CONTAINER.getUsername().toUpperCase();
+        assertSelectIdRowCountAndFirstWithParams(conn, "SELECT id FROM \"" + schema + "\".\"USERS\" ORDER BY id" + preparedPaging.clause(), List.of(1, 2), 2, 2);
     }
 
     @Test

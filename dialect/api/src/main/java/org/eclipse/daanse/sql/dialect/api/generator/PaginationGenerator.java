@@ -9,6 +9,7 @@
  */
 package org.eclipse.daanse.sql.dialect.api.generator;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -61,4 +62,29 @@ public interface PaginationGenerator {
     default Optional<String> paginate(long limit) {
         return Optional.of(paginate(OptionalLong.of(limit), OptionalLong.empty()));
     }
+
+    /** Paging clause with placeholders; the returned order lists which parameter comes first. */
+    default PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+        if (withLimit && withOffset) {
+            return new PreparedPaging(
+                "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+                List.of(PagingParam.OFFSET, PagingParam.LIMIT)
+            );
+        } else if (withLimit) {
+            return new PreparedPaging(
+                "FETCH NEXT ? ROWS ONLY",
+                List.of(PagingParam.LIMIT)
+            );
+        } else if (withOffset) {
+            return new PreparedPaging(
+                "OFFSET ? ROWS",
+                List.of(PagingParam.OFFSET)
+            );
+        } else {
+            return new PreparedPaging("", List.of());
+        }
+    }
+
+    record PreparedPaging(String clause, List<PagingParam> order) {}
+    enum PagingParam { LIMIT, OFFSET }
 }
