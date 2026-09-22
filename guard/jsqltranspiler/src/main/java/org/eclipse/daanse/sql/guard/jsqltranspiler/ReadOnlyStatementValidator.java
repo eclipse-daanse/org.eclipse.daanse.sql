@@ -18,6 +18,7 @@ import java.util.Optional;
 
 import net.sf.jsqlparser.statement.ParenthesedStatement;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.select.ForMode;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
@@ -37,15 +38,23 @@ import net.sf.jsqlparser.util.TablesNamesFinder;
  * on PostgreSQL/MariaDB the wrapped {@code UPDATE}/{@code INSERT}/{@code DELETE}
  * executes. The upstream resolver does not populate its update/insert column
  * lists for a {@code WithItem}, so it cannot be relied on to detect this;</li>
- * <li>{@code SELECT ... INTO newtable} — creates/writes a table
- * (PostgreSQL, SQL Server);</li>
- * <li>{@code SELECT ... FOR UPDATE}/{@code FOR SHARE} — takes row locks.</li>
+ * <li>{@code SELECT ... INTO newtable} / {@code INTO TEMP newtable} — creates/writes
+ * a table (PostgreSQL, SQL Server);</li>
+ * <li>{@code SELECT ... INTO OUTFILE '/path'} / {@code INTO DUMPFILE '/path'} — writes
+ * a file on the database host, and {@code SELECT ... INTO @var} — assigns session
+ * variables instead of returning rows (MySQL/MariaDB, parsed since JSqlParser 5.4);</li>
+ * <li>{@code SELECT ... FOR UPDATE}/{@code FOR SHARE}/{@code FOR NO KEY UPDATE}/
+ * {@code FOR KEY SHARE} — takes row locks.</li>
  * </ul>
  * The validator reuses {@link TablesNamesFinder}'s full recursive traversal
  * (subqueries, joins, set operations, nested {@code WITH} clauses). A
  * {@code WithItem} is only permitted to wrap a {@link ParenthesedSelect}; a
  * {@code SELECT INTO} or a {@code FOR UPDATE}/{@code FOR SHARE} clause anywhere
  * in the tree is a violation.
+ * <p>
+ * This validator is the guard's primary, precisely worded gate. {@code TranspilerSqlGuard}
+ * additionally consults JSqlParser's own {@code Statement.getFeatures()} classification
+ * as a second, coarser net for anything not modelled here.
  */
 class ReadOnlyStatementValidator extends TablesNamesFinder<Void> {
 
@@ -54,6 +63,8 @@ class ReadOnlyStatementValidator extends TablesNamesFinder<Void> {
     static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
     static final String STATEMENT_IS_NOT_PERMITTED = "Statement is not permitted.";
     static final String SELECT_INTO_IS_NOT_PERMITTED = "SELECT INTO is not permitted.";
+    static final String SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED =
+            "SELECT INTO OUTFILE/DUMPFILE/variable is not permitted.";
     static final String ROW_LOCKING_IS_NOT_PERMITTED = "Row locking (FOR UPDATE/SHARE) is not permitted.";
 
     private String violation;
@@ -75,9 +86,15 @@ class ReadOnlyStatementValidator extends TablesNamesFinder<Void> {
         }
     }
 
-    /** A FOR UPDATE / FOR SHARE clause can hang off any Select node. */
+    /**
+     * A FOR UPDATE / FOR SHARE clause can hang off any Select node. Every
+     * {@link ForMode} is rejected, including the harmless {@code FOR READ ONLY}: it is
+     * not part of the SQL this guard is meant to pass through, and JSqlParser's own
+     * classification treats any {@code ForMode} as a transaction side effect anyway.
+     */
     private void checkRowLocking(Select select) {
-        if (select.getForMode() != null || select.getForUpdateTable() != null) {
+        if (select.getForMode() != null || select.getForUpdate() != null
+                || select.getForUpdateTables() != null && !select.getForUpdateTables().isEmpty()) {
             record(ROW_LOCKING_IS_NOT_PERMITTED);
         }
     }
@@ -87,6 +104,11 @@ class ReadOnlyStatementValidator extends TablesNamesFinder<Void> {
         if (plainSelect.getIntoTables() != null && !plainSelect.getIntoTables().isEmpty()
                 || plainSelect.getIntoTempTable() != null) {
             record(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+        // MySQL INTO OUTFILE / INTO DUMPFILE write a file on the server, INTO @var
+        // assigns session variables; none of the three returns rows to the client.
+        if (plainSelect.getMySqlSelectIntoClause() != null) {
+            record(SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED);
         }
         checkRowLocking(plainSelect);
         return super.visit(plainSelect, context);

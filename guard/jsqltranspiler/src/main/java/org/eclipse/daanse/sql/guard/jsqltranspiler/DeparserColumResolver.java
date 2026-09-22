@@ -21,6 +21,7 @@ import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.Select;
@@ -40,33 +41,58 @@ public class DeparserColumResolver extends JSQLColumResolver {
         this.dialectDeparser = dialectDeparser;
     }
 
+    @Override
     public String getResolvedStatementText(String sqlStr) throws JSQLParserException {
+        return getResolvedStatementText(CCJSqlParserUtil.parse(sqlStr));
+    }
 
-        Statement st = CCJSqlParserUtil.parse(sqlStr);
+    /**
+     * Resolves and deparses an already parsed statement, so a caller that has the AST
+     * in hand (the guard, which validated it first) does not pay for a second parse.
+     */
+    public String getResolvedStatementText(Statement st) {
         if (st instanceof Select) {
             Select select = (Select) st;
             select.accept((SelectVisitor<JdbcResultSetMetaData>) this, JdbcMetaData.copyOf(metaData));
-            stripCurrentCatalogQualifier(select);
+            normaliseQualifiers(select);
         }
 
         return dialectDeparser.deparse(st, dialect);
     }
 
-    // The resolver only ever fills in a catalog qualifier that is missing; it never clears one that
-    // was already explicit in the query, even when it names the current catalog. The database
-    // connection is already scoped to that catalog, so only the schema-qualified name may be sent.
-    private void stripCurrentCatalogQualifier(Select select) {
+    // The resolvers only ever fill in qualifiers, they never clear them. The connection is
+    // already scoped to the current catalog, so a table may only be sent schema-qualified.
+    // Column references keep just the table name or alias: the FROM item carries the schema.
+    // (JSQLResolver expands "*" with the FROM item's full qualification, JSQLColumResolver
+    // with the bare name; this normalisation makes both paths emit the same text.)
+    private void normaliseQualifiers(Select select) {
         String currentCatalogName = metaData.getCurrentCatalogName();
-        if (currentCatalogName == null || currentCatalogName.isEmpty()) {
-            return;
-        }
+        String currentSchemaName = metaData.getCurrentSchemaName();
         new TablesNamesFinder<Void>() {
             @Override
             public <S> Void visit(Table table, S context) {
-                if (currentCatalogName.equalsIgnoreCase(table.getUnquotedDatabaseName())) {
+                stripCurrentCatalog(table);
+                return super.visit(table, context);
+            }
+
+            @Override
+            public <S> Void visit(Column column, S context) {
+                Table table = column.getTable();
+                if (table != null) {
+                    stripCurrentCatalog(table);
+                    if (currentSchemaName != null && !currentSchemaName.isEmpty()
+                            && currentSchemaName.equalsIgnoreCase(table.getUnquotedSchemaName())) {
+                        table.setSchemaName(null);
+                    }
+                }
+                return super.visit(column, context);
+            }
+
+            private void stripCurrentCatalog(Table table) {
+                if (currentCatalogName != null && !currentCatalogName.isEmpty()
+                        && currentCatalogName.equalsIgnoreCase(table.getUnquotedDatabaseName())) {
                     table.setDatabaseName(null);
                 }
-                return super.visit(table, context);
             }
         }.getTables((Statement) select);
     }

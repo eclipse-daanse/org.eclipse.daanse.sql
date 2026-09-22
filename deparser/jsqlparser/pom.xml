@@ -43,7 +43,7 @@
     <dependency>
       <groupId>com.manticore-projects.jsqlformatter</groupId>
       <artifactId>jsqlparser</artifactId>
-      <version>5.3.167</version>
+      <version>5.4.15</version>
     </dependency>
     <dependency>
       <groupId>org.osgi</groupId>
