@@ -36,7 +36,6 @@ import org.slf4j.LoggerFactory;
 
 import ai.starlake.transpiler.CatalogNotFoundException;
 import ai.starlake.transpiler.ColumnNotFoundException;
-import ai.starlake.transpiler.JSQLColumResolver;
 import ai.starlake.transpiler.JSQLResolver;
 import ai.starlake.transpiler.SchemaNotFoundException;
 import ai.starlake.transpiler.TableNotDeclaredException;
@@ -47,8 +46,10 @@ import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.StatementFeatures;
+import net.sf.jsqlparser.statement.Statements;
+import net.sf.jsqlparser.statement.StmtFeature;
 import net.sf.jsqlparser.statement.select.Select;
-import net.sf.jsqlparser.util.deparser.StatementDeParser;
 
 public class TranspilerSqlGuard implements SqlGuard {
 
@@ -58,6 +59,8 @@ public class TranspilerSqlGuard implements SqlGuard {
     private static final String NOTHING_WAS_SELECTED = "Nothing was selected.";
     private static final String QUERY_HAS_DISAllOWED_FUNCTIONS = "Query has disallowed functions.";
     private static final String COULD_NOT_VALIDATE = "Statement could not be validated.";
+    private static final String ONLY_ONE_STATEMENT_IS_PERMITTED = "Only a single statement is permitted.";
+    private static final String STATEMENT_HAS_SIDE_EFFECTS = "Statement has side effects or does not return rows.";
     private static final Logger LOGGER = LoggerFactory.getLogger(TranspilerSqlGuard.class);
     private JdbcMetaData jdbcMetaDataToCopy;
     private List<String> whitelistFunctionsPatterns = new ArrayList<String>();
@@ -75,20 +78,27 @@ public class TranspilerSqlGuard implements SqlGuard {
     @Override
     public String guard(String sqlStr) throws GuardException {
 
-        LOGGER.atInfo().log("guard incoming: %s", sqlStr);
-        StringBuilder builder = new StringBuilder();
-        StatementDeParser deParser = new StatementDeParser(builder);
+        LOGGER.atInfo().log("guard incoming: {}", sqlStr);
 
         JSQLResolver resolver = new JSQLResolver(jdbcMetaDataToCopy);
 
-        // this does not really work, when there are comments
-        // @todo: apply a Regex for SQL Comments
         if (sqlStr == null || sqlStr.trim().isEmpty()) {
             throw new EmptyStatementGuardException();
         }
 
         try {
-            Statement st = CCJSqlParserUtil.parse(sqlStr);
+            // parse the whole input as a script: CCJSqlParserUtil.parse() stops after the
+            // first statement and would silently drop a trailing "; DROP TABLE ..." (or
+            // any other statement) from what is validated and rewritten.
+            Statements statements = CCJSqlParserUtil.parseStatements(sqlStr);
+            if (statements == null || statements.isEmpty()) {
+                // e.g. a comment-only input parses to an empty script
+                throw new EmptyStatementGuardException();
+            }
+            if (statements.size() > 1) {
+                throw new UnallowedStatementTypeGuardException(ONLY_ONE_STATEMENT_IS_PERMITTED);
+            }
+            Statement st = statements.get(0);
 
             // we can test for SELECT, though in practise it won't protect us from harmful statements
             if (st instanceof Select) {
@@ -137,14 +147,7 @@ public class TranspilerSqlGuard implements SqlGuard {
                 List<String> disallowedFunctions = new ArrayList<>();
 
                 for (String function : functionNames) {
-                    boolean isAllowed = false;
-                    for (String pattern : whitelistFunctionsPatterns) {
-                        if (Pattern.matches(pattern, function)) {
-                            isAllowed = true;
-                            break;
-                        }
-                    }
-                    if (isAllowed) {
+                    if (isWhitelistedFunction(function)) {
                         allowedFunctions.add(function);
                     } else {
                         disallowedFunctions.add(function);
@@ -155,16 +158,23 @@ public class TranspilerSqlGuard implements SqlGuard {
                     throw new GuardException(QUERY_HAS_DISAllOWED_FUNCTIONS);
                 }
 
+                // Second net: JSqlParser's own statement classification (since 5.4). It
+                // covers side effects this guard does not model explicitly (session or
+                // transaction changes, opaque calls, statement types added upstream).
+                // Functions the resolver saw were already proven against the whitelist
+                // above, so this can only reject for reasons the checks before did not see.
+                validateFeatures(st, allowedFunctions);
+
                 // we can finally resolve for the actually returned columns
-                JSQLColumResolver columResolver = new DeparserColumResolver(jdbcMetaDataToCopy, dialect,dialectDeparser);
+                // on the very same AST that was validated above: no second parse
+                DeparserColumResolver columResolver = new DeparserColumResolver(jdbcMetaDataToCopy, dialect,
+                        dialectDeparser);
                 columResolver.setCommentFlag(false);
                 columResolver.setErrorMode(JdbcMetaData.ErrorMode.STRICT);
 
-                String rewritten = columResolver.getResolvedStatementText(sqlStr);
+                String rewritten = columResolver.getResolvedStatementText(st);
 
-                deParser.visit((Select) st);// or rewritten
-
-                LOGGER.atInfo().log("guard outgoin: %s", rewritten);
+                LOGGER.atInfo().log("guard outgoing: {}", rewritten);
 
                 return rewritten;
 
@@ -184,6 +194,31 @@ public class TranspilerSqlGuard implements SqlGuard {
             throw new GuardException(COULD_NOT_VALIDATE);
         }
 
+    }
+
+    private boolean isWhitelistedFunction(String function) {
+        for (String pattern : whitelistFunctionsPatterns) {
+            if (Pattern.matches(pattern, function)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void validateFeatures(Statement st, List<String> allowedFunctions) throws GuardException {
+        // the feature visitor reports function names lower-cased; the whitelist patterns
+        // are case-sensitive, so accept every name the resolver-based check already passed
+        StatementFeatures features = st.getFeatures(name -> isWhitelistedFunction(name)
+                || allowedFunctions.stream().anyMatch(allowed -> allowed.equalsIgnoreCase(name)));
+        boolean sideEffect = features.may(StmtFeature.MODIFIES_DATA)
+                || features.may(StmtFeature.MODIFIES_SCHEMA)
+                || features.may(StmtFeature.MODIFIES_SESSION)
+                || features.may(StmtFeature.MODIFIES_TRANSACTION)
+                || features.may(StmtFeature.OPAQUE);
+        if (sideEffect || !features.returnsResultSet()) {
+            LOGGER.atInfo().log("{} features: {}", STATEMENT_HAS_SIDE_EFFECTS, features);
+            throw new GuardException(STATEMENT_HAS_SIDE_EFFECTS);
+        }
     }
 
     private static void validateReadOnly(Select select) throws GuardException {
