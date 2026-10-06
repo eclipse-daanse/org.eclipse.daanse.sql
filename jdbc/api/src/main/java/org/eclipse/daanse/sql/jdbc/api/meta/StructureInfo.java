@@ -25,6 +25,7 @@ import org.eclipse.daanse.sql.model.schema.PrimaryKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.model.schema.Trigger;
 import org.eclipse.daanse.sql.jdbc.api.schema.UniqueConstraint;
@@ -52,6 +53,11 @@ public interface StructureInfo {
 
     /** @return the sequences, empty list if not available */
     default List<Sequence> sequences() {
+        return List.of();
+    }
+
+    /** @return the synonyms, empty list if not available */
+    default List<Synonym> synonyms() {
         return List.of();
     }
 

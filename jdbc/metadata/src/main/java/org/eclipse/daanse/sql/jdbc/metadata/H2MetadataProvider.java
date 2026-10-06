@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
@@ -41,6 +42,8 @@ import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureReference;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
+import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming;
@@ -58,6 +61,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.PrimaryKeyRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.SynonymRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ViewDefinitionRecord;
@@ -73,13 +77,13 @@ public class H2MetadataProvider implements MetadataProvider {
     @Override
     public List<Trigger> getAllTriggers(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
-                SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING,
-                       EVENT_MANIPULATION, JAVA_CLASS, ACTION_ORIENTATION,
-                       EVENT_OBJECT_SCHEMA, EVENT_OBJECT_CATALOG
-                FROM INFORMATION_SCHEMA.TRIGGERS
-                WHERE TRIGGER_SCHEMA = ?
-                ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME
-                """;
+            SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING,
+                    EVENT_MANIPULATION, JAVA_CLASS, ACTION_ORIENTATION,
+                    EVENT_OBJECT_SCHEMA, EVENT_OBJECT_CATALOG
+            FROM INFORMATION_SCHEMA.TRIGGERS
+            WHERE TRIGGER_SCHEMA = ?
+            ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<Trigger> triggers = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -96,15 +100,15 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public List<Trigger> getTriggers(Connection connection, String catalog, String schema, String tableName)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING,
-                       EVENT_MANIPULATION, JAVA_CLASS, ACTION_ORIENTATION,
-                       EVENT_OBJECT_SCHEMA, EVENT_OBJECT_CATALOG
-                FROM INFORMATION_SCHEMA.TRIGGERS
-                WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
-                ORDER BY TRIGGER_NAME
-                """;
+            SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING,
+                    EVENT_MANIPULATION, JAVA_CLASS, ACTION_ORIENTATION,
+                    EVENT_OBJECT_SCHEMA, EVENT_OBJECT_CATALOG
+            FROM INFORMATION_SCHEMA.TRIGGERS
+            WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
+            ORDER BY TRIGGER_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<Trigger> triggers = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -123,12 +127,12 @@ public class H2MetadataProvider implements MetadataProvider {
     @Override
     public List<Sequence> getAllSequences(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
-                SELECT SEQUENCE_NAME, START_VALUE, INCREMENT, MINIMUM_VALUE,
-                       MAXIMUM_VALUE, CYCLE_OPTION, CACHE, DATA_TYPE
-                FROM INFORMATION_SCHEMA.SEQUENCES
-                WHERE SEQUENCE_SCHEMA = ?
-                ORDER BY SEQUENCE_NAME
-                """;
+            SELECT SEQUENCE_NAME, START_VALUE, INCREMENT, MINIMUM_VALUE,
+                    MAXIMUM_VALUE, CYCLE_OPTION, CACHE, DATA_TYPE
+            FROM INFORMATION_SCHEMA.SEQUENCES
+            WHERE SEQUENCE_SCHEMA = ?
+            ORDER BY SEQUENCE_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<Sequence> sequences = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -151,7 +155,7 @@ public class H2MetadataProvider implements MetadataProvider {
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
 
                     sequences.add(new SequenceRecord(new SequenceReference(oSchema, name), startValue, increment,
-                            oMinValue, oMaxValue, cycle, oCacheSize, Optional.ofNullable(dataType)));
+                        oMinValue, oMaxValue, cycle, oCacheSize, Optional.ofNullable(dataType)));
                 }
             }
         }
@@ -160,18 +164,52 @@ public class H2MetadataProvider implements MetadataProvider {
 
 
     @Override
-    public List<CheckConstraint> getAllCheckConstraints(Connection connection, String catalog, String schema)
-            throws SQLException {
+    public List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
+        // H2 synonyms point only to existing tables and views — no chains, no dangling
+        // targets, no public synonyms (PUBLIC is just the default schema's name).
         String sql = """
-                SELECT cc.CHECK_CLAUSE, tc.CONSTRAINT_NAME, tc.TABLE_NAME
-                FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
-                JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-                  AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-                WHERE tc.TABLE_SCHEMA = ?
-                  AND tc.CONSTRAINT_TYPE = 'CHECK'
-                ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME
-                """;
+            SELECT s.SYNONYM_NAME, s.SYNONYM_FOR_SCHEMA, s.SYNONYM_FOR, t.TABLE_TYPE
+            FROM INFORMATION_SCHEMA.SYNONYMS s
+            LEFT JOIN INFORMATION_SCHEMA.TABLES t
+                ON t.TABLE_SCHEMA = s.SYNONYM_FOR_SCHEMA AND t.TABLE_NAME = s.SYNONYM_FOR
+            WHERE s.SYNONYM_SCHEMA = ?
+            ORDER BY s.SYNONYM_NAME
+            """;
+        String schemaName = resolveSchema(schema, connection);
+        List<Synonym> synonyms = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String targetSchema = rs.getString("SYNONYM_FOR_SCHEMA");
+
+                    Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+                    Optional<SchemaReference> oTargetSchema = targetSchema == null ? Optional.empty()
+                        : Optional.of(new SchemaReference(Optional.empty(), targetSchema));
+
+                    synonyms.add(new SynonymRecord(new SynonymReference(oSchema, rs.getString("SYNONYM_NAME")),
+                        oTargetSchema, rs.getString("SYNONYM_FOR"), Optional.empty(), false,
+                        Optional.ofNullable(rs.getString("TABLE_TYPE"))));
+                }
+            }
+        }
+        return List.copyOf(synonyms);
+    }
+
+
+    @Override
+    public List<CheckConstraint> getAllCheckConstraints(Connection connection, String catalog, String schema)
+        throws SQLException {
+        String sql = """
+            SELECT cc.CHECK_CLAUSE, tc.CONSTRAINT_NAME, tc.TABLE_NAME
+            FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
+            JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+                AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+            WHERE tc.TABLE_SCHEMA = ?
+                AND tc.CONSTRAINT_TYPE = 'CHECK'
+            ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<CheckConstraint> constraints = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -195,18 +233,18 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public List<CheckConstraint> getCheckConstraints(Connection connection, String catalog, String schema,
-            String tableName) throws SQLException {
+                                                    String tableName) throws SQLException {
         String sql = """
-                SELECT cc.CHECK_CLAUSE, tc.CONSTRAINT_NAME, tc.TABLE_NAME
-                FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
-                JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-                  AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-                WHERE tc.TABLE_SCHEMA = ?
-                  AND tc.TABLE_NAME = ?
-                  AND tc.CONSTRAINT_TYPE = 'CHECK'
-                ORDER BY tc.CONSTRAINT_NAME
-                """;
+            SELECT cc.CHECK_CLAUSE, tc.CONSTRAINT_NAME, tc.TABLE_NAME
+            FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
+            JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+                AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+            WHERE tc.TABLE_SCHEMA = ?
+                AND tc.TABLE_NAME = ?
+                AND tc.CONSTRAINT_TYPE = 'CHECK'
+            ORDER BY tc.CONSTRAINT_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<CheckConstraint> constraints = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -230,58 +268,58 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public List<UniqueConstraint> getAllUniqueConstraints(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
-                       kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
-                  AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-                  AND tc.TABLE_NAME = kcu.TABLE_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'UNIQUE'
-                  AND tc.TABLE_SCHEMA = ?
-                ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
-                """;
+            SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
+                    kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+                ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+                AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+                AND tc.TABLE_NAME = kcu.TABLE_NAME
+            WHERE tc.CONSTRAINT_TYPE = 'UNIQUE'
+                AND tc.TABLE_SCHEMA = ?
+            ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
+            """;
         return readUniqueConstraints(connection, sql, schema, null);
     }
 
 
     @Override
     public List<UniqueConstraint> getUniqueConstraints(Connection connection, String catalog, String schema,
-            String tableName) throws SQLException {
+                                                    String tableName) throws SQLException {
         String sql = """
-                SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
-                       kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
-                  AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-                  AND tc.TABLE_NAME = kcu.TABLE_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'UNIQUE'
-                  AND tc.TABLE_SCHEMA = ?
-                  AND tc.TABLE_NAME = ?
-                ORDER BY tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
-                """;
+            SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
+                    kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+                ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+                AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+                AND tc.TABLE_NAME = kcu.TABLE_NAME
+            WHERE tc.CONSTRAINT_TYPE = 'UNIQUE'
+                AND tc.TABLE_SCHEMA = ?
+                AND tc.TABLE_NAME = ?
+            ORDER BY tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
+            """;
         return readUniqueConstraints(connection, sql, schema, tableName);
     }
 
 
     @Override
     public Optional<List<PrimaryKey>> getAllPrimaryKeys(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
-                       kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
-                  AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-                  AND tc.TABLE_NAME = kcu.TABLE_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                  AND tc.TABLE_SCHEMA = ?
-                ORDER BY tc.TABLE_NAME, kcu.ORDINAL_POSITION
-                """;
+            SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME,
+                    kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+                ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+                AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+                AND tc.TABLE_NAME = kcu.TABLE_NAME
+            WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                AND tc.TABLE_SCHEMA = ?
+            ORDER BY tc.TABLE_NAME, kcu.ORDINAL_POSITION
+            """;
         String schemaName = resolveSchema(schema, connection);
         // Group by table+constraint to build composite PKs
         Map<String, PkBuilder> pkMap = new LinkedHashMap<>();
@@ -295,7 +333,7 @@ public class H2MetadataProvider implements MetadataProvider {
 
                     String key = tableName + "." + constraintName;
                     pkMap.computeIfAbsent(key, k -> new PkBuilder(tableName, constraintName, schemaName))
-                            .addColumn(columnName);
+                        .addColumn(columnName);
                 }
             }
         }
@@ -309,35 +347,35 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public Optional<List<ImportedKey>> getAllImportedKeys(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT fk_tc.CONSTRAINT_NAME AS FK_NAME,
-                       fk_kcu.TABLE_NAME AS FK_TABLE,
-                       fk_kcu.COLUMN_NAME AS FK_COLUMN,
-                       fk_kcu.TABLE_SCHEMA AS FK_SCHEMA,
-                       fk_kcu.TABLE_CATALOG AS FK_CATALOG,
-                       pk_kcu.TABLE_NAME AS PK_TABLE,
-                       pk_kcu.COLUMN_NAME AS PK_COLUMN,
-                       pk_kcu.TABLE_SCHEMA AS PK_SCHEMA,
-                       pk_kcu.TABLE_CATALOG AS PK_CATALOG,
-                       fk_kcu.ORDINAL_POSITION AS KEY_SEQ,
-                       rc.UPDATE_RULE, rc.DELETE_RULE,
-                       rc.UNIQUE_CONSTRAINT_NAME AS PK_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS fk_tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk_kcu
-                  ON fk_tc.CONSTRAINT_SCHEMA = fk_kcu.CONSTRAINT_SCHEMA
-                  AND fk_tc.CONSTRAINT_NAME = fk_kcu.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                  ON fk_tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
-                  AND fk_tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE pk_kcu
-                  ON rc.UNIQUE_CONSTRAINT_SCHEMA = pk_kcu.CONSTRAINT_SCHEMA
-                  AND rc.UNIQUE_CONSTRAINT_NAME = pk_kcu.CONSTRAINT_NAME
-                  AND fk_kcu.POSITION_IN_UNIQUE_CONSTRAINT = pk_kcu.ORDINAL_POSITION
-                WHERE fk_tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                  AND fk_tc.TABLE_SCHEMA = ?
-                ORDER BY fk_kcu.TABLE_NAME, fk_tc.CONSTRAINT_NAME, fk_kcu.ORDINAL_POSITION
-                """;
+            SELECT fk_tc.CONSTRAINT_NAME AS FK_NAME,
+                    fk_kcu.TABLE_NAME AS FK_TABLE,
+                    fk_kcu.COLUMN_NAME AS FK_COLUMN,
+                    fk_kcu.TABLE_SCHEMA AS FK_SCHEMA,
+                    fk_kcu.TABLE_CATALOG AS FK_CATALOG,
+                    pk_kcu.TABLE_NAME AS PK_TABLE,
+                    pk_kcu.COLUMN_NAME AS PK_COLUMN,
+                    pk_kcu.TABLE_SCHEMA AS PK_SCHEMA,
+                    pk_kcu.TABLE_CATALOG AS PK_CATALOG,
+                    fk_kcu.ORDINAL_POSITION AS KEY_SEQ,
+                    rc.UPDATE_RULE, rc.DELETE_RULE,
+                    rc.UNIQUE_CONSTRAINT_NAME AS PK_NAME
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS fk_tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk_kcu
+                ON fk_tc.CONSTRAINT_SCHEMA = fk_kcu.CONSTRAINT_SCHEMA
+                AND fk_tc.CONSTRAINT_NAME = fk_kcu.CONSTRAINT_NAME
+            JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                ON fk_tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+                AND fk_tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE pk_kcu
+                ON rc.UNIQUE_CONSTRAINT_SCHEMA = pk_kcu.CONSTRAINT_SCHEMA
+                AND rc.UNIQUE_CONSTRAINT_NAME = pk_kcu.CONSTRAINT_NAME
+                AND fk_kcu.POSITION_IN_UNIQUE_CONSTRAINT = pk_kcu.ORDINAL_POSITION
+            WHERE fk_tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                AND fk_tc.TABLE_SCHEMA = ?
+            ORDER BY fk_kcu.TABLE_NAME, fk_tc.CONSTRAINT_NAME, fk_kcu.ORDINAL_POSITION
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<ImportedKey> importedKeys = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -354,37 +392,37 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public Optional<List<ImportedKey>> getAllExportedKeys(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         // Symmetric to getAllImportedKeys: filter by the referenced (PK-side) schema
         // rather than the referencing (FK-side) schema.
         String sql = """
-                SELECT fk_tc.CONSTRAINT_NAME AS FK_NAME,
-                       fk_kcu.TABLE_NAME AS FK_TABLE,
-                       fk_kcu.COLUMN_NAME AS FK_COLUMN,
-                       fk_kcu.TABLE_SCHEMA AS FK_SCHEMA,
-                       fk_kcu.TABLE_CATALOG AS FK_CATALOG,
-                       pk_kcu.TABLE_NAME AS PK_TABLE,
-                       pk_kcu.COLUMN_NAME AS PK_COLUMN,
-                       pk_kcu.TABLE_SCHEMA AS PK_SCHEMA,
-                       pk_kcu.TABLE_CATALOG AS PK_CATALOG,
-                       fk_kcu.ORDINAL_POSITION AS KEY_SEQ,
-                       rc.UPDATE_RULE, rc.DELETE_RULE,
-                       rc.UNIQUE_CONSTRAINT_NAME AS PK_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS fk_tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk_kcu
-                  ON fk_tc.CONSTRAINT_SCHEMA = fk_kcu.CONSTRAINT_SCHEMA
-                  AND fk_tc.CONSTRAINT_NAME = fk_kcu.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                  ON fk_tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
-                  AND fk_tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE pk_kcu
-                  ON rc.UNIQUE_CONSTRAINT_SCHEMA = pk_kcu.CONSTRAINT_SCHEMA
-                  AND rc.UNIQUE_CONSTRAINT_NAME = pk_kcu.CONSTRAINT_NAME
-                  AND fk_kcu.POSITION_IN_UNIQUE_CONSTRAINT = pk_kcu.ORDINAL_POSITION
-                WHERE fk_tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                  AND pk_kcu.TABLE_SCHEMA = ?
-                ORDER BY pk_kcu.TABLE_NAME, fk_tc.CONSTRAINT_NAME, fk_kcu.ORDINAL_POSITION
-                """;
+            SELECT fk_tc.CONSTRAINT_NAME AS FK_NAME,
+                    fk_kcu.TABLE_NAME AS FK_TABLE,
+                    fk_kcu.COLUMN_NAME AS FK_COLUMN,
+                    fk_kcu.TABLE_SCHEMA AS FK_SCHEMA,
+                    fk_kcu.TABLE_CATALOG AS FK_CATALOG,
+                    pk_kcu.TABLE_NAME AS PK_TABLE,
+                    pk_kcu.COLUMN_NAME AS PK_COLUMN,
+                    pk_kcu.TABLE_SCHEMA AS PK_SCHEMA,
+                    pk_kcu.TABLE_CATALOG AS PK_CATALOG,
+                    fk_kcu.ORDINAL_POSITION AS KEY_SEQ,
+                    rc.UPDATE_RULE, rc.DELETE_RULE,
+                    rc.UNIQUE_CONSTRAINT_NAME AS PK_NAME
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS fk_tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk_kcu
+                ON fk_tc.CONSTRAINT_SCHEMA = fk_kcu.CONSTRAINT_SCHEMA
+                AND fk_tc.CONSTRAINT_NAME = fk_kcu.CONSTRAINT_NAME
+            JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                ON fk_tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+                AND fk_tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE pk_kcu
+                ON rc.UNIQUE_CONSTRAINT_SCHEMA = pk_kcu.CONSTRAINT_SCHEMA
+                AND rc.UNIQUE_CONSTRAINT_NAME = pk_kcu.CONSTRAINT_NAME
+                AND fk_kcu.POSITION_IN_UNIQUE_CONSTRAINT = pk_kcu.ORDINAL_POSITION
+            WHERE fk_tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                AND pk_kcu.TABLE_SCHEMA = ?
+            ORDER BY pk_kcu.TABLE_NAME, fk_tc.CONSTRAINT_NAME, fk_kcu.ORDINAL_POSITION
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<ImportedKey> exportedKeys = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -401,20 +439,20 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT i.TABLE_NAME, i.INDEX_NAME, i.INDEX_TYPE_NAME,
-                       ic.COLUMN_NAME, ic.ORDINAL_POSITION, ic.IS_UNIQUE,
-                       i.TABLE_SCHEMA, i.TABLE_CATALOG
-                FROM INFORMATION_SCHEMA.INDEXES i
-                JOIN INFORMATION_SCHEMA.INDEX_COLUMNS ic
-                  ON i.INDEX_CATALOG = ic.INDEX_CATALOG
-                  AND i.INDEX_SCHEMA = ic.INDEX_SCHEMA
-                  AND i.INDEX_NAME = ic.INDEX_NAME
-                  AND i.TABLE_NAME = ic.TABLE_NAME
-                WHERE i.TABLE_SCHEMA = ?
-                ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.ORDINAL_POSITION
-                """;
+            SELECT i.TABLE_NAME, i.INDEX_NAME, i.INDEX_TYPE_NAME,
+                    ic.COLUMN_NAME, ic.ORDINAL_POSITION, ic.IS_UNIQUE,
+                    i.TABLE_SCHEMA, i.TABLE_CATALOG
+            FROM INFORMATION_SCHEMA.INDEXES i
+            JOIN INFORMATION_SCHEMA.INDEX_COLUMNS ic
+                ON i.INDEX_CATALOG = ic.INDEX_CATALOG
+                AND i.INDEX_SCHEMA = ic.INDEX_SCHEMA
+                AND i.INDEX_NAME = ic.INDEX_NAME
+                AND i.TABLE_NAME = ic.TABLE_NAME
+            WHERE i.TABLE_SCHEMA = ?
+            ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.ORDINAL_POSITION
+            """;
         String schemaName = resolveSchema(schema, connection);
         // Group index items by table
         Map<String, List<IndexInfoItem>> tableIndexes = new LinkedHashMap<>();
@@ -432,22 +470,22 @@ public class H2MetadataProvider implements MetadataProvider {
 
                     TableReference tableRef = tableRefs.computeIfAbsent(tableName, k -> {
                         Optional<SchemaReference> oSchema = Optional
-                                .of(new SchemaReference(Optional.empty(), schemaName));
+                            .of(new SchemaReference(Optional.empty(), schemaName));
                         return new TableReference(oSchema, k);
                     });
 
                     Optional<ColumnReference> colRef = Optional.ofNullable(columnName)
-                            .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
+                        .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
 
                     IndexInfoItem.IndexType indexType = mapH2IndexType(indexTypeName);
 
                     IndexInfoItem item = new IndexInfoItemRecord(Optional.ofNullable(indexName), indexType, colRef,
-                            ordinalPosition, Optional.empty(), // H2 doesn't expose ASC/DESC in
-                                                               // INFORMATION_SCHEMA.INDEXES
-                            0L, // cardinality not available here
-                            0L, // pages not available here
-                            Optional.empty(), // filter condition
-                            isUnique);
+                        ordinalPosition, Optional.empty(), // H2 doesn't expose ASC/DESC in
+                        // INFORMATION_SCHEMA.INDEXES
+                        0L, // cardinality not available here
+                        0L, // pages not available here
+                        Optional.empty(), // filter condition
+                        isUnique);
 
                     tableIndexes.computeIfAbsent(tableName, k -> new ArrayList<>()).add(item);
                 }
@@ -463,13 +501,13 @@ public class H2MetadataProvider implements MetadataProvider {
 
     @Override
     public List<ViewDefinition> getAllViewDefinitions(Connection connection, String catalog, String schema)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT TABLE_NAME, VIEW_DEFINITION, TABLE_SCHEMA, TABLE_CATALOG
-                FROM INFORMATION_SCHEMA.VIEWS
-                WHERE TABLE_SCHEMA = ?
-                ORDER BY TABLE_NAME
-                """;
+            SELECT TABLE_NAME, VIEW_DEFINITION, TABLE_SCHEMA, TABLE_CATALOG
+            FROM INFORMATION_SCHEMA.VIEWS
+            WHERE TABLE_SCHEMA = ?
+            ORDER BY TABLE_NAME
+            """;
         String schemaName = resolveSchema(schema, connection);
         List<ViewDefinition> views = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -497,11 +535,11 @@ public class H2MetadataProvider implements MetadataProvider {
         Map<String, List<ProcedureColumn>> paramMap = loadProcedureColumns(connection, schemaName);
 
         String sql = """
-                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
-                FROM INFORMATION_SCHEMA.ROUTINES
-                WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'PROCEDURE'
-                ORDER BY ROUTINE_NAME
-                """;
+            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
+            FROM INFORMATION_SCHEMA.ROUTINES
+            WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'PROCEDURE'
+            ORDER BY ROUTINE_NAME
+            """;
         List<Procedure> procedures = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, schemaName);
@@ -516,8 +554,8 @@ public class H2MetadataProvider implements MetadataProvider {
                     List<ProcedureColumn> cols = paramMap.getOrDefault(specificName, List.of());
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName, specificName),
-                            Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols,
-                            Optional.ofNullable(body), Optional.empty(), Optional.empty()));
+                        Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols,
+                        Optional.ofNullable(body), Optional.empty(), Optional.empty()));
                 }
             }
         }
@@ -532,11 +570,11 @@ public class H2MetadataProvider implements MetadataProvider {
         Map<String, List<FunctionColumn>> paramMap = loadFunctionColumns(connection, schemaName);
 
         String sql = """
-                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
-                FROM INFORMATION_SCHEMA.ROUTINES
-                WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'FUNCTION'
-                ORDER BY ROUTINE_NAME
-                """;
+            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
+            FROM INFORMATION_SCHEMA.ROUTINES
+            WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'FUNCTION'
+            ORDER BY ROUTINE_NAME
+            """;
         List<Function> functions = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, schemaName);
@@ -551,8 +589,8 @@ public class H2MetadataProvider implements MetadataProvider {
                     List<FunctionColumn> cols = paramMap.getOrDefault(specificName, List.of());
 
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName, specificName),
-                            Function.FunctionType.NO_TABLE, Optional.ofNullable(remarks), cols,
-                            Optional.ofNullable(body), Optional.empty(), Optional.empty()));
+                        Function.FunctionType.NO_TABLE, Optional.ofNullable(remarks), cols,
+                        Optional.ofNullable(body), Optional.empty(), Optional.empty()));
                 }
             }
         }
@@ -561,15 +599,15 @@ public class H2MetadataProvider implements MetadataProvider {
 
 
     private Map<String, List<ProcedureColumn>> loadProcedureColumns(Connection connection, String schemaName)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
-                       ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE,
-                       PARAMETER_DEFAULT
-                FROM INFORMATION_SCHEMA.PARAMETERS
-                WHERE SPECIFIC_SCHEMA = ?
-                ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
-                """;
+            SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
+                    ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE,
+                    PARAMETER_DEFAULT
+            FROM INFORMATION_SCHEMA.PARAMETERS
+            WHERE SPECIFIC_SCHEMA = ?
+            ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
+            """;
         Map<String, List<ProcedureColumn>> result = new LinkedHashMap<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, schemaName);
@@ -590,11 +628,11 @@ public class H2MetadataProvider implements MetadataProvider {
                     JDBCType jdbcType = mapH2DataType(dataType);
 
                     ProcedureColumn col = new ProcedureColumnRecord(paramName != null ? paramName : "", colType,
-                            jdbcType, dataType != null ? dataType : "",
-                            precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
-                            scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
-                            ProcedureColumn.Nullability.UNKNOWN, Optional.empty(), Optional.ofNullable(paramDefault),
-                            ordinalPosition);
+                        jdbcType, dataType != null ? dataType : "",
+                        precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
+                        scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
+                        ProcedureColumn.Nullability.UNKNOWN, Optional.empty(), Optional.ofNullable(paramDefault),
+                        ordinalPosition);
 
                     result.computeIfAbsent(specificName, k -> new ArrayList<>()).add(col);
                 }
@@ -605,14 +643,14 @@ public class H2MetadataProvider implements MetadataProvider {
 
 
     private Map<String, List<FunctionColumn>> loadFunctionColumns(Connection connection, String schemaName)
-            throws SQLException {
+        throws SQLException {
         String sql = """
-                SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
-                       ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
-                FROM INFORMATION_SCHEMA.PARAMETERS
-                WHERE SPECIFIC_SCHEMA = ?
-                ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
-                """;
+            SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
+                    ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
+            FROM INFORMATION_SCHEMA.PARAMETERS
+            WHERE SPECIFIC_SCHEMA = ?
+            ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
+            """;
         Map<String, List<FunctionColumn>> result = new LinkedHashMap<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, schemaName);
@@ -632,10 +670,10 @@ public class H2MetadataProvider implements MetadataProvider {
                     JDBCType jdbcType = mapH2DataType(dataType);
 
                     FunctionColumn col = new FunctionColumnRecord(paramName != null ? paramName : "", colType, jdbcType,
-                            dataType != null ? dataType : "",
-                            precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
-                            scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
-                            FunctionColumn.Nullability.UNKNOWN, Optional.empty(), OptionalInt.empty(), ordinalPosition);
+                        dataType != null ? dataType : "",
+                        precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
+                        scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
+                        FunctionColumn.Nullability.UNKNOWN, Optional.empty(), OptionalInt.empty(), ordinalPosition);
 
                     result.computeIfAbsent(specificName, k -> new ArrayList<>()).add(col);
                 }
@@ -650,10 +688,10 @@ public class H2MetadataProvider implements MetadataProvider {
             return ProcedureColumn.ColumnType.UNKNOWN;
         }
         return switch (mode.toUpperCase()) {
-        case "IN" -> ProcedureColumn.ColumnType.IN;
-        case "OUT" -> ProcedureColumn.ColumnType.OUT;
-        case "INOUT" -> ProcedureColumn.ColumnType.INOUT;
-        default -> ProcedureColumn.ColumnType.UNKNOWN;
+            case "IN" -> ProcedureColumn.ColumnType.IN;
+            case "OUT" -> ProcedureColumn.ColumnType.OUT;
+            case "INOUT" -> ProcedureColumn.ColumnType.INOUT;
+            default -> ProcedureColumn.ColumnType.UNKNOWN;
         };
     }
 
@@ -663,10 +701,10 @@ public class H2MetadataProvider implements MetadataProvider {
             return FunctionColumn.ColumnType.UNKNOWN;
         }
         return switch (mode.toUpperCase()) {
-        case "IN" -> FunctionColumn.ColumnType.IN;
-        case "OUT" -> FunctionColumn.ColumnType.OUT;
-        case "INOUT" -> FunctionColumn.ColumnType.INOUT;
-        default -> FunctionColumn.ColumnType.UNKNOWN;
+            case "IN" -> FunctionColumn.ColumnType.IN;
+            case "OUT" -> FunctionColumn.ColumnType.OUT;
+            case "INOUT" -> FunctionColumn.ColumnType.INOUT;
+            default -> FunctionColumn.ColumnType.UNKNOWN;
         };
     }
 
@@ -679,25 +717,25 @@ public class H2MetadataProvider implements MetadataProvider {
             return JDBCType.valueOf(dataType.toUpperCase().replace(" ", "_"));
         } catch (IllegalArgumentException e) {
             return switch (dataType.toUpperCase()) {
-            case "INT", "INT4", "SIGNED" -> JDBCType.INTEGER;
-            case "INT8" -> JDBCType.BIGINT;
-            case "INT2" -> JDBCType.SMALLINT;
-            case "FLOAT4" -> JDBCType.FLOAT;
-            case "FLOAT8" -> JDBCType.DOUBLE;
-            case "BOOL" -> JDBCType.BOOLEAN;
-            case "STRING", "TEXT" -> JDBCType.VARCHAR;
-            case "BYTEA" -> JDBCType.VARBINARY;
-            case "CHARACTER VARYING" -> JDBCType.VARCHAR;
-            case "CHARACTER LARGE OBJECT" -> JDBCType.CLOB;
-            case "BINARY LARGE OBJECT" -> JDBCType.BLOB;
-            case "BINARY VARYING" -> JDBCType.VARBINARY;
-            case "DOUBLE PRECISION" -> JDBCType.DOUBLE;
-            case "DECFLOAT" -> JDBCType.DECIMAL;
-            case "TIMESTAMP WITH TIME ZONE" -> JDBCType.TIMESTAMP_WITH_TIMEZONE;
-            case "TIME WITH TIME ZONE" -> JDBCType.TIME_WITH_TIMEZONE;
-            case "INTERVAL" -> JDBCType.OTHER;
-            case "GEOMETRY", "JSON", "UUID", "ENUM", "ARRAY" -> JDBCType.OTHER;
-            default -> JDBCType.OTHER;
+                case "INT", "INT4", "SIGNED" -> JDBCType.INTEGER;
+                case "INT8" -> JDBCType.BIGINT;
+                case "INT2" -> JDBCType.SMALLINT;
+                case "FLOAT4" -> JDBCType.FLOAT;
+                case "FLOAT8" -> JDBCType.DOUBLE;
+                case "BOOL" -> JDBCType.BOOLEAN;
+                case "STRING", "TEXT" -> JDBCType.VARCHAR;
+                case "BYTEA" -> JDBCType.VARBINARY;
+                case "CHARACTER VARYING" -> JDBCType.VARCHAR;
+                case "CHARACTER LARGE OBJECT" -> JDBCType.CLOB;
+                case "BINARY LARGE OBJECT" -> JDBCType.BLOB;
+                case "BINARY VARYING" -> JDBCType.VARBINARY;
+                case "DOUBLE PRECISION" -> JDBCType.DOUBLE;
+                case "DECFLOAT" -> JDBCType.DECIMAL;
+                case "TIMESTAMP WITH TIME ZONE" -> JDBCType.TIMESTAMP_WITH_TIMEZONE;
+                case "TIME WITH TIME ZONE" -> JDBCType.TIME_WITH_TIMEZONE;
+                case "INTERVAL" -> JDBCType.OTHER;
+                case "GEOMETRY", "JSON", "UUID", "ENUM", "ARRAY" -> JDBCType.OTHER;
+                default -> JDBCType.OTHER;
             };
         }
     }
@@ -713,16 +751,16 @@ public class H2MetadataProvider implements MetadataProvider {
         String tableSchema = rs.getString("EVENT_OBJECT_SCHEMA");
 
         Optional<SchemaReference> oSchema = Optional.ofNullable(tableSchema)
-                .map(s -> new SchemaReference(Optional.empty(), s));
+            .map(s -> new SchemaReference(Optional.empty(), s));
         TableReference tableRef = new TableReference(oSchema, tableName);
 
         TriggerTiming timing = mapTriggerTiming(actionTiming);
         TriggerEvent event = mapTriggerEvent(eventManipulation);
 
         return new TriggerRecord(new TriggerReference(tableRef, triggerName), timing, event,
-                Optional.ofNullable(actionStatement), Optional.empty(), // H2 doesn't provide full CREATE TRIGGER DDL
-                                                                        // directly
-                Optional.ofNullable(actionOrientation));
+            Optional.ofNullable(actionStatement), Optional.empty(), // H2 doesn't provide full CREATE TRIGGER DDL
+            // directly
+            Optional.ofNullable(actionOrientation));
     }
 
 
@@ -744,25 +782,25 @@ public class H2MetadataProvider implements MetadataProvider {
         // FK side
         Optional<CatalogReference> fkCatRef = Optional.ofNullable(fkCatalog).map(CatalogReference::new);
         Optional<SchemaReference> fkSchemaRef = Optional.ofNullable(fkSchema)
-                .map(s -> new SchemaReference(fkCatRef, s));
+            .map(s -> new SchemaReference(fkCatRef, s));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
         Optional<CatalogReference> pkCatRef = Optional.ofNullable(pkCatalog).map(CatalogReference::new);
         Optional<SchemaReference> pkSchemaRef = Optional.ofNullable(pkSchema)
-                .map(s -> new SchemaReference(pkCatRef, s));
+            .map(s -> new SchemaReference(pkCatRef, s));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
         return new ImportedKeyRecord(pkColRef, fkColRef, fkName, keySeq, mapReferentialAction(updateRule),
-                mapReferentialAction(deleteRule), Optional.ofNullable(pkName),
-                ImportedKey.Deferrability.NOT_DEFERRABLE);
+            mapReferentialAction(deleteRule), Optional.ofNullable(pkName),
+            ImportedKey.Deferrability.NOT_DEFERRABLE);
     }
 
 
     private List<UniqueConstraint> readUniqueConstraints(Connection connection, String sql, String schema,
-            String tableName) throws SQLException {
+                                                        String tableName) throws SQLException {
         String schemaName = resolveSchema(schema, connection);
         // Group by constraint name to collect all columns
         Map<String, UcBuilder> ucMap = new LinkedHashMap<>();
@@ -779,7 +817,7 @@ public class H2MetadataProvider implements MetadataProvider {
 
                     String key = table + "." + constraintName;
                     ucMap.computeIfAbsent(key, k -> new UcBuilder(table, constraintName, schemaName))
-                            .addColumn(columnName);
+                        .addColumn(columnName);
                 }
             }
         }
@@ -805,9 +843,9 @@ public class H2MetadataProvider implements MetadataProvider {
             return TriggerTiming.AFTER;
         }
         return switch (timing.toUpperCase()) {
-        case "BEFORE" -> TriggerTiming.BEFORE;
-        case "INSTEAD OF" -> TriggerTiming.INSTEAD_OF;
-        default -> TriggerTiming.AFTER;
+            case "BEFORE" -> TriggerTiming.BEFORE;
+            case "INSTEAD OF" -> TriggerTiming.INSTEAD_OF;
+            default -> TriggerTiming.AFTER;
         };
     }
 
@@ -817,9 +855,9 @@ public class H2MetadataProvider implements MetadataProvider {
             return TriggerEvent.INSERT;
         }
         return switch (event.toUpperCase()) {
-        case "UPDATE" -> TriggerEvent.UPDATE;
-        case "DELETE" -> TriggerEvent.DELETE;
-        default -> TriggerEvent.INSERT;
+            case "UPDATE" -> TriggerEvent.UPDATE;
+            case "DELETE" -> TriggerEvent.DELETE;
+            default -> TriggerEvent.INSERT;
         };
     }
 
@@ -829,11 +867,11 @@ public class H2MetadataProvider implements MetadataProvider {
             return ImportedKey.ReferentialAction.NO_ACTION;
         }
         return switch (action.toUpperCase()) {
-        case "CASCADE" -> ImportedKey.ReferentialAction.CASCADE;
-        case "SET NULL" -> ImportedKey.ReferentialAction.SET_NULL;
-        case "SET DEFAULT" -> ImportedKey.ReferentialAction.SET_DEFAULT;
-        case "RESTRICT" -> ImportedKey.ReferentialAction.RESTRICT;
-        default -> ImportedKey.ReferentialAction.NO_ACTION;
+            case "CASCADE" -> ImportedKey.ReferentialAction.CASCADE;
+            case "SET NULL" -> ImportedKey.ReferentialAction.SET_NULL;
+            case "SET DEFAULT" -> ImportedKey.ReferentialAction.SET_DEFAULT;
+            case "RESTRICT" -> ImportedKey.ReferentialAction.RESTRICT;
+            default -> ImportedKey.ReferentialAction.NO_ACTION;
         };
     }
 
@@ -843,8 +881,8 @@ public class H2MetadataProvider implements MetadataProvider {
             return IndexInfoItem.IndexType.TABLE_INDEX_OTHER;
         }
         return switch (indexTypeName.toUpperCase()) {
-        case "HASH INDEX" -> IndexInfoItem.IndexType.TABLE_INDEX_HASHED;
-        default -> IndexInfoItem.IndexType.TABLE_INDEX_OTHER;
+            case "HASH INDEX" -> IndexInfoItem.IndexType.TABLE_INDEX_HASHED;
+            default -> IndexInfoItem.IndexType.TABLE_INDEX_OTHER;
         };
     }
 
@@ -870,7 +908,7 @@ public class H2MetadataProvider implements MetadataProvider {
             Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
             TableReference tableRef = new TableReference(oSchema, tableName);
             List<ColumnReference> colRefs = columns.stream()
-                    .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
+                .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new PrimaryKeyRecord(tableRef, colRefs, Optional.of(constraintName));
         }
     }
@@ -897,7 +935,7 @@ public class H2MetadataProvider implements MetadataProvider {
             Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
             TableReference tableRef = new TableReference(oSchema, tableName);
             List<ColumnReference> colRefs = columns.stream()
-                    .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
+                .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
     }
