@@ -525,6 +525,73 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return Optional.of("NEXT VALUE FOR " + quoteIdentifier(schemaName, name));
     }
 
+    // -------------------- DDL — synonyms --------------------
+
+    /**
+     * A synonym (alias) for another schema object.
+     *
+     * @param schemaName        schema of the synonym; ignored for a public synonym
+     * @param name              synonym name
+     * @param targetCatalogName catalog (database) of the target, or null for the current one
+     * @param targetSchemaName  schema of the target, or null
+     * @param targetName        name of the target
+     * @param dbLink            database link / linked server the target lives behind, or null
+     * @param isPublic          Oracle {@code PUBLIC} synonym
+     */
+    record SynonymDefinition(String schemaName, String name, String targetCatalogName, String targetSchemaName,
+            String targetName, String dbLink, boolean isPublic) {
+
+        public SynonymDefinition {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("synonym name must not be blank");
+            }
+            if (targetName == null || targetName.isBlank()) {
+                throw new IllegalArgumentException("synonym target name must not be blank");
+            }
+        }
+
+        /** Private synonym {@code schema.name} for the local object {@code targetSchema.targetName}. */
+        public static SynonymDefinition of(String schemaName, String name, String targetSchemaName,
+                String targetName) {
+            return new SynonymDefinition(schemaName, name, null, targetSchemaName, targetName, null, false);
+        }
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] SYNONYM schema.name FOR targetSchema.target}.
+     * Empty when the dialect has no synonyms or cannot express the definition —
+     * the default spelling knows neither a target catalog, a DB link nor public
+     * synonyms.
+     */
+    default Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (!supportsSynonyms() || synonym.isPublic() || synonym.dbLink() != null
+                || synonym.targetCatalogName() != null) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (orReplace)
+            sb.append("OR REPLACE ");
+        sb.append("SYNONYM ").append(quoteIdentifier(synonym.schemaName(), synonym.name()));
+        sb.append(" FOR ").append(quoteIdentifier(synonym.targetSchemaName(), synonym.targetName()));
+        return Optional.of(sb.toString());
+    }
+
+    /**
+     * {@code DROP SYNONYM [IF EXISTS] schema.name}; {@code IF EXISTS} follows
+     * {@link #supportsDropTableIfExists()}. Empty when the dialect has no synonyms
+     * or no public ones.
+     */
+    default Optional<String> dropSynonym(String schemaName, String name, boolean isPublic, boolean ifExists) {
+        if (!supportsSynonyms() || isPublic) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("DROP SYNONYM ");
+        if (ifExists && supportsDropTableIfExists())
+            sb.append("IF EXISTS ");
+        sb.append(quoteIdentifier(schemaName, name));
+        return Optional.of(sb.toString());
+    }
+
     // -------------------- DDL — table-level constraints --------------------
 
     /**
@@ -1074,6 +1141,11 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** @return true if {@code renameSequence} renders a valid statement */
     default boolean supportsRenameSequence() {
+        return false;
+    }
+
+    /** @return true if {@code createSynonym} / {@code dropSynonym} render statements */
+    default boolean supportsSynonyms() {
         return false;
     }
 

@@ -745,4 +745,42 @@ public class OracleDialect extends AbstractJdbcDialect {
     private static String oracleLiteral(String comment) {
         return "'" + (comment == null ? "" : comment.replace("'", "''")) + "'";
     }
+
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] [PUBLIC] SYNONYM [schema.]name FOR [schema.]object[@link]}.
+     * A public synonym has no schema. Empty for a target in another catalog — Oracle
+     * reaches other databases only through a DB link.
+     */
+    @Override
+    public Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (synonym.targetCatalogName() != null) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (orReplace)
+            sb.append("OR REPLACE ");
+        if (synonym.isPublic())
+            sb.append("PUBLIC ");
+        sb.append("SYNONYM ").append(synonymName(synonym.schemaName(), synonym.name(), synonym.isPublic()));
+        sb.append(" FOR ").append(quoteIdentifier(synonym.targetSchemaName(), synonym.targetName()));
+        if (synonym.dbLink() != null)
+            sb.append('@').append(synonym.dbLink());
+        return Optional.of(sb.toString());
+    }
+
+    /** {@code DROP [PUBLIC] SYNONYM [schema.]name}; Oracle has no {@code IF EXISTS} here. */
+    @Override
+    public Optional<String> dropSynonym(String schemaName, String name, boolean isPublic, boolean ifExists) {
+        return Optional.of((isPublic ? "DROP PUBLIC SYNONYM " : "DROP SYNONYM ")
+                + synonymName(schemaName, name, isPublic));
+    }
+
+    private String synonymName(String schemaName, String name, boolean isPublic) {
+        return isPublic ? quoteIdentifier(name) : quoteIdentifier(schemaName, name);
+    }
 }

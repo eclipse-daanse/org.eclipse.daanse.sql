@@ -194,6 +194,15 @@ class DialectDdlOfflineTest {
     }
 
     @Test
+    void synonyms_are_unsupported_by_default() {
+        Dialect dialect = new AnsiDialect();
+        assertThat(dialect.ddlGenerator().supportsSynonyms()).isFalse();
+        assertThat(dialect.ddlGenerator().createSynonym(
+                DdlGenerator.SynonymDefinition.of("PUBLIC", "EMP", "PUBLIC", "EMPLOYEES"), false)).isEmpty();
+        assertThat(dialect.ddlGenerator().dropSynonym("PUBLIC", "EMP", false, true)).isEmpty();
+    }
+
+    @Test
     void dropSequence_if_exists() {
         Dialect dialect = new AnsiDialect();
         assertThat(dialect.ddlGenerator().dropSequence("PUBLIC", "ORDER_SEQ", true))
