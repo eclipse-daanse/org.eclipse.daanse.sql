@@ -778,4 +778,35 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     private static String nLiteral(String s) {
         return "N'" + s.replace("'", "''") + "'";
     }
+
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+
+    /**
+     * {@code CREATE SYNONYM schema.name FOR [server.][database.][schema.]object}; the
+     * DB link is the linked server, a missing middle part stays empty
+     * ({@code server.db..object}). SQL Server has no {@code CREATE OR REPLACE SYNONYM}
+     * — {@code orReplace} is ignored. Empty for a public synonym.
+     */
+    @Override
+    public Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (synonym.isPublic()) {
+            return Optional.empty();
+        }
+        String[] parts = { synonym.dbLink(), synonym.targetCatalogName(), synonym.targetSchemaName() };
+        int first = 0;
+        while (first < parts.length && parts[first] == null)
+            first++;
+        StringBuilder target = new StringBuilder();
+        for (int i = first; i < parts.length; i++) {
+            if (parts[i] != null)
+                target.append(quoteIdentifier(parts[i]));
+            target.append('.');
+        }
+        target.append(quoteIdentifier(synonym.targetName()));
+        return Optional.of("CREATE SYNONYM " + quoteIdentifier(synonym.schemaName(), synonym.name()) + " FOR "
+                + target);
+    }
 }

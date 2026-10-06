@@ -279,4 +279,9 @@ public class H2Dialect extends AbstractJdbcDialect {
         return local;
     }
 
+    /** H2 synonyms point to tables and views of the same database (the default spelling). */
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
 }
