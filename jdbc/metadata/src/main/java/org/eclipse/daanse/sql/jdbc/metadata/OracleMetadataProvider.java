@@ -48,6 +48,8 @@ import org.eclipse.daanse.sql.jdbc.api.schema.PseudoColumn;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
+import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
@@ -72,6 +74,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PseudoColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.SynonymRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TablePrivilegeRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
@@ -166,6 +169,60 @@ public class OracleMetadataProvider implements MetadataProvider {
             }
         }
         return List.copyOf(sequences);
+    }
+
+
+    @Override
+    public List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
+        // Private synonyms of the schema, plus PUBLIC synonyms pointing into it — all
+        // PUBLIC synonyms would pull in thousands of SYS/dictionary aliases.
+        // The target type comes from ALL_OBJECTS; synonyms over a DB link point to a
+        // remote object, so they are not joined. Object types outside the synonym
+        // namespace (INDEX, PACKAGE BODY, partitions, ...) can share the target's name
+        // and are excluded.
+        String sql = """
+                SELECT s.OWNER, s.SYNONYM_NAME, s.TABLE_OWNER, s.TABLE_NAME, s.DB_LINK, o.OBJECT_TYPE
+                FROM ALL_SYNONYMS s
+                LEFT JOIN ALL_OBJECTS o
+                    ON s.DB_LINK IS NULL
+                    AND o.OWNER = s.TABLE_OWNER
+                    AND o.OBJECT_NAME = s.TABLE_NAME
+                    AND o.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SEQUENCE', 'SYNONYM',
+                        'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TYPE', 'JAVA CLASS')
+                WHERE s.OWNER = ? OR (s.OWNER = 'PUBLIC' AND s.TABLE_OWNER = ?)
+                ORDER BY s.OWNER, s.SYNONYM_NAME
+                """;
+        String schemaName = resolveSchema(schema, connection);
+        Map<String, SynonymRecord> synonyms = new LinkedHashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            ps.setString(2, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String owner = rs.getString("OWNER");
+                    String name = rs.getString("SYNONYM_NAME");
+                    String targetOwner = rs.getString("TABLE_OWNER");
+                    String objectType = rs.getString("OBJECT_TYPE");
+                    String key = owner + "\u0001" + name;
+                    // A materialized view is listed in ALL_OBJECTS twice — as MATERIALIZED VIEW
+                    // and as its container TABLE; keep the more specific one.
+                    SynonymRecord existing = synonyms.get(key);
+                    if (existing != null && !"MATERIALIZED VIEW".equals(objectType)) {
+                        continue;
+                    }
+                    Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), owner));
+                    Optional<SchemaReference> oTargetSchema = targetOwner == null ? Optional.empty()
+                            : Optional.of(new SchemaReference(Optional.empty(), targetOwner));
+                    synonyms.put(key, new SynonymRecord(new SynonymReference(oSchema, name), oTargetSchema,
+                            rs.getString("TABLE_NAME"), Optional.ofNullable(rs.getString("DB_LINK")),
+                            "PUBLIC".equals(owner), Optional.ofNullable(objectType)));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.debug("Could not read synonyms from ALL_SYNONYMS: {}", e.getMessage());
+            return List.of();
+        }
+        return List.copyOf(synonyms.values());
     }
 
 

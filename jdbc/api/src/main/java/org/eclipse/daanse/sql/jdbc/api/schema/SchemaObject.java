@@ -14,5 +14,5 @@
 package org.eclipse.daanse.sql.jdbc.api.schema;
 
 public sealed interface SchemaObject permits TableDefinition, ViewDefinition, MaterializedView, Sequence, Function,
-        Procedure, UserDefinedType {
+        Procedure, UserDefinedType, Synonym {
 }

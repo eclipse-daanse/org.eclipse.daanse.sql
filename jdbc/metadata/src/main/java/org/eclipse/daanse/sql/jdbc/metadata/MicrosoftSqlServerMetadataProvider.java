@@ -43,9 +43,12 @@ import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.PseudoColumn;
+import org.eclipse.daanse.sql.model.schema.CatalogReference;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
+import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
@@ -69,6 +72,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PseudoColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.SynonymRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TablePrivilegeRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
@@ -169,6 +173,53 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             }
         }
         return List.copyOf(sequences);
+    }
+
+
+    @Override
+    public List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
+        // base_object_name is the target as written in CREATE SYNONYM, up to
+        // [server].[database].[schema].[object]; PARSENAME splits it and strips brackets.
+        // The target type is only looked up for objects in the current database —
+        // sys.objects knows nothing about other databases or linked servers.
+        String sql = """
+                SELECT s.name AS synonym_name,
+                        PARSENAME(s.base_object_name, 4) AS server_name,
+                        PARSENAME(s.base_object_name, 3) AS database_name,
+                        PARSENAME(s.base_object_name, 2) AS target_schema,
+                        PARSENAME(s.base_object_name, 1) AS target_name,
+                        CASE WHEN PARSENAME(s.base_object_name, 4) IS NULL
+                                AND (PARSENAME(s.base_object_name, 3) IS NULL
+                                    OR PARSENAME(s.base_object_name, 3) = DB_NAME())
+                            THEN o.type_desc END AS target_type
+                FROM sys.synonyms s
+                LEFT JOIN sys.objects o ON o.object_id = OBJECT_ID(s.base_object_name)
+                WHERE s.schema_id = SCHEMA_ID(?)
+                ORDER BY s.name
+                """;
+        String schemaName = resolveSchema(schema, connection);
+        List<Synonym> synonyms = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString("synonym_name");
+                    String databaseName = rs.getString("database_name");
+                    String targetSchema = rs.getString("target_schema");
+
+                    Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+                    Optional<CatalogReference> oTargetCatalog = databaseName == null ? Optional.empty()
+                            : Optional.of(new CatalogReference(databaseName));
+                    Optional<SchemaReference> oTargetSchema = targetSchema == null ? Optional.empty()
+                            : Optional.of(new SchemaReference(oTargetCatalog, targetSchema));
+
+                    synonyms.add(new SynonymRecord(new SynonymReference(oSchema, name), oTargetSchema,
+                            rs.getString("target_name"), Optional.ofNullable(rs.getString("server_name")), false,
+                            Optional.ofNullable(rs.getString("target_type"))));
+                }
+            }
+        }
+        return List.copyOf(synonyms);
     }
 
 

@@ -221,6 +221,8 @@ public class DatabaseServiceImpl implements DatabaseService {
         // NEW metadata — only via dialect, no JDBC fallback needed
         List<Trigger> triggers = provider.getAllTriggers(connection, null, null);
         List<Sequence> sequences = provider.getAllSequences(connection, null, null);
+        List<org.eclipse.daanse.sql.jdbc.api.schema.Synonym> synonyms =
+                provider.getAllSynonyms(connection, null, null);
         List<CheckConstraint> checkConstraints = provider.getAllCheckConstraints(connection, null, null);
         List<UniqueConstraint> uniqueConstraints = provider.getAllUniqueConstraints(connection, null, null);
         List<UserDefinedType> userDefinedTypes = provider.getAllUserDefinedTypes(connection, null, null);
@@ -278,7 +280,8 @@ public class DatabaseServiceImpl implements DatabaseService {
         StructureInfo structureInfo = new StructureInfoRecord(catalogs, schemas, tables, columns,
                 importedKeys, primaryKeys, triggers, sequences, checkConstraints, uniqueConstraints,
                 userDefinedTypes, viewDefinitions, procedures, functions, materializedViews, partitions,
-                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals);
+                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals,
+                synonyms);
         return new MetaInfoRecord(databaseInfo, structureInfo, identifierInfo, typeInfos, indexInfos);
     }
 
