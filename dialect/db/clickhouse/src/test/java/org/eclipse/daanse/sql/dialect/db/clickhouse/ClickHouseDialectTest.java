@@ -152,7 +152,7 @@ class ClickHouseDialectTest {
 
         @Test
         void testSupportsNthValue() {
-            assertTrue(dialect.supportsNthValue());
+            assertFalse(dialect.supportsNthValue()); // V-82: no ordered array aggregate, the window form ran over the groups
         }
 
         @Test

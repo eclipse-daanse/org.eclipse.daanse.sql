@@ -13,6 +13,7 @@
  */
 package org.eclipse.daanse.sql.dialect.db.h2;
 
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.util.List;
 import java.util.Optional;
 
@@ -187,11 +188,12 @@ public class H2Dialect extends AbstractJdbcDialect {
         return java.util.Optional.of((buf).toString());
     }
 
+    /** The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, true)).toString());
+        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(",
+                ")[" + AggregationGenerator.nthIndex(n) + "]").toString());
     }
 
     @Override
