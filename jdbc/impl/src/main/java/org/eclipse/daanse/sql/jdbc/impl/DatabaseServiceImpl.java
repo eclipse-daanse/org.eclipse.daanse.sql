@@ -685,11 +685,15 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         try (ResultSet rs = databaseMetaData.getColumns(catalog, schemaPattern, tableNamePattern, columnNamePattern);) {
             while (rs.next()) {
+                // Left to right, in the column order of getColumns, as JDBC asks of a portable reader: Oracle
+                // returns COLUMN_DEF (13) as a LONG stream that a read of any later column consumes, and reading
+                // it afterwards fails with ORA-17027 "Stream has already been closed".
 
                 final Optional<String> oCatalogName = Optional.ofNullable(rs.getString("TABLE_CAT"));
                 final Optional<String> oSchemaName = Optional.ofNullable(rs.getString("TABLE_SCHEM"));
                 final String tableName = rs.getString("TABLE_NAME");
                 final String columName = rs.getString("COLUMN_NAME");
+                final int dataType = rs.getInt("DATA_TYPE");
 
                 final String typeName = rs.getString("TYPE_NAME");
                 OptionalInt oColumnSize = OptionalInt.of(rs.getInt("COLUMN_SIZE"));
@@ -713,17 +717,15 @@ public class DatabaseServiceImpl implements DatabaseService {
                     oNullable = OptionalInt.empty();
                 }
 
-                OptionalInt oCharOctetLength = OptionalInt.of(rs.getInt("CHAR_OCTET_LENGTH"));
-                if (rs.wasNull()) {
-                    oCharOctetLength = OptionalInt.empty();
-                }
-
-                final int dataType = rs.getInt("DATA_TYPE");
-
                 final Optional<String> remarks = Optional.ofNullable(rs.getString("REMARKS"));
 
                 // Additional fields from JDBC spec
                 final Optional<String> columnDefault = Optional.ofNullable(rs.getString("COLUMN_DEF"));
+
+                OptionalInt oCharOctetLength = OptionalInt.of(rs.getInt("CHAR_OCTET_LENGTH"));
+                if (rs.wasNull()) {
+                    oCharOctetLength = OptionalInt.empty();
+                }
                 final ColumnMetaData.Nullability nullability = oNullable.isPresent()
                         ? ColumnMetaData.Nullability.of(oNullable.getAsInt())
                         : ColumnMetaData.Nullability.UNKNOWN;
