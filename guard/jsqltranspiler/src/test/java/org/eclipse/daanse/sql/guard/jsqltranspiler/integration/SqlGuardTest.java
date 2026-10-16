@@ -242,7 +242,7 @@ public class SqlGuardTest {
 
     private static final String SQL_MULTIPLE_CTE_WRONG_COLUMN = """
             WITH cte1 AS (SELECT foo.id FROM foo),
-                 cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
+                cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
 
     private static final String SQL_CTE_UPDATE = """
@@ -253,7 +253,7 @@ public class SqlGuardTest {
 
     private static final String SQL_MULTIPLE_CTE_UPDATE = """
             WITH x AS (UPDATE foo SET name='a' RETURNING id),
-                 y AS (UPDATE foo SET name='b' RETURNING id)
+                y AS (UPDATE foo SET name='b' RETURNING id)
             SELECT id FROM foo""";
 
     private static final String SQL_CTE_INSERT = """
@@ -433,6 +433,32 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_FROM_FOO);
             assertThat(result).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /**
+         * JSqlParser reads two or more blank lines as the end of a statement: a formatted query with an empty
+         * paragraph in it was refused as two broken statements. Blank lines are whitespace.
+         */
+        @Test
+        void aQueryWithBlankLinesInItIsOneStatement(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select *\n\n\n\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+            assertThat(guard.guard("select *\r\n  \r\n\t\r\n\r\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /** Two statements separated only by blank lines stay refused: collapsing them gives no valid statement. */
+        @Test
+        void twoStatementsSeparatedByBlankLinesAreStillRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from foo\n\n\n\ndelete from foo"))
+                    .isInstanceOf(GuardException.class);
+        }
+
+        /** Blank lines inside a string literal are data and reach the database as written. */
+        @Test
+        void blankLinesInALiteralStay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select * from foo where foo.name = 'a\n\n\nb'")).contains("'a\n\n\nb'");
         }
 
         @Test
