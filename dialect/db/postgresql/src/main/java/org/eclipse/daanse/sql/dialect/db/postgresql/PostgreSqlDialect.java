@@ -22,6 +22,7 @@
 
 package org.eclipse.daanse.sql.dialect.db.postgresql;
 
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -428,11 +429,12 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
                 .of((buildPercentileFunction("PERCENTILE_CONT", percentile, desc, tableName, columnName)).toString());
     }
 
+    /** The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(",
+                ")[" + AggregationGenerator.nthIndex(n) + "]").toString());
     }
 
     @Override

@@ -12,6 +12,7 @@
 */
 package org.eclipse.daanse.sql.dialect.db.duckdb;
 
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -383,11 +384,12 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return buf;
     }
 
+    /** The n-th value of the group's rows in their order: an ordered list, its n-th element (V-82). */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.of(buildNthValueOfArray("list", operand, ignoreNulls, columns, "list_extract(",
+                ", " + AggregationGenerator.nthIndex(n) + ")").toString());
     }
 
     /**

@@ -233,16 +233,19 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
         return java.util.Optional.of((buf).toString());
     }
 
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("nth_value", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.empty();
     }
 
     @Override
     public boolean supportsNthValue() {
-        return true;
+        return false;
     }
 
     @Override
