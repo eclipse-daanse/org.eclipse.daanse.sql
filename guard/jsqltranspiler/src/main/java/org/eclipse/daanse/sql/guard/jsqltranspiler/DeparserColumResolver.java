@@ -42,8 +42,19 @@ public class DeparserColumResolver extends JSQLColumResolver {
     }
 
     @Override
+    /**
+     * Parses the text as a script and resolves its one statement. {@code CCJSqlParserUtil.parse} stops after the first
+     * statement and would resolve "SELECT ...; DROP ..." as if the rest were not there; a text of more than one
+     * statement is refused instead, as the guard refuses it.
+     */
     public String getResolvedStatementText(String sqlStr) throws JSQLParserException {
-        return getResolvedStatementText(CCJSqlParserUtil.parse(sqlStr));
+        net.sf.jsqlparser.statement.Statements statements =
+                CCJSqlParserUtil.parseStatements(BlankLines.collapse(sqlStr));
+        if (statements == null || statements.size() != 1) {
+            throw new JSQLParserException("expected exactly one statement, the text holds "
+                    + (statements == null ? 0 : statements.size()));
+        }
+        return getResolvedStatementText(statements.get(0));
     }
 
     /**

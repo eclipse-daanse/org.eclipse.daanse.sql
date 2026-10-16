@@ -90,7 +90,7 @@ public class TranspilerSqlGuard implements SqlGuard {
             // parse the whole input as a script: CCJSqlParserUtil.parse() stops after the
             // first statement and would silently drop a trailing "; DROP TABLE ..." (or
             // any other statement) from what is validated and rewritten.
-            Statements statements = CCJSqlParserUtil.parseStatements(sqlStr);
+            Statements statements = CCJSqlParserUtil.parseStatements(BlankLines.collapse(sqlStr));
             if (statements == null || statements.isEmpty()) {
                 // e.g. a comment-only input parses to an empty script
                 throw new EmptyStatementGuardException();
