@@ -188,12 +188,17 @@ public class H2Dialect extends AbstractJdbcDialect {
         return java.util.Optional.of((buf).toString());
     }
 
-    /** The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). */
+    /**
+     * The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). H2 fails an
+     * element reference past the end ("Array element error", also ARRAY_GET), so the element is sliced out and a NULL
+     * appended: a group with fewer values gives NULL, as the aggregate promises.
+     */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(",
-                ")[" + AggregationGenerator.nthIndex(n) + "]").toString());
+        int index = AggregationGenerator.nthIndex(n);
+        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(ARRAY_SLICE(",
+                ", " + index + ", " + index + ") || ARRAY[NULL])[1]").toString());
     }
 
     @Override
