@@ -237,9 +237,13 @@ public class OracleDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /**
+     * From Oracle 23 ({@code DROP TABLE IF EXISTS} came with 23ai); before, a drop of a missing table fails with
+     * ORA-00942. A dialect made without a connection knows no version and says no.
+     */
     @Override
     public boolean supportsDropTableIfExists() {
-        return false;
+        return dialectVersion.atLeast(23, 0);
     }
 
     @Override
