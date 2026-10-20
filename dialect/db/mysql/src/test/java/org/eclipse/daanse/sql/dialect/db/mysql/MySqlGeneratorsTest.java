@@ -32,6 +32,21 @@ class MySqlGeneratorsTest {
 
     private final MySqlDialect d = new MySqlDialect();
 
+    /**
+     * A negated bit aggregate is the signed bitwise complement: MySQL's NOT is logical (NOT(BIT_AND(1)) is 0), and ~ on
+     * the unsigned 64-bit BIT_AND result is 18446744073709551614 where the other arts answer -2.
+     */
+    @Test
+    void a_negated_bit_aggregate_is_the_signed_bitwise_complement() {
+        var g = d.aggregationGenerator();
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NAND, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_AND(x) AS SIGNED)");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NOR, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_OR(x) AS SIGNED)");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NXOR, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_XOR(x) AS SIGNED)");
+    }
+
     @Test
     void pagination_offset_limit() {
         assertThat(d.paginationGenerator().paginate(OptionalLong.of(20), OptionalLong.of(40)))

@@ -440,9 +440,12 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         case AND -> buf.append("bit_and(").append(operand).append(")");
         case OR -> buf.append("bit_or(").append(operand).append(")");
         case XOR -> buf.append("bit_xor(").append(operand).append(")");
-        case NAND -> buf.append("NOT(bit_and(").append(operand).append("))");
-        case NOR -> buf.append("NOT(bit_or(").append(operand).append("))");
-        case NXOR -> buf.append("NOT(bit_xor(").append(operand).append("))");
+        // NOT is logical in PostgreSQL and takes a boolean, so NOT(bit_and(x)) failed on every integer column
+        // (tutorial oracle, database run 20.10.); the bitwise complement is ~, as DuckDB writes it and the provider
+        // computes it (the NAND of 1 is -2)
+        case NAND -> buf.append("~(bit_and(").append(operand).append("))");
+        case NOR -> buf.append("~(bit_or(").append(operand).append("))");
+        case NXOR -> buf.append("~(bit_xor(").append(operand).append("))");
         };
         return java.util.Optional.of(result.toString());
     }
