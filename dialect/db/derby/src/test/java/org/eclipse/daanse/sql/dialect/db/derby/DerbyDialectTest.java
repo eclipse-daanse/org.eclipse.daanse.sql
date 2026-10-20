@@ -39,6 +39,13 @@ class DerbyDialectTest {
         dialect = new DerbyDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** AVG over an INTEGER column is an integer in Derby; the operand is read as DOUBLE. */
+    @Test
+    void anAverageReadsItsOperandAsDouble() {
+        org.junit.jupiter.api.Assertions.assertEquals("CAST(x AS DOUBLE)",
+                dialect.aggregationGenerator().averageOperand("x").toString());
+    }
+
     /** Derby deadlocks on DDL run at once; a loader writes one statement at a time. */
     @Test
     void loadingIsOneWriterAtATime() {
