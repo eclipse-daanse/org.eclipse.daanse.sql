@@ -266,10 +266,9 @@ public class OracleDialect extends AbstractJdbcDialect {
         return generateOrderByNullsAnsi(expr, ascending, collateNullsLast);
     }
 
-    @Override
-    public boolean allowsJoinOn() {
-        return false;
-    }
+    // No allowsJoinOn override: Oracle reads ANSI JOIN ... ON since 9i. The false it returned was an inherited
+    // base-class default rather than a reason of Oracle's, and Oracle alone wrote comma joins with the join
+    // condition in WHERE (database run 19./20.10., the drill-through statements; F-10.6 5a).
 
     @Override
     public boolean allowsRegularExpressionInWhereClause() {

@@ -44,6 +44,12 @@ class OracleDialectTest {
         dialect = new OracleDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** Oracle reads ANSI joins; comma joins were the inherited default, not an Oracle limit. */
+    @Test
+    void anInnerJoinIsWrittenWithJoinOn() {
+        assertTrue(dialect.allowsJoinOn());
+    }
+
     @Test
     void testAllowsRegularExpressionInWhereClause() {
         assertTrue(dialect.allowsRegularExpressionInWhereClause());
