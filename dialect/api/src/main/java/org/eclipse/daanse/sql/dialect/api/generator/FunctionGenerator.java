@@ -11,6 +11,15 @@ package org.eclipse.daanse.sql.dialect.api.generator;
 
 public interface FunctionGenerator {
 
+    /**
+     * The dividend of a division as this dialect needs it to divide without losing the fraction: the dividend itself,
+     * unless the engine cuts a quotient's scale. Derby divides DECIMAL(31,4) by DECIMAL(31,4) at scale 0, so a native
+     * ratio of 1.9 came out as 1 (a native Filter over a calculated measure read no row, database run 20.10.).
+     */
+    default CharSequence quotientDividend(CharSequence dividend) {
+        return dividend;
+    }
+
     default StringBuilder wrapIntoSqlUpperCaseFunction(CharSequence sqlExpression) {
         return new StringBuilder("UPPER(").append(sqlExpression).append(")");
     }

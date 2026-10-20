@@ -168,6 +168,16 @@ public class DerbyDialect extends AbstractJdbcDialect {
     }
 
     /**
+     * Derby divides decimals at a scale its precision leaves over: DECIMAL(31,4) by DECIMAL(31,4) at scale 0, so a
+     * ratio of 1.9 is 1; integers divide to an integer. The dividend is read as DOUBLE (a native Filter over a calculated
+     * measure, FilterTest#testCmNativeFilter, database run 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS DOUBLE)";
+    }
+
+    /**
      * One writer: Derby locks its system tables for DDL, and tables and indexes created at once deadlock ("A lock could
      * not be obtained due to a deadlock", CREATE INDEX beside CREATE TABLE while FoodMart is loaded, database run 20.10.).
      */

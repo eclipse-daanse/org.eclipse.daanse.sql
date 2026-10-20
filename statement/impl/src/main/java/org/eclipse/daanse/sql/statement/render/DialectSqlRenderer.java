@@ -821,8 +821,12 @@ public final class DialectSqlRenderer implements SqlRenderer {
                     + c.arguments().stream().map(this::renderExpression).collect(Collectors.joining(", ")) + ")";
         }
         if (e instanceof SqlExpression.Binary b) {
-            String rendered = renderExpression(b.left()) + " " + b.operator().symbol() + " "
-                    + renderExpression(b.right());
+            String left = renderExpression(b.left());
+            if (b.operator() == org.eclipse.daanse.sql.statement.api.expression.ArithmeticOperator.DIVIDE) {
+                // the one dialect touch of arithmetic: an engine that cuts a quotient's scale divides a cast dividend
+                left = dialect.functionGenerator().quotientDividend(left).toString();
+            }
+            String rendered = left + " " + b.operator().symbol() + " " + renderExpression(b.right());
             return b.parenthesized() ? "(" + rendered + ")" : rendered;
         }
         if (e instanceof SqlExpression.Case c) {
