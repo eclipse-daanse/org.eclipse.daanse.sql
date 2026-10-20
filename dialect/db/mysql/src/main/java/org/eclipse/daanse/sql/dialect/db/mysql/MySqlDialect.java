@@ -424,9 +424,12 @@ public class MySqlDialect extends AbstractJdbcDialect {
         }
         sb.append(" REGEXP ");
         // MDX MATCHES is anchored (Pattern.matches); REGEXP is contains —
-        // anchor AFTER the case fold, or the fold would turn \z into \Z
+        // anchor AFTER the case fold, or the fold would turn \z into \Z.
+        // REGEXP follows the collation of its operand, case-insensitive by default (utf8mb4_0900_ai_ci): a
+        // case-sensitive match says so in the pattern. (?-i) is read by ICU (MySQL 8.0.4+) and PCRE (MariaDB), the
+        // engines \A and \z already need; without it "a.*" matched "A..." natively, not when interpreted.
         if (caseSensitive) {
-            quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
+            quoteStringLiteral(sb, "(?-i)\\A(?:" + javaRegex + ")\\z");
         } else {
             quoteStringLiteral(sb, "\\A(?:" + javaRegex.toUpperCase() + ")\\z");
         }

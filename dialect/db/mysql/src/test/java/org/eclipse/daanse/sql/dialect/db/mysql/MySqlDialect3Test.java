@@ -76,7 +76,8 @@ class MySqlDialect3Test {
     @Test
     void testGenerateRegularExpression_CaseSensitive() throws Exception {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", ".*a.*").get().toString();
-        assertEquals("table.column IS NOT NULL AND table.column REGEXP '\\\\A(?:.*a.*)\\\\z'", sql);
+        // REGEXP follows the collation, case-insensitive by default: the pattern asks for case
+        assertEquals("table.column IS NOT NULL AND table.column REGEXP '(?-i)\\\\A(?:.*a.*)\\\\z'", sql);
     }
 
     @Test
