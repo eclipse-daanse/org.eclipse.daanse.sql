@@ -142,6 +142,15 @@ public class DerbyDialect extends AbstractJdbcDialect {
     }
 
     /**
+     * Derby averages an integer column to an integer (31 for 31 and 32, the Measure Aggregator Base tutorial, database
+     * run 20.10.); the operand is read as DOUBLE, as on SQL Server.
+     */
+    @Override
+    public CharSequence averageOperand(CharSequence operand) {
+        return "CAST(" + operand + " AS DOUBLE)";
+    }
+
+    /**
      * One writer: Derby locks its system tables for DDL, and tables and indexes created at once deadlock ("A lock could
      * not be obtained due to a deadlock", CREATE INDEX beside CREATE TABLE while FoodMart is loaded, database run 20.10.).
      */
