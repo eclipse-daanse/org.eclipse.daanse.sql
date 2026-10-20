@@ -141,6 +141,15 @@ public class DerbyDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /**
+     * One writer: Derby locks its system tables for DDL, and tables and indexes created at once deadlock ("A lock could
+     * not be obtained due to a deadlock", CREATE INDEX beside CREATE TABLE while FoodMart is loaded, database run 20.10.).
+     */
+    @Override
+    public boolean supportsParallelLoading() {
+        return false;
+    }
+
     @Override
     public boolean allowsMultipleCountDistinct() {
         // Derby allows at most one distinct-count per query.

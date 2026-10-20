@@ -39,6 +39,12 @@ class DerbyDialectTest {
         dialect = new DerbyDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** Derby deadlocks on DDL run at once; a loader writes one statement at a time. */
+    @Test
+    void loadingIsOneWriterAtATime() {
+        org.junit.jupiter.api.Assertions.assertFalse(dialect.supportsParallelLoading());
+    }
+
     @Test
     void testGetDialectName() {
         assertEquals("derby", dialect.name());
