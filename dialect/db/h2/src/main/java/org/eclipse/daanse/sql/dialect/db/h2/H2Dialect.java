@@ -109,6 +109,16 @@ public class H2Dialect extends AbstractJdbcDialect {
         super(init);
     }
 
+    /**
+     * H2 divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as
+     * well: the dividend is read as DOUBLE (F-10.9, a native Filter over Units Shipped / Units Ordered, database run
+     * 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS DOUBLE)";
+    }
+
     @Override
     public String name() {
         return SUPPORTED_PRODUCT_NAME.toLowerCase();

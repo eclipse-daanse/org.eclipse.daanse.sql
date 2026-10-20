@@ -27,6 +27,12 @@ class MicrosoftSqlServerGeneratorsTest {
 
     private final MicrosoftSqlServerDialect d = new MicrosoftSqlServerDialect();
 
+    /** SQL Server divides integers to an integer; the dividend is read as float. */
+    @Test
+    void a_quotient_reads_its_dividend_as_float() {
+        assertThat(d.functionGenerator().quotientDividend("x")).hasToString("CAST(x AS float)");
+    }
+
     /** AVG over an INTEGER column is an integer on SQL Server; the operand is read as float. */
     @Test
     void avg_reads_its_operand_as_float() {

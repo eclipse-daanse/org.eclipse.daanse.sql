@@ -395,6 +395,15 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     }
 
     /**
+     * PostgreSQL divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as well: the dividend is read as
+     * double precision (F-10.9, a native Filter over Units Shipped / Units Ordered, database run 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS double precision)";
+    }
+
+    /**
      * {@code STRING_AGG(CAST(operand AS TEXT), 'separator' ORDER BY ...)}. PostgreSQL had no list aggregation here, and
      * every text aggregation failed in the SQL builder and in the recorder alike (the writeback tutorials on
      * PostgreSQL, database run 20.10.). The operand is cast, because STRING_AGG takes text only. DISTINCT with an ORDER BY

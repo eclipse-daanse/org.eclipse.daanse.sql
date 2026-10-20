@@ -35,6 +35,12 @@ class PostgreSqlGeneratorsTest {
 
     private final PostgreSqlDialect d = new PostgreSqlDialect();
 
+    /** PostgreSQL divides integers to an integer; the dividend is read as double precision. */
+    @Test
+    void a_quotient_reads_its_dividend_as_double_precision() {
+        assertThat(d.functionGenerator().quotientDividend("x")).hasToString("CAST(x AS double precision)");
+    }
+
     /** PostgreSQL lists text with STRING_AGG; the operand is cast, the separator quoted. */
     @Test
     void list_aggregation_is_string_agg() {

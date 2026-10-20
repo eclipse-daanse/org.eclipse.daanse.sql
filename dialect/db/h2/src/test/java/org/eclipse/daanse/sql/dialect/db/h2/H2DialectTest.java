@@ -48,6 +48,13 @@ class H2DialectTest {
         dialect = new H2Dialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** H2 divides integers to an integer; the dividend is read as DOUBLE. */
+    @Test
+    void aQuotientReadsItsDividendAsDouble() {
+        org.junit.jupiter.api.Assertions.assertEquals("CAST(x AS DOUBLE)",
+                dialect.functionGenerator().quotientDividend("x").toString());
+    }
+
     @Test
     void testGetDialectName() {
         assertEquals("h2", dialect.name());

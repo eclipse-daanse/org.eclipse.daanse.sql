@@ -442,6 +442,15 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     }
 
     /**
+     * SQL Server divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as well: the dividend is read as
+     * float (F-10.9, a native Filter over Units Shipped / Units Ordered, database run 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS float)";
+    }
+
+    /**
      * SQL Server averages an integer column to an integer (the result type of AVG is the operand's); the operand is
      * read as float, the double way every measure value takes.
      */
