@@ -35,6 +35,25 @@ class PostgreSqlGeneratorsTest {
 
     private final PostgreSqlDialect d = new PostgreSqlDialect();
 
+    /** PostgreSQL lists text with STRING_AGG; the operand is cast, the separator quoted. */
+    @Test
+    void list_aggregation_is_string_agg() {
+        assertThat(d.aggregationGenerator().supportsListAgg()).isTrue();
+        assertThat(d.aggregationGenerator().generateListAgg("\"t\".\"c\"", true, " | ", null, null, List.of())
+                .orElseThrow()).isEqualTo("STRING_AGG(DISTINCT CAST(\"t\".\"c\" AS TEXT), ' | ')");
+        assertThat(d.aggregationGenerator().generateListAgg("x", false, "it's", null, null,
+                List.of(new org.eclipse.daanse.sql.model.sql.OrderedColumn("y", null))).orElseThrow())
+                .isEqualTo("STRING_AGG(CAST(x AS TEXT), 'it''s' ORDER BY \"y\")");
+    }
+
+    /** DISTINCT beside an ORDER BY over other columns is an error in PostgreSQL; it is left out, as in DuckDB. */
+    @Test
+    void a_distinct_ordered_list_is_written_without_distinct() {
+        assertThat(d.aggregationGenerator().generateListAgg("x", true, null, null, null,
+                List.of(new org.eclipse.daanse.sql.model.sql.OrderedColumn("y", null))).orElseThrow())
+                .isEqualTo("STRING_AGG(CAST(x AS TEXT), ',' ORDER BY \"y\")");
+    }
+
     @Test
     void pagination_limit_offset() {
         assertThat(d.paginationGenerator().paginate(OptionalLong.of(20), OptionalLong.of(40)))

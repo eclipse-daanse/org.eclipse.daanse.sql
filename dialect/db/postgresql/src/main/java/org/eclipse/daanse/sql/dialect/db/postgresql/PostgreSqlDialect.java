@@ -394,6 +394,34 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return productVersion != null && productVersion.compareTo("8.3") >= 0;
     }
 
+    /**
+     * {@code STRING_AGG(CAST(operand AS TEXT), 'separator' ORDER BY ...)}. PostgreSQL had no list aggregation here, and
+     * every text aggregation failed in the SQL builder and in the recorder alike (the writeback tutorials on
+     * PostgreSQL, database run 20.10.). The operand is cast, because STRING_AGG takes text only. DISTINCT with an ORDER BY
+     * over other columns is an error in PostgreSQL (the ORDER BY must name the arguments); DISTINCT is then left out, as
+     * DuckDB does, so that both write the same list.
+     */
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        boolean ordered = columns != null && !columns.isEmpty();
+        StringBuilder buf = new StringBuilder(64).append("STRING_AGG(");
+        if (distinct && !ordered) {
+            buf.append("DISTINCT ");
+        }
+        buf.append("CAST(").append(operand).append(" AS TEXT), '")
+                .append((separator != null ? separator : ",").replace("'", "''")).append('\'');
+        if (ordered) {
+            buf.append(" ORDER BY ").append(buildOrderedColumnsClause(columns));
+        }
+        return java.util.Optional.of(buf.append(')').toString());
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
     // Unified BitOperation methods
 
     @Override
