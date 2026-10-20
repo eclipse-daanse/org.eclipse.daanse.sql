@@ -39,6 +39,16 @@ class DerbyDialectTest {
         dialect = new DerbyDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** A truth value is stored as SMALLINT, so its literal is 1 or 0: Derby does not compare SMALLINT with BOOLEAN. */
+    @Test
+    void aTruthValueIsWrittenAsTheNumberItIsStoredAs() {
+        for (String[] pair : new String[][] { { "true", "1" }, { "FALSE", "0" }, { "1", "1" }, { "0", "0" } }) {
+            StringBuilder buf = new StringBuilder();
+            dialect.quoteBooleanLiteral(buf, pair[0]);
+            org.junit.jupiter.api.Assertions.assertEquals(pair[1], buf.toString(), pair[0]);
+        }
+    }
+
     /** AVG over an INTEGER column is an integer in Derby; the operand is read as DOUBLE. */
     @Test
     void anAverageReadsItsOperandAsDouble() {

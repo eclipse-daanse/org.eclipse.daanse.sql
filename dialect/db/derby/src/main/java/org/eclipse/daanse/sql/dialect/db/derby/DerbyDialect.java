@@ -45,6 +45,23 @@ public class DerbyDialect extends AbstractJdbcDialect {
         return "SMALLINT";
     }
 
+    /**
+     * {@code 1} and {@code 0}: this dialect stores a truth value as SMALLINT ({@link #booleanTypeName()}), and Derby does
+     * not compare SMALLINT with BOOLEAN ("ERROR 42818: Comparisons between 'SMALLINT' and 'BOOLEAN' are not supported",
+     * a boolean level's key, database run 20.10.).
+     */
+    @Override
+    public void quoteBooleanLiteral(StringBuilder buf, String value) {
+        String literal = value.trim();
+        if (literal.equalsIgnoreCase("TRUE") || literal.equals("1")) {
+            buf.append('1');
+        } else if (literal.equalsIgnoreCase("FALSE") || literal.equals("0")) {
+            buf.append('0');
+        } else {
+            throw new NumberFormatException("Illegal BOOLEAN literal:  " + value);
+        }
+    }
+
     /** JDBC-free constructor for SQL generation. */
     public DerbyDialect() {
         super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
