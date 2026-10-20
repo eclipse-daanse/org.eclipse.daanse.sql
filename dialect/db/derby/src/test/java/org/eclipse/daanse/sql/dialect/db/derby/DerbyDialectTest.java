@@ -49,6 +49,13 @@ class DerbyDialectTest {
         }
     }
 
+    /** Derby cuts a quotient's scale; the dividend is read as DOUBLE. */
+    @Test
+    void aDivisionReadsItsDividendAsDouble() {
+        org.junit.jupiter.api.Assertions.assertEquals("CAST(x AS DOUBLE)",
+                dialect.functionGenerator().quotientDividend("x").toString());
+    }
+
     /** AVG over an INTEGER column is an integer in Derby; the operand is read as DOUBLE. */
     @Test
     void anAverageReadsItsOperandAsDouble() {
