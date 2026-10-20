@@ -225,7 +225,12 @@ public class CsvDataImporter implements FileSystemWatcherListener {
 
     private void dropTable(Connection connection, TableReference table) throws SQLException {
         try {
-
+            // a dialect without DROP TABLE IF EXISTS (Derby; Oracle before 23) writes a plain DROP TABLE, which fails on
+            // a table that is not there ("'DROP TABLE' cannot be performed on 'store' because it does not exist", Derby,
+            // database run 20.10.): the table is looked up first
+            if (!dialect.supportsDropTableIfExists() && !exists(connection, table)) {
+                return;
+            }
             String sqlDropTable = dialect.ddlGenerator().dropTable(table, true);
             try (Statement stmnt = connection.createStatement()) {
                 stmnt.execute(sqlDropTable);
@@ -234,6 +239,33 @@ public class CsvDataImporter implements FileSystemWatcherListener {
         } catch (SQLException e) {
             throw new CsvDataImporterException("Exception while drop Table", e);
         }
+    }
+
+    /**
+     * Whether the table is in the database, by its exact name in its schema (the connection's current schema when it
+     * names none). The name is escaped for the metadata pattern: an underscore would match any character.
+     */
+    static boolean exists(Connection connection, TableReference table) throws SQLException {
+        java.sql.DatabaseMetaData meta = connection.getMetaData();
+        String schema = table.schema().map(SchemaReference::name).orElse(connection.getSchema());
+        try (java.sql.ResultSet tables = meta.getTables(null, pattern(schema, meta), pattern(table.name(), meta), null)) {
+            while (tables.next()) {
+                if (table.name().equals(tables.getString("TABLE_NAME"))
+                        && (schema == null || schema.equals(tables.getString("TABLE_SCHEM")))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String pattern(String name, java.sql.DatabaseMetaData meta) throws SQLException {
+        if (name == null) {
+            return null;
+        }
+        String escape = meta.getSearchStringEscape();
+        return escape == null || escape.isEmpty() ? name
+                : name.replace(escape, escape + escape).replace("_", escape + "_").replace("%", escape + "%");
     }
 
     public void createTable(Connection connection, List<ColumnDefinition> headersTypeList, TableDefinition table)
