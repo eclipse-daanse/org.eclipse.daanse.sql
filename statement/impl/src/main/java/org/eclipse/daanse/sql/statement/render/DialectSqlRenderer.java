@@ -809,6 +809,12 @@ public final class DialectSqlRenderer implements SqlRenderer {
             dialect.quote(b, l.value(), l.datatype());
             return b.toString();
         }
+        if (e instanceof SqlExpression.Aggregate a && a.arguments().size() == 1 && "avg".equalsIgnoreCase(a.name())) {
+            // the one dialect touch of a plain aggregate: an engine that averages whole numbers to a whole number
+            // reads the operand otherwise (SQL Server; F-10.6 2)
+            return a.name() + "(" + (a.distinct() ? "distinct " : "")
+                    + dialect.aggregationGenerator().averageOperand(renderExpression(a.arguments().get(0))) + ")";
+        }
         if (e instanceof SqlExpression.Call c) {
             boolean distinct = c instanceof SqlExpression.Aggregate a && a.distinct();
             return c.name() + "(" + (distinct ? "distinct " : "")

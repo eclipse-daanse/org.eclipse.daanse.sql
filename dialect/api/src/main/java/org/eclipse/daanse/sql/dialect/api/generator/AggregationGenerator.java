@@ -27,6 +27,17 @@ public interface AggregationGenerator extends IdentifierQuoter {
     String IGNORE_NULLS = " IGNORE NULLS ";
     String RESPECT_NULLS = " RESPECT NULLS ";
 
+    // -------------------- AVG --------------------
+
+    /**
+     * The operand of an {@code avg} aggregate as this dialect needs it to compute the mean: the operand itself, unless
+     * the engine averages whole numbers to a whole number. SQL Server returns 31 for the mean of 31 and 32 over an
+     * INTEGER column, where every other engine, MDX and SSAS give 31.5 (database run 19./20.10., F-10.6 2).
+     */
+    default CharSequence averageOperand(CharSequence operand) {
+        return operand;
+    }
+
     // -------------------- list / string aggregation --------------------
 
     default java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
