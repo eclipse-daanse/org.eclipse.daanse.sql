@@ -441,6 +441,15 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /**
+     * SQL Server averages an integer column to an integer (the result type of AVG is the operand's); the operand is
+     * read as float, the double way every measure value takes.
+     */
+    @Override
+    public CharSequence averageOperand(CharSequence operand) {
+        return "CAST(" + operand + " AS float)";
+    }
+
     @Override
     public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
             String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {

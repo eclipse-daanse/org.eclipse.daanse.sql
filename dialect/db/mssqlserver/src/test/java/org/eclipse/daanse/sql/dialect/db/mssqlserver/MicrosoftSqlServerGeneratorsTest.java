@@ -27,6 +27,13 @@ class MicrosoftSqlServerGeneratorsTest {
 
     private final MicrosoftSqlServerDialect d = new MicrosoftSqlServerDialect();
 
+    /** AVG over an INTEGER column is an integer on SQL Server; the operand is read as float. */
+    @Test
+    void avg_reads_its_operand_as_float() {
+        assertThat(d.aggregationGenerator().averageOperand("\"t\".\"x\""))
+                .hasToString("CAST(\"t\".\"x\" AS float)");
+    }
+
     @Test
     void output_clause() {
         assertThat(d.returningGenerator().supportsReturning()).isTrue();
