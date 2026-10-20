@@ -41,6 +41,18 @@ class PostgreSqlGeneratorsTest {
         assertThat(d.functionGenerator().quotientDividend("x")).hasToString("CAST(x AS double precision)");
     }
 
+    /** A negated bit aggregate is the bitwise complement: PostgreSQL's NOT is logical and takes no integer. */
+    @Test
+    void a_negated_bit_aggregate_is_the_bitwise_complement() {
+        org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator g = d.aggregationGenerator();
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NAND, "x").orElseThrow())
+                .isEqualTo("~(bit_and(x))");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NOR, "x").orElseThrow())
+                .isEqualTo("~(bit_or(x))");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NXOR, "x").orElseThrow())
+                .isEqualTo("~(bit_xor(x))");
+    }
+
     /** PostgreSQL lists text with STRING_AGG; the operand is cast, the separator quoted. */
     @Test
     void list_aggregation_is_string_agg() {

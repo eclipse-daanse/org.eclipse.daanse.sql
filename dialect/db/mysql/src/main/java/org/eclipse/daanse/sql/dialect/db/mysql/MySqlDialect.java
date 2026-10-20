@@ -495,9 +495,12 @@ public class MySqlDialect extends AbstractJdbcDialect {
         case AND -> buf.append("BIT_AND(").append(operand).append(")");
         case OR -> buf.append("BIT_OR(").append(operand).append(")");
         case XOR -> buf.append("BIT_XOR(").append(operand).append(")");
-        case NAND -> buf.append("NOT(BIT_AND(").append(operand).append("))");
-        case NOR -> buf.append("NOT(BIT_OR(").append(operand).append("))");
-        case NXOR -> buf.append("NOT(BIT_XOR(").append(operand).append("))");
+        // NOT is logical in MySQL and MariaDB: NOT(BIT_AND(1)) is 0, which the tutorial oracle read silently as the
+        // NAND (database run 20.10.). ~ is bitwise, but on the unsigned 64-bit result of BIT_AND (~1 is
+        // 18446744073709551614); read as SIGNED it is -2, as DuckDB writes it and the provider computes it
+        case NAND -> buf.append("CAST(~BIT_AND(").append(operand).append(") AS SIGNED)");
+        case NOR -> buf.append("CAST(~BIT_OR(").append(operand).append(") AS SIGNED)");
+        case NXOR -> buf.append("CAST(~BIT_XOR(").append(operand).append(") AS SIGNED)");
         };
         return java.util.Optional.of(result.toString());
     }
