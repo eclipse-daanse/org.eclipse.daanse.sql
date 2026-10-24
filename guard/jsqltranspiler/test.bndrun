@@ -62,7 +62,7 @@
 	junit-platform-launcher;version='[1.12.2,1.12.3)',\
 	net.bytebuddy.byte-buddy;version='[1.17.5,1.17.6)',\
 	net.bytebuddy.byte-buddy-agent;version='[1.17.5,1.17.6)',\
-	net.sf.jsqlparser;version='[5.4.15,5.4.16)',\
+	net.sf.jsqlparser;version='[5.4.162,5.4.163)',\
 	org.apache.felix.scr;version='[2.2.10,2.2.11)',\
 	org.eclipse.daanse.sql.deparser.api;version='[0.0.1,0.0.2)',\
 	org.eclipse.daanse.sql.deparser.jsqlparser;version='[0.0.1,0.0.2)',\
