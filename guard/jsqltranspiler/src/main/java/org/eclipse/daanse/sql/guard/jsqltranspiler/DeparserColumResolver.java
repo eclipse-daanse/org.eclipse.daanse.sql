@@ -41,12 +41,13 @@ public class DeparserColumResolver extends JSQLColumResolver {
         this.dialectDeparser = dialectDeparser;
     }
 
-    @Override
     /**
-     * Parses the text as a script and resolves its one statement. {@code CCJSqlParserUtil.parse} stops after the first
-     * statement and would resolve "SELECT ...; DROP ..." as if the rest were not there; a text of more than one
-     * statement is refused instead, as the guard refuses it.
+     * Parses the text as a script and resolves its one statement; a text of more than one statement is refused by
+     * name, as the guard refuses it. {@code CCJSqlParserUtil.parse} stopped after the first statement before JSqlParser
+     * 5.4.162 and resolved "SELECT ...; DROP ..." as if the rest were not there; it refuses the rest now, but only with
+     * a parser message.
      */
+    @Override
     public String getResolvedStatementText(String sqlStr) throws JSQLParserException {
         net.sf.jsqlparser.statement.Statements statements =
                 CCJSqlParserUtil.parseStatements(BlankLines.collapse(sqlStr));
