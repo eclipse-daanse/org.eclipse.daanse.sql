@@ -34,12 +34,12 @@
     <dependency>
       <groupId>com.manticore-projects.jsqlformatter</groupId>
       <artifactId>jsqlparser</artifactId>
-      <version>5.4.15</version>
+      <version>5.4.162</version>
     </dependency>
     <dependency>
       <groupId>ai.starlake.jsqltranspiler</groupId>
       <artifactId>jsqltranspiler</artifactId>
-      <version>1.13</version>
+      <version>1.16</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
