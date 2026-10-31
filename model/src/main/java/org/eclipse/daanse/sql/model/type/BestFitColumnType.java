@@ -35,5 +35,18 @@ public enum BestFitColumnType {
     STRING,
 
     /** {@link java.math.BigDecimal} — for {@code DECIMAL}/{@code NUMERIC}. */
-    DECIMAL
+    DECIMAL,
+
+    /**
+     * {@link java.sql.Date} — for {@code DATE}, read with {@code getDate}. {@code getObject} hands a date over as the
+     * driver likes (a {@code java.sql.Date}, a {@code LocalDate}).
+     */
+    DATE,
+
+    /**
+     * {@link java.sql.Timestamp} — for {@code TIMESTAMP}, read with {@code getTimestamp}. {@code getObject} hands some
+     * timestamps over in a driver's own class (Oracle: {@code oracle.sql.TIMESTAMP}), which no format and no comparison
+     * of the engine knows.
+     */
+    TIMESTAMP
 }

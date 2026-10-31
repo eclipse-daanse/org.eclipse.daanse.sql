@@ -52,6 +52,8 @@ final class ColumnAccessors {
                 yield rs.wasNull() ? null : v;
             }
             case DECIMAL -> rs.getBigDecimal(oneBasedCol);
+            case DATE -> rs.getDate(oneBasedCol);
+            case TIMESTAMP -> rs.getTimestamp(oneBasedCol);
             case OBJECT -> rs.getObject(oneBasedCol);
         };
     }
