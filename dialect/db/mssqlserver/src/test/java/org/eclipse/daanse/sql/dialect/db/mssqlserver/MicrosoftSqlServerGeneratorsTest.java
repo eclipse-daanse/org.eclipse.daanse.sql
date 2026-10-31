@@ -40,6 +40,25 @@ class MicrosoftSqlServerGeneratorsTest {
                 .hasToString("CAST(\"t\".\"x\" AS float)");
     }
 
+    /**
+     * SQL Server knows no STRING_AGG(DISTINCT ...) ("Incorrect syntax near ','", database run 30.10.2026): the dialect
+     * declines a distinct list, the engine names the refusal; a plain one stays.
+     */
+    @Test
+    void a_distinct_text_list_is_declined() {
+        assertThat(d.aggregationGenerator().generateListAgg("x", true, ",", null, null, List.of())).isEmpty();
+        assertThat(d.aggregationGenerator().generateListAgg("x", false, ",", null, null, List.of())).isPresent();
+    }
+
+    /** SQL Server sums an INTEGER column as an INTEGER: the engine widens the operand to BIGINT. */
+    @Test
+    void a_sum_keeps_its_operands_type_and_the_operand_is_widened() {
+        assertThat(d.sumKeepsTheTypeOfItsOperand()).isTrue();
+        assertThat(d.functionGenerator().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.TO_WIDE_INTEGER, List.of("x")))
+                .hasToString("CAST(x AS BIGINT)");
+    }
+
     @Test
     void output_clause() {
         assertThat(d.returningGenerator().supportsReturning()).isTrue();
@@ -165,5 +184,17 @@ class MicrosoftSqlServerGeneratorsTest {
     void rename_constraint_uses_the_schema_scoped_name() {
         assertThat(d.renameConstraint(table("dbo", "T"), "PK_OLD", "PK_NEW"))
                 .isEqualTo("EXEC sp_rename '\"dbo\".\"PK_OLD\"', 'PK_NEW', 'OBJECT'");
+    }
+
+    @Test
+    void known_functions_of_a_data_source_view() {
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.MONTH_NAME, List.of("x")))
+                .hasToString("DATENAME(month, x)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("DATEFROMPARTS(y, m, d)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.TO_TEXT, List.of("x")))
+                .hasToString("CAST(x AS NVARCHAR(4000))");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.PAD_RIGHT, List.of("x", "2")))
+                .hasToString("CAST(x AS NCHAR(2))");
     }
 }

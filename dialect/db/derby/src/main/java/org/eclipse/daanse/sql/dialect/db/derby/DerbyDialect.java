@@ -45,6 +45,28 @@ public class DerbyDialect extends AbstractJdbcDialect {
         return "SMALLINT";
     }
 
+    @Override
+    public void quote(StringBuilder buf, Object value, org.eclipse.daanse.sql.model.type.Datatype datatype) {
+        // Derby refuses an untyped null in a select list ("Syntax error: Encountered null"), as a union arm without a
+        // column gives one (writeback view, database run 30.10.2026): a null of a known type is spelled typed, in a
+        // type the union takes beside any column of its family. A text null stays untyped: VARCHAR is also the type a
+        // null takes where nothing better is known (a CASE branch beside a quotient), and a typed one there clashes
+        // ("Types 'VARCHAR' and 'DOUBLE' are not type compatible"), where Derby takes the untyped null
+        if (value == null && datatype != null && datatype != org.eclipse.daanse.sql.model.type.Datatype.VARCHAR) {
+            buf.append("CAST(NULL AS ").append(switch (datatype) {
+            case DOUBLE, FLOAT, REAL -> "DOUBLE";
+            case BIGINT -> "BIGINT";
+            case BOOLEAN -> booleanTypeName();
+            case DATE -> "DATE";
+            case TIME -> "TIME";
+            case TIMESTAMP -> "TIMESTAMP";
+            default -> "INTEGER";
+            }).append(")");
+            return;
+        }
+        super.quote(buf, value, datatype);
+    }
+
     /**
      * {@code 1} and {@code 0}: this dialect stores a truth value as SMALLINT ({@link #booleanTypeName()}), and Derby does
      * not compare SMALLINT with BOOLEAN ("ERROR 42818: Comparisons between 'SMALLINT' and 'BOOLEAN' are not supported",
@@ -60,6 +82,27 @@ public class DerbyDialect extends AbstractJdbcDialect {
         } else {
             throw new NumberFormatException("Illegal BOOLEAN literal:  " + value);
         }
+    }
+
+    /**
+     * Derby has no EXTRACT ("Syntax error: Encountered FROM", database run 30.10.2026); its own YEAR(x), MONTH(x),
+     * DAY(x), HOUR(x), MINUTE(x) and SECOND(x) take a part of a date or time.
+     */
+    @Override
+    public StringBuilder generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
+            List<? extends CharSequence> arguments) {
+        return switch (function) {
+        case YEAR, MONTH, DAY, HOUR, MINUTE, SECOND -> arguments.size() == 1
+                ? new StringBuilder(function.name()).append("(").append(arguments.get(0)).append(")")
+                : super.generateKnownFunction(function, arguments);
+        default -> super.generateKnownFunction(function, arguments);
+        };
+    }
+
+    /** A sum keeps the type of its operand: an INTEGER column sums to an INTEGER and overflows past 2^31 - 1. */
+    @Override
+    public boolean sumKeepsTheTypeOfItsOperand() {
+        return true;
     }
 
     /** JDBC-free constructor for SQL generation. */

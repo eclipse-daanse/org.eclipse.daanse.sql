@@ -33,6 +33,15 @@ class MySqlGeneratorsTest {
     private final MySqlDialect d = new MySqlDialect();
 
     /**
+     * AVG over an INTEGER column is a DECIMAL of four places on MySQL and MariaDB (11.6667 for 35 / 3, database run
+     * 30.10.2026); the operand is read as a double, the way every measure value travels.
+     */
+    @Test
+    void avg_reads_its_operand_as_double() {
+        assertThat(d.aggregationGenerator().averageOperand("x")).hasToString("CAST(x AS DOUBLE)");
+    }
+
+    /**
      * A negated bit aggregate is the signed bitwise complement: MySQL's NOT is logical (NOT(BIT_AND(1)) is 0), and ~ on
      * the unsigned 64-bit BIT_AND result is 18446744073709551614 where the other arts answer -2.
      */
@@ -169,5 +178,17 @@ class MySqlGeneratorsTest {
     void comment_on_column_requires_meta() {
         assertThatThrownBy(() -> d.commentOnColumn(table("app", "users"), "name", "x", null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void known_functions_of_a_data_source_view() {
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.MONTH_NAME, List.of("x")))
+                .hasToString("MONTHNAME(x)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("STR_TO_DATE(CONCAT_WS('-', y, m, d), '%Y-%c-%e')");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.TO_TEXT, List.of("x")))
+                .hasToString("CAST(x AS CHAR)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.PAD_RIGHT, List.of("x", "2")))
+                .hasToString("RPAD(x, 2, ' ')");
     }
 }

@@ -443,6 +443,20 @@ public class OracleDialect extends AbstractJdbcDialect {
             yield new StringBuilder("INSTR(").append(arguments.get(1)).append(", ").append(arguments.get(0))
                     .append(")");
         }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            // VARCHAR needs a length in Oracle; TO_CHAR writes a number or a date as text
+            yield new StringBuilder("TO_CHAR(").append(arguments.get(0)).append(")");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("TO_DATE(").append(arguments.get(0)).append(" || '-' || ").append(arguments.get(1))
+                    .append(" || '-' || ").append(arguments.get(2)).append(", 'YYYY-MM-DD')");
+        }
         default -> super.generateKnownFunction(function, arguments);
         };
     }

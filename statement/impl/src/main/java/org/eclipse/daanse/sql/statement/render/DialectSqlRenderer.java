@@ -545,6 +545,14 @@ public final class DialectSqlRenderer implements SqlRenderer {
             return "(" + chooseVariant(v.byDialectName()) + ")" + (dialect.allowsFromAlias() ? " as " : " ")
                     + dialect.quoteIdentifier(v.alias().name());
         }
+        if (from instanceof FromClause.FromPortable p) {
+            String own = p.byDialectName().get(dialect.name());
+            if (own == null && p.tree() != null) {
+                return renderFrom(p.tree(), whereSink, options);
+            }
+            return "(" + (own != null ? own : chooseVariant(p.byDialectName())) + ")"
+                    + (dialect.allowsFromAlias() ? " as " : " ") + dialect.quoteIdentifier(p.alias().name());
+        }
         if (from instanceof FromClause.FromInline inl) {
             // Generate the inline-table VALUES SQL for the live dialect here (the one render-time dialect touch),
             // then wrap like a derived table — the same generateInline call the legacy build path made.
@@ -870,6 +878,13 @@ public final class DialectSqlRenderer implements SqlRenderer {
         }
         if (e instanceof SqlExpression.RawVariant v) {
             return chooseVariant(v.byDialectName());
+        }
+        if (e instanceof SqlExpression.Portable p) {
+            String own = p.byDialectName().get(dialect.name());
+            if (own != null) {
+                return own;
+            }
+            return p.tree() != null ? renderExpression(p.tree()) : chooseVariant(p.byDialectName());
         }
         if (e instanceof SqlExpression.ExtraAggregate ea) {
             return renderExtraAggregate(ea);

@@ -27,6 +27,42 @@ import org.junit.jupiter.api.Test;
 
 class DerbyDialectTest {
 
+    /** Derby sums an INTEGER column as an INTEGER: the engine widens the operand to BIGINT. */
+    @Test
+    void aSumKeepsTheTypeOfItsOperand() {
+        assertTrue(new DerbyDialect().sumKeepsTheTypeOfItsOperand());
+        assertEquals("CAST(x AS BIGINT)", new DerbyDialect().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.TO_WIDE_INTEGER,
+                java.util.List.of("x")).toString());
+    }
+
+    /**
+     * Derby has no EXTRACT ("Syntax error: Encountered FROM", the month of a birth date written as a tree, database
+     * run 30.10.2026); its own YEAR(x), MONTH(x) and DAY(x) take the part.
+     */
+    @Test
+    void aPartOfADateIsTakenByDerbysOwnFunction() {
+        assertEquals("MONTH(d)", new DerbyDialect().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.MONTH, java.util.List.of("d")).toString());
+        assertEquals("YEAR(d)", new DerbyDialect().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.YEAR, java.util.List.of("d")).toString());
+    }
+
+    /**
+     * Derby refuses an untyped null in a select list ("Syntax error: Encountered null", a union arm without a column,
+     * database run 30.10.2026): a null of a known type is spelled typed.
+     */
+    @Test
+    void aNullOfAKnownTypeIsSpelledTyped() {
+        StringBuilder integer = new StringBuilder();
+        new DerbyDialect().quote(integer, null, org.eclipse.daanse.sql.model.type.Datatype.INTEGER);
+        assertEquals("CAST(NULL AS INTEGER)", integer.toString());
+        // a text null stays untyped: VARCHAR is also the type of a null nothing better is known of (a CASE branch)
+        StringBuilder text = new StringBuilder();
+        new DerbyDialect().quote(text, null, org.eclipse.daanse.sql.model.type.Datatype.VARCHAR);
+        assertEquals("null", text.toString().toLowerCase(java.util.Locale.ROOT));
+    }
+
     private Connection connection = mock(Connection.class);
     private DatabaseMetaData metaData = mock(DatabaseMetaData.class);
     private DerbyDialect dialect;

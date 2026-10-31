@@ -35,6 +35,13 @@ class PostgreSqlGeneratorsTest {
 
     private final PostgreSqlDialect d = new PostgreSqlDialect();
 
+    @Test
+    void aDateFromItsPartsIsMakeDateOverIntegers() {
+        assertThat(d.functionGenerator().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("make_date(CAST(y AS INTEGER), CAST(m AS INTEGER), CAST(d AS INTEGER))");
+    }
+
     /** PostgreSQL divides integers to an integer; the dividend is read as double precision. */
     @Test
     void a_quotient_reads_its_dividend_as_double_precision() {

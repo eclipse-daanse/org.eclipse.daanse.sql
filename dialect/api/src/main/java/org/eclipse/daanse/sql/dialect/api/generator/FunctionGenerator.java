@@ -108,6 +108,10 @@ public interface FunctionGenerator {
             yield new StringBuilder("EXTRACT(").append(function.name()).append(" FROM ").append(arguments.get(0))
                     .append(")");
         }
+        case TO_WIDE_INTEGER -> {
+            checkArity(function, arguments, 1, 1);
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS BIGINT)");
+        }
         case DATE -> {
             checkArity(function, arguments, 1, 1);
             yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS DATE)");
@@ -140,6 +144,39 @@ public interface FunctionGenerator {
         case NOW -> {
             checkArity(function, arguments, 0, 0);
             yield new StringBuilder("CURRENT_TIMESTAMP");
+        }
+        case MONTH_NAME -> {
+            // no standard function names a month: the case over the month number is the same in every database and
+            // independent of its language settings
+            checkArity(function, arguments, 1, 1);
+            // the month number in this dialect's own spelling
+            StringBuilder sb = new StringBuilder("CASE ").append(generateKnownFunction(KnownFunction.MONTH, arguments));
+            String[] months = { "January", "February", "March", "April", "May", "June", "July", "August",
+                    "September", "October", "November", "December" };
+            for (int i = 0; i < months.length; i++) {
+                sb.append(" WHEN ").append(i + 1).append(" THEN '").append(months[i]).append("'");
+            }
+            yield sb.append(" END");
+        }
+        case TO_TEXT -> {
+            checkArity(function, arguments, 1, 1);
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS VARCHAR(4000))");
+        }
+        case PAD_RIGHT -> {
+            checkArity(function, arguments, 2, 2);
+            yield new StringBuilder("RPAD(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(", ' ')");
+        }
+        case DATE_FROM_PARTS -> {
+            // no standard function builds a date from its parts: the ISO text yyyy-mm-dd, which a database reads as a
+            // date whatever its language, joined in this dialect's own spelling
+            checkArity(function, arguments, 3, 3);
+            java.util.List<CharSequence> iso = java.util.List.of(
+                    "CAST(" + arguments.get(0) + " AS VARCHAR(4))", "'-'",
+                    "LPAD(CAST(" + arguments.get(1) + " AS VARCHAR(2)), 2, '0')", "'-'",
+                    "LPAD(CAST(" + arguments.get(2) + " AS VARCHAR(2)), 2, '0')");
+            yield new StringBuilder("CAST(").append(generateKnownFunction(KnownFunction.CONCAT, iso))
+                    .append(" AS DATE)");
         }
         };
     }

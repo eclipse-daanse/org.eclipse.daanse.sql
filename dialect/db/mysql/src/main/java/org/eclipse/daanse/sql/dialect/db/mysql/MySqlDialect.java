@@ -50,6 +50,27 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
  * @since Nov 23, 2008
  */
 public class MySqlDialect extends AbstractJdbcDialect {
+
+    /**
+     * Long text is {@code LONGTEXT}, binary {@code LONGBLOB}: MySQL and MariaDB know no {@code CLOB} and no
+     * {@code VARBINARY} without a length (the CWM structure of Adventure Works DW declares {@code nvarchar(max)} and
+     * {@code xml} as national large objects, its images as {@code varbinary(max)}).
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "LONGTEXT";
+        case BLOB, LONGVARBINARY -> "LONGBLOB";
+        // MySQL's VARBINARY needs a length; one of any length is a LONGBLOB
+        case VARBINARY -> meta.columnSize().isPresent() ? "VARBINARY(" + meta.columnSize().getAsInt() + ")" : "LONGBLOB";
+        default -> super.nativeType(meta);
+        };
+    }
+
     private static final String SUPPORTED_PRODUCT_NAME = "MYSQL";
 
     /**
@@ -457,6 +478,15 @@ public class MySqlDialect extends AbstractJdbcDialect {
         return org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding.PRESERVE;
     }
 
+    /**
+     * MySQL and MariaDB average an INTEGER column to a DECIMAL of four places ({@code div_precision_increment}): 35 / 3
+     * reads 11.6667 (database run 30.10.2026). The operand is read as a double, the way every measure value travels.
+     */
+    @Override
+    public CharSequence averageOperand(CharSequence operand) {
+        return "CAST(" + operand + " AS DOUBLE)";
+    }
+
     @Override
     public StringBuilder generateKnownFunction(KnownFunction function, List<? extends CharSequence> arguments) {
         return switch (function) {
@@ -482,6 +512,27 @@ public class MySqlDialect extends AbstractJdbcDialect {
                     .append(")");
         }
         // LENGTH stays CHAR_LENGTH: MySQL's LENGTH() counts bytes, CHAR_LENGTH() characters.
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // MONTHNAME follows lc_time_names, en_US unless the session sets another
+            yield new StringBuilder("MONTHNAME(").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS CHAR)");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            // MySQL has MAKEDATE(year, day of the year) only: the parts as text, read with their format
+            yield new StringBuilder("STR_TO_DATE(CONCAT_WS('-', ").append(arguments.get(0)).append(", ")
+                    .append(arguments.get(1)).append(", ").append(arguments.get(2)).append("), '%Y-%c-%e')");
+        }
         default -> super.generateKnownFunction(function, arguments);
         };
     }

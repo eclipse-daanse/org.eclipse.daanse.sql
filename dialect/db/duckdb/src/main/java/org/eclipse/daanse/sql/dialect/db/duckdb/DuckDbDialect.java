@@ -74,6 +74,24 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return "SMALLINT";
     }
 
+    /**
+     * Long text is {@code VARCHAR}, binary {@code BLOB}: DuckDB knows no {@code CLOB}, and its {@code VARCHAR} has no
+     * length limit, so a large object of text is a plain {@code VARCHAR} (the CWM structure of Adventure Works DW
+     * declares {@code nvarchar(max)} and {@code xml} as national large objects, its images as binary ones).
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "VARCHAR";
+        case BLOB, BINARY, VARBINARY, LONGVARBINARY -> "BLOB";
+        default -> super.nativeType(meta);
+        };
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
 
     /** JDBC-free constructor for SQL generation. */
@@ -424,5 +442,34 @@ public class DuckDbDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsListAgg() {
         return true;
+    }
+
+    @Override
+    public StringBuilder generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
+            java.util.List<? extends CharSequence> arguments) {
+        return switch (function) {
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // monthname gives the English name whatever the locale
+            yield new StringBuilder("monthname(").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            // DuckDB's VARCHAR has no length
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS VARCHAR)");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("make_date(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(", ").append(arguments.get(2)).append(")");
+        }
+        default -> super.generateKnownFunction(function, arguments);
+        };
     }
 }
