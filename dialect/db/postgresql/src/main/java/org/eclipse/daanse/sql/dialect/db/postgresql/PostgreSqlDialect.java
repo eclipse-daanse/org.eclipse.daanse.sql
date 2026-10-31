@@ -50,6 +50,28 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
  */
 public class PostgreSqlDialect extends AbstractJdbcDialect {
 
+    /**
+     * Long text is {@code TEXT}; PostgreSQL knows no {@code CLOB} (the CWM structure of Adventure Works DW declares
+     * {@code nvarchar(max)} and {@code xml} as national large objects). A {@code BLOB} is what pgjdbc reads and writes
+     * as {@link java.sql.Blob}: a large object referenced by an {@code OID} column -- a NULL bound as BLOB is an oid, and
+     * a {@code BYTEA} column refused it ("is of type bytea but expression is of type oid"). Other binary types bind as
+     * bytes and are {@code BYTEA}; PostgreSQL knows no {@code VARBINARY}.
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "TEXT";
+        case BLOB -> "OID";
+        case BINARY, VARBINARY, LONGVARBINARY -> "BYTEA";
+        default -> super.nativeType(meta);
+        };
+    }
+
+
     private static final Pattern LEADING_EMBEDDED_OPTIONS = Pattern.compile("^(?:\\(\\?[a-zA-Z-]+\\))+");
 
     // Lazy-initialized generator caches — built on first call. Stateless
@@ -492,4 +514,19 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return true;
     }
 
+
+    @Override
+    public StringBuilder generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
+            java.util.List<? extends CharSequence> arguments) {
+        if (function == org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.DATE_FROM_PARTS) {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            // make_date takes integers: a smallint or a numeric part is cast
+            return new StringBuilder("make_date(CAST(").append(arguments.get(0)).append(" AS INTEGER), CAST(")
+                    .append(arguments.get(1)).append(" AS INTEGER), CAST(").append(arguments.get(2))
+                    .append(" AS INTEGER))");
+        }
+        return super.generateKnownFunction(function, arguments);
+    }
 }

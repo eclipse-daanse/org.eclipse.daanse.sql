@@ -235,6 +235,21 @@ public sealed interface SqlExpression {
     }
 
     /**
+     * An expression written once for every database, beside the texts a description gives for some dialects: the
+     * renderer takes the live dialect's own text where there is one, else renders the tree in that dialect, else takes
+     * the {@code "generic"} text. A named calculation of an Analysis Services data source view comes this way: its
+     * Transact-SQL for SQL Server, its tree for every other database.
+     *
+     * @param tree          the expression as a tree, rendered by the dialect; {@code null} when there is none
+     * @param byDialectName the {@code dialect-name -> SQL} texts, possibly empty
+     */
+    record Portable(SqlExpression tree, java.util.Map<String, String> byDialectName) implements SqlExpression {
+        public Portable {
+            byDialectName = java.util.Map.copyOf(byDialectName);
+        }
+    }
+
+    /**
      * A dialect-generated extra aggregate (PERCENTILE / LISTAGG / bitwise /
      * NTH_VALUE) whose SQL is produced at RENDER time by
      * {@code dialect.aggregationGenerator()} — each engine spells these very

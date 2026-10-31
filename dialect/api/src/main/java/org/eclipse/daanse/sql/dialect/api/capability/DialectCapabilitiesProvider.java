@@ -142,6 +142,18 @@ public interface DialectCapabilitiesProvider {
     }
 
     /**
+     * Whether {@code SUM} keeps the type of its operand: SQL Server and Derby sum an INTEGER column as an INTEGER and
+     * fail past 2 147 483 647 ("Arithmetic overflow error converting expression to data type int"); PostgreSQL,
+     * MySQL, Oracle, H2 and DuckDB sum it wider. Where true, the engine widens the operand of a sum over a whole number
+     * column ({@code TO_WIDE_INTEGER}).
+     *
+     * @return true if a sum of an INTEGER operand is itself an INTEGER
+     */
+    default boolean sumKeepsTheTypeOfItsOperand() {
+        return false;
+    }
+
+    /**
      * @return true if the dialect honours {@code IF EXISTS} on {@code DROP SCHEMA}
      */
     default boolean supportsDropSchemaIfExists() {

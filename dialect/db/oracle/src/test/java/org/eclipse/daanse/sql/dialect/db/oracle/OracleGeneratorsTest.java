@@ -111,4 +111,14 @@ class OracleGeneratorsTest {
                 table("APP", "P"), List.of("ID"), "cascade", null);
         assertThat(cascade).endsWith(" ON DELETE CASCADE");
     }
+
+    @org.junit.jupiter.api.Test
+    void known_functions_of_a_data_source_view() {
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.TO_TEXT, List.of("x")))
+                .hasToString("TO_CHAR(x)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("TO_DATE(y || '-' || m || '-' || d, 'YYYY-MM-DD')");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.MONTH_NAME, List.of("x")).toString())
+                .startsWith("CASE EXTRACT(MONTH FROM x) WHEN 1 THEN 'January'");
+    }
 }

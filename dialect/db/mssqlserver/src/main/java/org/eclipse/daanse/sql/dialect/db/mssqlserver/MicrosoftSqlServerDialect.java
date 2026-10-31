@@ -73,9 +73,44 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         return "DATETIME";
     }
 
+    /**
+     * National text keeps its national type, long text and binary their {@code MAX} form. SQL Server's
+     * {@code VARCHAR(n)} counts bytes: the UTF-8 of a national text of n characters overran it (Adventure Works'
+     * product descriptions in Arabic, Chinese and Thai). A large object without a length is no SQL Server type
+     * ({@code CLOB}) or a single byte ({@code VARBINARY}); n above 4000 national or 8000 other characters or bytes
+     * is {@code MAX}.
+     */
+    @Override
+    public String nativeType(ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        java.util.OptionalInt size = meta.columnSize();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case NVARCHAR, NCHAR -> size.isPresent() && size.getAsInt() <= 4000
+                ? (type == java.sql.JDBCType.NCHAR ? "NCHAR(" : "NVARCHAR(") + size.getAsInt() + ")"
+                : "NVARCHAR(MAX)";
+        case LONGNVARCHAR, NCLOB -> "NVARCHAR(MAX)";
+        case LONGVARCHAR, CLOB -> "VARCHAR(MAX)";
+        case VARCHAR -> size.isPresent() && size.getAsInt() > 8000 ? "VARCHAR(MAX)" : super.nativeType(meta);
+        case VARBINARY, BINARY -> size.isPresent() && size.getAsInt() <= 8000
+                ? (type == java.sql.JDBCType.BINARY ? "BINARY(" : "VARBINARY(") + size.getAsInt() + ")"
+                : "VARBINARY(MAX)";
+        case LONGVARBINARY, BLOB -> "VARBINARY(MAX)";
+        default -> super.nativeType(meta);
+        };
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.CteGenerator cachedCteGenerator;
+
+    /** A sum keeps the type of its operand: an INTEGER column sums to an INTEGER and overflows past 2^31 - 1. */
+    @Override
+    public boolean sumKeepsTheTypeOfItsOperand() {
+        return true;
+    }
 
     public MicrosoftSqlServerDialect() {
         super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
@@ -413,6 +448,34 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
             // ubiquitous T-SQL spelling and its precision suffices for NOW's intent.
             yield new StringBuilder("GETDATE()");
         }
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // DATENAME follows the session's language; the English names of the default language us_english
+            yield new StringBuilder("DATENAME(month, ").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS NVARCHAR(4000))");
+        }
+        case PAD_RIGHT -> {
+            if (arguments.size() != 2) {
+                throw new IllegalArgumentException("PAD_RIGHT expects 2 argument(s), got " + arguments.size());
+            }
+            // a fixed-length text pads and cuts, as CONVERT(CHAR(n), x) does
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS NCHAR(").append(arguments.get(1))
+                    .append("))");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("DATEFROMPARTS(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(", ").append(arguments.get(2)).append(")");
+        }
         default -> super.generateKnownFunction(function, arguments);
         };
     }
@@ -462,12 +525,14 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     @Override
     public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
             String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        if (distinct) {
+            // SQL Server knows no STRING_AGG(DISTINCT ...) ("Incorrect syntax near ','", database run 30.10.2026):
+            // declined, so the engine names the refusal instead of sending SQL the server rejects
+            return java.util.Optional.empty();
+        }
         StringBuilder buf = new StringBuilder(64);
         buf.append("STRING_AGG");
         buf.append("( ");
-        if (distinct) {
-            buf.append("DISTINCT ");
-        }
         buf.append(operand);
         buf.append(", '");
         if (separator != null) {
