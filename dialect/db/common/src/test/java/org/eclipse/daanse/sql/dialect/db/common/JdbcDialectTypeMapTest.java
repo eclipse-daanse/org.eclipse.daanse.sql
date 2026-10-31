@@ -39,6 +39,16 @@ class JdbcDialectTypeMapTest {
         assertEquals(BestFitColumnType.INT, dialect.getType(rs, 0));
     }
 
+    /** A date and a timestamp are read with their getters; getObject returns whatever class the driver picks. */
+    @Test
+    void temporalColumnsAreReadAsDateAndTimestamp() throws SQLException {
+        ResultSetMetaData rs = mock(ResultSetMetaData.class);
+        when(rs.getColumnType(1)).thenReturn(Types.DATE);
+        when(rs.getColumnType(2)).thenReturn(Types.TIMESTAMP);
+        assertEquals(BestFitColumnType.DATE, dialect.getType(rs, 0));
+        assertEquals(BestFitColumnType.TIMESTAMP, dialect.getType(rs, 1));
+    }
+
     @Test
     void testDecimalPrecisionFiveScaleZeroMapsToInt() throws SQLException {
         ResultSetMetaData rs = mock(ResultSetMetaData.class);

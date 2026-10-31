@@ -34,6 +34,11 @@ final class JdbcTypeMapper {
         m.put(Types.DOUBLE, BestFitColumnType.DOUBLE);
         m.put(Types.FLOAT, BestFitColumnType.DOUBLE);
         m.put(Types.BIGINT, BestFitColumnType.DOUBLE);
+        // temporal columns are read with their own getter, not getObject: the class getObject returns is the driver's
+        // choice. Oracle reports its DATE as TIMESTAMP (it carries a time of day) and keeps it so: read as a date it
+        // would lose the time, and its members and segment predicates would miss the rows
+        m.put(Types.DATE, BestFitColumnType.DATE);
+        m.put(Types.TIMESTAMP, BestFitColumnType.TIMESTAMP);
         DEFAULT_TYPE_MAP = Collections.unmodifiableMap(m);
     }
 
