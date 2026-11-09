@@ -95,6 +95,10 @@ public class DerbyDialect extends AbstractJdbcDialect {
         case YEAR, MONTH, DAY, HOUR, MINUTE, SECOND -> arguments.size() == 1
                 ? new StringBuilder(function.name()).append("(").append(arguments.get(0)).append(")")
                 : super.generateKnownFunction(function, arguments);
+        // Derby casts no number to VARCHAR ("Cannot convert types 'INTEGER' to 'VARCHAR'"), but to CHAR, which it pads
+        case TO_TEXT -> arguments.size() == 1
+                ? new StringBuilder("TRIM(CAST(").append(arguments.get(0)).append(" AS CHAR(254)))")
+                : super.generateKnownFunction(function, arguments);
         default -> super.generateKnownFunction(function, arguments);
         };
     }
@@ -174,6 +178,16 @@ public class DerbyDialect extends AbstractJdbcDialect {
         return false;
     }
 
+    /** Derby's longest {@code VARCHAR FOR BIT DATA}; a binary column without a length or beyond it is a BLOB. */
+    private static final int MAX_BIT_DATA = 32_672;
+
+    /** Derby has no {@code VARBINARY}: its variable binary is {@code VARCHAR (n) FOR BIT DATA}. */
+    @Override
+    public String binaryTypeName(java.util.OptionalInt size) {
+        return size.isPresent() && size.getAsInt() > 0 && size.getAsInt() <= MAX_BIT_DATA
+                ? "VARCHAR (" + size.getAsInt() + ") FOR BIT DATA" : "BLOB";
+    }
+
     /** Derby has no {@code IF NOT EXISTS} on {@code CREATE SCHEMA} — strip it. */
     @Override
     public String createSchema(String schemaName, boolean ifNotExists) {
@@ -193,6 +207,27 @@ public class DerbyDialect extends AbstractJdbcDialect {
         // Derby accepts DATE('2008-01-23') but not SQL:2003 format.
         buf.append("DATE(");
         DialectUtil.singleQuoteString(date.toString(), buf);
+        buf.append(")");
+    }
+
+    @Override
+    protected void quoteTimestampLiteral(StringBuilder buf, String value, java.sql.Timestamp timestamp) {
+        // Derby accepts TIMESTAMP('1997-01-01 00:00:00.0') but not the SQL:2003 literal
+        buf.append("TIMESTAMP(");
+        DialectUtil.singleQuoteString(value, buf);
+        buf.append(")");
+    }
+
+    @Override
+    public void quoteTimeLiteral(StringBuilder buf, String value) {
+        try {
+            java.sql.Time.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new NumberFormatException("Illegal TIME literal:  " + value);
+        }
+        // Derby accepts TIME('12:30:00') but not the SQL:2003 literal
+        buf.append("TIME(");
+        DialectUtil.singleQuoteString(value, buf);
         buf.append(")");
     }
 

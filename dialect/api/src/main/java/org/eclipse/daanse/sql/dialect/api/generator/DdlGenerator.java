@@ -831,6 +831,14 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     }
 
     /**
+     * The type of a binary column of {@code size} bytes, any length when empty. {@code VARBINARY} by default; Derby
+     * has none and writes {@code VARCHAR (n) FOR BIT DATA}, or a {@code BLOB} beyond its limit.
+     */
+    default String binaryTypeName(OptionalInt size) {
+        return "VARBINARY";
+    }
+
+    /**
      * How this dialect spells a 64-bit integer column.
      *
      * <p>
@@ -976,7 +984,7 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         case CHAR -> size.isPresent() ? "CHAR(" + size.getAsInt() + ")" : "CHAR(1)";
         case VARCHAR, LONGVARCHAR, NVARCHAR, LONGNVARCHAR, NCHAR ->
             size.isPresent() ? "VARCHAR(" + size.getAsInt() + ")" : "VARCHAR(255)";
-        case BINARY, VARBINARY, LONGVARBINARY, BLOB -> "VARBINARY";
+        case BINARY, VARBINARY, LONGVARBINARY, BLOB -> binaryTypeName(size);
         case CLOB, NCLOB -> "CLOB";
         case null, default -> "VARCHAR(255)";
         };
