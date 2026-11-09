@@ -27,6 +27,22 @@ import org.junit.jupiter.api.Test;
 
 class DerbyDialectTest {
 
+    /** Derby casts a number to text only through CHAR. */
+    @Test
+    void aNumberAsTextGoesThroughChar() {
+        assertEquals("TRIM(CAST(x AS CHAR(254)))", new DerbyDialect().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.TO_TEXT, java.util.List.of("x")).toString());
+    }
+
+    /** Derby has no VARBINARY: a binary of a length is VARCHAR FOR BIT DATA, one without a length or beyond it a BLOB. */
+    @Test
+    void aBinaryColumnIsBitDataOrABlob() {
+        DerbyDialect derby = new DerbyDialect();
+        assertEquals("VARCHAR (100) FOR BIT DATA", derby.binaryTypeName(java.util.OptionalInt.of(100)));
+        assertEquals("BLOB", derby.binaryTypeName(java.util.OptionalInt.empty()));
+        assertEquals("BLOB", derby.binaryTypeName(java.util.OptionalInt.of(100_000)));
+    }
+
     /** Derby sums an INTEGER column as an INTEGER: the engine widens the operand to BIGINT. */
     @Test
     void aSumKeepsTheTypeOfItsOperand() {
@@ -61,6 +77,20 @@ class DerbyDialectTest {
         StringBuilder text = new StringBuilder();
         new DerbyDialect().quote(text, null, org.eclipse.daanse.sql.model.type.Datatype.VARCHAR);
         assertEquals("null", text.toString().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /**
+     * Derby has no SQL-standard time literal ("Syntax error: Encountered '1997-01-01 00:00:00.0'" after TIMESTAMP): a
+     * time and a timestamp are written as the functions TIME and TIMESTAMP, as a date is written as DATE.
+     */
+    @Test
+    void aTimeAndATimestampAreWrittenAsFunctions() {
+        StringBuilder timestamp = new StringBuilder();
+        new DerbyDialect().quoteTimestampLiteral(timestamp, "1997-01-01 00:00:00.0");
+        assertEquals("TIMESTAMP('1997-01-01 00:00:00.0')", timestamp.toString());
+        StringBuilder time = new StringBuilder();
+        new DerbyDialect().quoteTimeLiteral(time, "12:30:00");
+        assertEquals("TIME('12:30:00')", time.toString());
     }
 
     private Connection connection = mock(Connection.class);
