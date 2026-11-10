@@ -35,7 +35,8 @@ public final class MetadataProviders {
         new PostgreSqlMetadataProviderFactory(),
         new MicrosoftSqlServerMetadataProviderFactory(),
         new OracleMetadataProviderFactory(),
-        new H2MetadataProviderFactory());
+        new H2MetadataProviderFactory(),
+        new DuckDbMetadataProviderFactory());
 
     private MetadataProviders() {
     }

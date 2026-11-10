@@ -394,17 +394,19 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     public Optional<List<ImportedKey>> getAllImportedKeys(Connection connection, String catalog, String schema)
             throws SQLException {
         String sql = """
-                SELECT con.conname AS fk_name, fk_class.relname AS fk_table, fk_att.attname AS fk_column,
-                        pk_class.relname AS pk_table, pk_att.attname AS pk_column,
+                SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
+                        fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
+                        pk_att.attname AS pk_column,
                         cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
-                JOIN pg_namespace n ON n.oid = fk_class.relnamespace
+                JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
                 JOIN pg_class pk_class ON pk_class.oid = con.confrelid
+                JOIN pg_namespace pk_n ON pk_n.oid = pk_class.relnamespace
                 JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(fk_attnum, pk_attnum, ord) ON TRUE
                 JOIN pg_attribute fk_att ON fk_att.attrelid = con.conrelid AND fk_att.attnum = cols.fk_attnum
                 JOIN pg_attribute pk_att ON pk_att.attrelid = con.confrelid AND pk_att.attnum = cols.pk_attnum
-                WHERE con.contype = 'f' AND n.nspname = ?
+                WHERE con.contype = 'f' AND fk_n.nspname = ?
                 ORDER BY fk_class.relname, con.conname, cols.ord
                 """;
         String schemaName = resolveSchema(schema, connection);
@@ -413,7 +415,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -427,11 +429,13 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         // Symmetric to getAllImportedKeys: filter by the namespace of the REFERENCED
         // (PK-side) table.
         String sql = """
-                SELECT con.conname AS fk_name, fk_class.relname AS fk_table, fk_att.attname AS fk_column,
-                        pk_class.relname AS pk_table, pk_att.attname AS pk_column,
+                SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
+                        fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
+                        pk_att.attname AS pk_column,
                         cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
+                JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
                 JOIN pg_class pk_class ON pk_class.oid = con.confrelid
                 JOIN pg_namespace pk_n ON pk_n.oid = pk_class.relnamespace
                 JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(fk_attnum, pk_attnum, ord) ON TRUE
@@ -446,7 +450,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -807,7 +811,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema, so a key across schemas points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("fk_name");
         String fkTable = rs.getString("fk_table");
         String fkColumn = rs.getString("fk_column");
@@ -818,12 +823,14 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String updateRule = rs.getString("update_rule");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("fk_schema")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("pk_schema")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 

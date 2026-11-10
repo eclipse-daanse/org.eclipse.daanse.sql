@@ -392,7 +392,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
                        kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
@@ -408,7 +409,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -422,7 +423,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
         // Symmetric to getAllImportedKeys: filter by the referenced (PK-side) schema.
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
                        kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
@@ -438,7 +440,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -764,7 +766,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema (database), so a key across them points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("FK_NAME");
         String fkTable = rs.getString("FK_TABLE");
         String fkColumn = rs.getString("FK_COLUMN");
@@ -776,13 +779,15 @@ public class MariaDbMetadataProvider implements MetadataProvider {
 
         // FK side - MariaDB uses catalog as database name, schema is same
         Optional<CatalogReference> fkCatRef = Optional.empty();
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(fkCatRef, schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(fkCatRef,
+                rs.getString("FK_SCHEMA")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
-        // PK side - referenced table is in the same schema context
+        // PK side - the referenced table, in its own database
         Optional<CatalogReference> pkCatRef = Optional.empty();
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(pkCatRef, schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(pkCatRef,
+                rs.getString("PK_SCHEMA")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 

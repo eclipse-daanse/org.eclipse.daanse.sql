@@ -14,6 +14,7 @@ package org.eclipse.daanse.sql.dialect.db.duckdb;
 
 import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,6 +24,7 @@ import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingPa
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 
@@ -107,6 +109,48 @@ public class DuckDbDialect extends AbstractJdbcDialect {
     @Override
     public String name() {
         return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    /**
+     * DuckDB has no {@code ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY}; its
+     * foreign keys are declared in {@code CREATE TABLE}.
+     */
+    @Override
+    public boolean supportsAddForeignKeyConstraint() {
+        return false;
+    }
+
+    /**
+     * DuckDB adds a unique constraint to an existing table only while no other table refers to it,
+     * so its unique constraints are declared in {@code CREATE TABLE}.
+     */
+    @Override
+    public boolean supportsAddUniqueConstraint() {
+        return false;
+    }
+
+    /** DuckDB cannot add a check to an existing table; its checks are declared in {@code CREATE TABLE}. */
+    @Override
+    public boolean supportsAddCheckConstraint() {
+        return false;
+    }
+
+    /**
+     * DuckDB knows only {@code NO ACTION} and {@code RESTRICT} on a foreign key. {@code CASCADE},
+     * {@code SET NULL} and {@code SET DEFAULT} cannot be written and are left out, so such a key
+     * behaves as {@code NO ACTION}.
+     */
+    @Override
+    public String foreignKeyClause(String constraintName, List<String> fkColumns, TableReference referencedTable,
+            List<String> referencedColumns, String onDelete, String onUpdate) {
+        return super.foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns,
+                knownAction(onDelete), knownAction(onUpdate));
+    }
+
+    private static String knownAction(String action) {
+        return action != null && (action.equalsIgnoreCase("NO ACTION") || action.equalsIgnoreCase("RESTRICT"))
+                ? action.toUpperCase(Locale.ROOT)
+                : null;
     }
 
     /**
