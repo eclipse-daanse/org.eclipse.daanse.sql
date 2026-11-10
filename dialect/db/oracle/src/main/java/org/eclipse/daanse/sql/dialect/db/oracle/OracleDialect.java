@@ -650,13 +650,14 @@ public class OracleDialect extends AbstractJdbcDialect {
         return Optional.of("DROP PROCEDURE " + qualified);
     }
 
+    /**
+     * A foreign key as Oracle takes it, both after {@code ALTER TABLE ... ADD} and in {@code CREATE TABLE}.
+     */
     @Override
-    public String addForeignKeyConstraint(TableReference table, String constraintName, java.util.List<String> fkColumns,
+    public String foreignKeyClause(String constraintName, java.util.List<String> fkColumns,
             TableReference referencedTable, java.util.List<String> referencedColumns, String onDelete,
             String onUpdate) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" FOREIGN KEY (");
         appendQuotedCsv(sb, fkColumns);
         sb.append(") REFERENCES ").append(qualified(referencedTable)).append(" (");

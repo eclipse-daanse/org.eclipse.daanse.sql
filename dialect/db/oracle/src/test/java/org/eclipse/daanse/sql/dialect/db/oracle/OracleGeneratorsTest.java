@@ -110,6 +110,8 @@ class OracleGeneratorsTest {
         String cascade = d.addForeignKeyConstraint(table("APP", "O"), "FK", List.of("C"),
                 table("APP", "P"), List.of("ID"), "cascade", null);
         assertThat(cascade).endsWith(" ON DELETE CASCADE");
+        assertThat(noAction).isEqualTo("ALTER TABLE \"APP\".\"O\" ADD " + d.foreignKeyClause("FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "NO ACTION", "NO ACTION"));
     }
 
     @org.junit.jupiter.api.Test

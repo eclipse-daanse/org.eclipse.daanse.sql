@@ -59,6 +59,18 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     default String createTable(TableReference table, List<ColumnDefinition> columns, PrimaryKey primaryKey,
             boolean ifNotExists) {
+        return createTable(table, columns, primaryKey, List.of(), ifNotExists);
+    }
+
+    /**
+     * {@code CREATE TABLE} with further table constraints after the primary
+     * key — e.g. the {@link #foreignKeyClause foreign keys} of a dialect that
+     * cannot {@link #supportsAddForeignKeyConstraint add them later}.
+     *
+     * @param tableConstraints complete constraint clauses, in order
+     */
+    default String createTable(TableReference table, List<ColumnDefinition> columns, PrimaryKey primaryKey,
+            List<String> tableConstraints, boolean ifNotExists) {
         StringBuilder sb = new StringBuilder();
         boolean useIfNotExists = ifNotExists && supportsCreateTableIfNotExists();
         sb.append(useIfNotExists ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ");
@@ -85,6 +97,9 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
             sb.append(String.join(", ",
                     primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
             sb.append(")");
+        }
+        for (String constraint : tableConstraints) {
+            sb.append(",\n  ").append(constraint);
         }
         sb.append("\n)");
         sb.append(createTableSuffix(primaryKey == null ? List.of()
@@ -612,12 +627,25 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** {@code ALTER TABLE schema.table ADD CONSTRAINT name UNIQUE (col1, …)}. */
     default String addUniqueConstraint(TableReference table, String constraintName, List<String> columnNames) {
+        return "ALTER TABLE " + qualified(table) + " ADD " + uniqueConstraintClause(constraintName, columnNames);
+    }
+
+    /**
+     * Whether a unique constraint can be added to an existing table
+     * ({@link #addUniqueConstraint}). Where it cannot, it goes into the
+     * {@code CREATE TABLE} as a {@link #uniqueConstraintClause clause}.
+     */
+    default boolean supportsAddUniqueConstraint() {
+        return true;
+    }
+
+    /** One unique constraint as a table constraint: {@code CONSTRAINT name UNIQUE (cols)}. */
+    default String uniqueConstraintClause(String constraintName, List<String> columnNames) {
         if (columnNames == null || columnNames.isEmpty()) {
             throw new IllegalArgumentException("columnNames must not be empty for UNIQUE");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder();
+        sb.append("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" UNIQUE (");
         appendQuotedNames(sb, columnNames);
         sb.append(")");
@@ -626,15 +654,34 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     default String addForeignKeyConstraint(TableReference table, String constraintName, List<String> fkColumns,
             TableReference referencedTable, List<String> referencedColumns, String onDelete, String onUpdate) {
+        return "ALTER TABLE " + qualified(table) + " ADD "
+                + foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns, onDelete, onUpdate);
+    }
+
+    /**
+     * Whether a foreign key can be added to an existing table
+     * ({@link #addForeignKeyConstraint}). Where it cannot, the foreign keys go
+     * into the {@code CREATE TABLE} as {@link #foreignKeyClause clauses}, and
+     * the referenced table has to exist first.
+     */
+    default boolean supportsAddForeignKeyConstraint() {
+        return true;
+    }
+
+    /**
+     * One foreign key as a table constraint:
+     * {@code CONSTRAINT name FOREIGN KEY (cols) REFERENCES table (cols) [ON DELETE ..] [ON UPDATE ..]}.
+     */
+    default String foreignKeyClause(String constraintName, List<String> fkColumns, TableReference referencedTable,
+            List<String> referencedColumns, String onDelete, String onUpdate) {
         if (fkColumns == null || fkColumns.isEmpty()) {
             throw new IllegalArgumentException("fkColumns must not be empty for FOREIGN KEY");
         }
         if (referencedColumns == null || referencedColumns.isEmpty()) {
             throw new IllegalArgumentException("referencedColumns must not be empty for FOREIGN KEY");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder();
+        sb.append("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" FOREIGN KEY (");
         appendQuotedNames(sb, fkColumns);
         sb.append(") REFERENCES ");
@@ -651,14 +698,24 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** {@code ALTER TABLE schema.table ADD CONSTRAINT name CHECK (expression)}. */
     default String addCheckConstraint(TableReference table, String constraintName, String expression) {
+        return "ALTER TABLE " + qualified(table) + " ADD " + checkConstraintClause(constraintName, expression);
+    }
+
+    /**
+     * Whether a check can be added to an existing table
+     * ({@link #addCheckConstraint}). Where it cannot, it goes into the
+     * {@code CREATE TABLE} as a {@link #checkConstraintClause clause}.
+     */
+    default boolean supportsAddCheckConstraint() {
+        return true;
+    }
+
+    /** One check as a table constraint: {@code CONSTRAINT name CHECK (expression)}. */
+    default String checkConstraintClause(String constraintName, String expression) {
         if (expression == null || expression.isBlank()) {
             throw new IllegalArgumentException("expression must not be blank for CHECK");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
-        sb.append(" CHECK (").append(expression).append(")");
-        return sb.toString();
+        return "CONSTRAINT " + quoteIdentifier(constraintName) + " CHECK (" + expression + ")";
     }
 
     default String dropConstraint(TableReference table, String constraintName, boolean ifExists) {

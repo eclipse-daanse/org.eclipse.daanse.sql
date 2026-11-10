@@ -416,6 +416,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT fk.name AS fk_name, OBJECT_NAME(fk.parent_object_id) AS fk_table,
                         fk_col.name AS fk_column, OBJECT_NAME(fk.referenced_object_id) AS pk_table,
+                        OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS pk_schema,
+                        OBJECT_SCHEMA_NAME(fk.parent_object_id) AS fk_schema,
                         pk_col.name AS pk_column, fkc.constraint_column_id AS key_seq,
                         fk.delete_referential_action_desc AS delete_rule,
                         fk.update_referential_action_desc AS update_rule
@@ -432,7 +434,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -448,6 +450,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT fk.name AS fk_name, OBJECT_NAME(fk.parent_object_id) AS fk_table,
                         fk_col.name AS fk_column, OBJECT_NAME(fk.referenced_object_id) AS pk_table,
+                        OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS pk_schema,
+                        OBJECT_SCHEMA_NAME(fk.parent_object_id) AS fk_schema,
                         pk_col.name AS pk_column, fkc.constraint_column_id AS key_seq,
                         fk.delete_referential_action_desc AS delete_rule,
                         fk.update_referential_action_desc AS update_rule
@@ -464,7 +468,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -781,7 +785,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema, so a key across schemas points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("fk_name");
         String fkTable = rs.getString("fk_table");
         String fkColumn = rs.getString("fk_column");
@@ -792,12 +797,14 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String updateRule = rs.getString("update_rule");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("fk_schema")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("pk_schema")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
