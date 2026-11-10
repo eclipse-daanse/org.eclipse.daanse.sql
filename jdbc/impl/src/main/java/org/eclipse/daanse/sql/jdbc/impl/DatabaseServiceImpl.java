@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -171,11 +172,16 @@ public class DatabaseServiceImpl implements DatabaseService {
         List<CatalogReference> catalogs = getCatalogs(databaseMetaData);
         List<SchemaReference> schemas = getSchemas(databaseMetaData);
         List<TableDefinition> tables = getTableDefinitions(databaseMetaData);
+        // The tables come from every schema, but a provider's bulk method reads one schema — called
+        // without one, the connection's current schema only. So each bulk method is called for every
+        // schema the tables lie in, and for the current schema, and the snapshot holds the keys,
+        // constraints, indexes, … of all its tables, as the per-table JDBC fallbacks do.
+        List<String> tableSchemas = schemaNames(tables, connection);
         // BULK: Columns — dialect-optimized when supported (Oracle's ALL_TAB_COLS
         // avoids the COLUMN_DEF LONG quirk that breaks DatabaseMetaData.getColumns).
         List<ColumnDefinition> columns;
-        Optional<List<ColumnDefinition>> providerColumns =
-                provider.getAllColumnDefinitions(connection, null, null, null, null);
+        Optional<List<ColumnDefinition>> providerColumns = eachSchemaIfSupported(tableSchemas,
+                s -> provider.getAllColumnDefinitions(connection, null, s, null, null));
         if (providerColumns.isPresent()) {
             columns = providerColumns.get();
         } else {
@@ -184,7 +190,8 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         // BULK: Indexes — dialect-optimized or fallback to per-table JDBC
         List<IndexInfo> indexInfos;
-        Optional<List<IndexInfo>> providerIndexes = provider.getAllIndexInfo(connection, null, null);
+        Optional<List<IndexInfo>> providerIndexes = eachSchemaIfSupported(tableSchemas,
+                s -> provider.getAllIndexInfo(connection, null, s));
         if (providerIndexes.isPresent()) {
             indexInfos = providerIndexes.get();
         } else {
@@ -193,7 +200,8 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         // BULK: PrimaryKeys — dialect-optimized or fallback to per-table JDBC
         List<PrimaryKey> primaryKeys;
-        Optional<List<PrimaryKey>> providerPKs = provider.getAllPrimaryKeys(connection, null, null);
+        Optional<List<PrimaryKey>> providerPKs = eachSchemaIfSupported(tableSchemas,
+                s -> provider.getAllPrimaryKeys(connection, null, s));
         if (providerPKs.isPresent()) {
             primaryKeys = providerPKs.get();
         } else {
@@ -208,7 +216,8 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         // BULK: ImportedKeys — dialect-optimized or fallback to per-table JDBC
         List<ImportedKey> importedKeys;
-        Optional<List<ImportedKey>> providerFKs = provider.getAllImportedKeys(connection, null, null);
+        Optional<List<ImportedKey>> providerFKs = eachSchemaIfSupported(tableSchemas,
+                s -> provider.getAllImportedKeys(connection, null, s));
         if (providerFKs.isPresent()) {
             importedKeys = providerFKs.get();
         } else {
@@ -219,17 +228,24 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
 
         // NEW metadata — only via dialect, no JDBC fallback needed
-        List<Trigger> triggers = provider.getAllTriggers(connection, null, null);
-        List<Sequence> sequences = provider.getAllSequences(connection, null, null);
-        List<CheckConstraint> checkConstraints = provider.getAllCheckConstraints(connection, null, null);
-        List<UniqueConstraint> uniqueConstraints = provider.getAllUniqueConstraints(connection, null, null);
-        List<UserDefinedType> userDefinedTypes = provider.getAllUserDefinedTypes(connection, null, null);
-        List<ViewDefinition> viewDefinitions = provider.getAllViewDefinitions(connection, null, null);
-        List<Procedure> procedures = provider.getAllProcedures(connection, null, null);
-        List<Function> functions = provider.getAllFunctions(connection, null, null);
-        List<MaterializedView> materializedViews = provider.getAllMaterializedViews(connection, null, null);
+        List<Trigger> triggers = eachSchema(tableSchemas, s -> provider.getAllTriggers(connection, null, s));
+        List<Sequence> sequences = eachSchema(tableSchemas, s -> provider.getAllSequences(connection, null, s));
+        List<org.eclipse.daanse.sql.jdbc.api.schema.Synonym> synonyms =
+                eachSchema(tableSchemas, s -> provider.getAllSynonyms(connection, null, s));
+        List<CheckConstraint> checkConstraints =
+                eachSchema(tableSchemas, s -> provider.getAllCheckConstraints(connection, null, s));
+        List<UniqueConstraint> uniqueConstraints =
+                eachSchema(tableSchemas, s -> provider.getAllUniqueConstraints(connection, null, s));
+        List<UserDefinedType> userDefinedTypes =
+                eachSchema(tableSchemas, s -> provider.getAllUserDefinedTypes(connection, null, s));
+        List<ViewDefinition> viewDefinitions =
+                eachSchema(tableSchemas, s -> provider.getAllViewDefinitions(connection, null, s));
+        List<Procedure> procedures = eachSchema(tableSchemas, s -> provider.getAllProcedures(connection, null, s));
+        List<Function> functions = eachSchema(tableSchemas, s -> provider.getAllFunctions(connection, null, s));
+        List<MaterializedView> materializedViews =
+                eachSchema(tableSchemas, s -> provider.getAllMaterializedViews(connection, null, s));
         List<org.eclipse.daanse.sql.jdbc.api.schema.Partition> partitions =
-                provider.getAllPartitions(connection, null, null);
+                eachSchema(tableSchemas, s -> provider.getAllPartitions(connection, null, s));
 
         // Deduplicate materialized views out of tables() and viewDefinitions(): Oracle's
         // JDBC driver reports MVs as TABLE_TYPE='TABLE', PostgreSQL's as
@@ -257,8 +273,8 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
 
         // Privileges — only via dialect providers; the plain-JDBC path stays without them.
-        List<org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege> tablePrivileges =
-                provider.getAllTablePrivileges(connection, null, null, null).orElse(List.of());
+        List<org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege> tablePrivileges = eachSchemaIfSupported(
+                tableSchemas, s -> provider.getAllTablePrivileges(connection, null, s, null)).orElse(List.of());
         List<org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege> columnPrivileges = new ArrayList<>();
         for (TableDefinition td : tables) {
             String tpSchema = td.table().schema().map(SchemaReference::name).orElse(null);
@@ -266,8 +282,8 @@ public class DatabaseServiceImpl implements DatabaseService {
                     .ifPresent(columnPrivileges::addAll);
         }
 
-        List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges =
-                provider.getAllObjectPrivileges(connection, null, null).orElse(List.of());
+        List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges = eachSchemaIfSupported(
+                tableSchemas, s -> provider.getAllObjectPrivileges(connection, null, s)).orElse(List.of());
 
         List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> roleMemberships =
                 provider.getAllRoleMemberships(connection).orElse(List.of());
@@ -278,8 +294,70 @@ public class DatabaseServiceImpl implements DatabaseService {
         StructureInfo structureInfo = new StructureInfoRecord(catalogs, schemas, tables, columns,
                 importedKeys, primaryKeys, triggers, sequences, checkConstraints, uniqueConstraints,
                 userDefinedTypes, viewDefinitions, procedures, functions, materializedViews, partitions,
-                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals);
+                tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals,
+                synonyms);
         return new MetaInfoRecord(databaseInfo, structureInfo, identifierInfo, typeInfos, indexInfos);
+    }
+
+    /** Reads the bulk metadata of one schema. */
+    @FunctionalInterface
+    private interface SchemaRead<T> {
+        T read(String schema) throws SQLException;
+    }
+
+    /**
+     * The schemas the tables lie in, as the providers name a schema: the schema, or for a database
+     * without schemas (MySQL, MariaDB) the catalog, which {@link #namespaceOf} takes as the schema.
+     * Then the connection's current schema, named the same way, which a provider reads when it is
+     * given none: it may hold sequences or routines without holding a table.
+     */
+    private static List<String> schemaNames(List<TableDefinition> tables, Connection connection)
+            throws SQLException {
+        Set<String> names = new LinkedHashSet<>();
+        for (TableDefinition td : tables) {
+            td.table().schema().map(SchemaReference::name).ifPresent(names::add);
+        }
+        String current = connection.getSchema() != null ? connection.getSchema() : connection.getCatalog();
+        if (current != null) {
+            names.add(current);
+        }
+        return List.copyOf(names);
+    }
+
+    /**
+     * {@code read} for every schema, the results one after another, each once: the reads of two
+     * schemas can overlap, as Oracle reports a PUBLIC synonym with the schema it points into and
+     * with PUBLIC. Without schemas, once without one.
+     */
+    private static <T> List<T> eachSchema(List<String> schemas, SchemaRead<List<T>> read) throws SQLException {
+        if (schemas.isEmpty()) {
+            return read.read(null);
+        }
+        Set<T> all = new LinkedHashSet<>();
+        for (String schema : schemas) {
+            all.addAll(read.read(schema));
+        }
+        return List.copyOf(all);
+    }
+
+    /**
+     * As {@link #eachSchema}, for the bulk methods a provider may not support: empty when it does
+     * not, so the caller falls back to plain JDBC.
+     */
+    private static <T> Optional<List<T>> eachSchemaIfSupported(List<String> schemas,
+            SchemaRead<Optional<List<T>>> read) throws SQLException {
+        if (schemas.isEmpty()) {
+            return read.read(null);
+        }
+        Set<T> all = new LinkedHashSet<>();
+        for (String schema : schemas) {
+            Optional<List<T>> part = read.read(schema);
+            if (part.isEmpty()) {
+                return Optional.empty();
+            }
+            all.addAll(part.get());
+        }
+        return Optional.of(List.copyOf(all));
     }
 
     private static String tableKey(TableReference table) {
@@ -682,11 +760,15 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         try (ResultSet rs = databaseMetaData.getColumns(catalog, schemaPattern, tableNamePattern, columnNamePattern);) {
             while (rs.next()) {
+                // Left to right, in the column order of getColumns, as JDBC asks of a portable reader: Oracle
+                // returns COLUMN_DEF (13) as a LONG stream that a read of any later column consumes, and reading
+                // it afterwards fails with ORA-17027 "Stream has already been closed".
 
                 final Optional<String> oCatalogName = Optional.ofNullable(rs.getString("TABLE_CAT"));
                 final Optional<String> oSchemaName = Optional.ofNullable(rs.getString("TABLE_SCHEM"));
                 final String tableName = rs.getString("TABLE_NAME");
                 final String columName = rs.getString("COLUMN_NAME");
+                final int dataType = rs.getInt("DATA_TYPE");
 
                 final String typeName = rs.getString("TYPE_NAME");
                 OptionalInt oColumnSize = OptionalInt.of(rs.getInt("COLUMN_SIZE"));
@@ -710,17 +792,15 @@ public class DatabaseServiceImpl implements DatabaseService {
                     oNullable = OptionalInt.empty();
                 }
 
-                OptionalInt oCharOctetLength = OptionalInt.of(rs.getInt("CHAR_OCTET_LENGTH"));
-                if (rs.wasNull()) {
-                    oCharOctetLength = OptionalInt.empty();
-                }
-
-                final int dataType = rs.getInt("DATA_TYPE");
-
                 final Optional<String> remarks = Optional.ofNullable(rs.getString("REMARKS"));
 
                 // Additional fields from JDBC spec
                 final Optional<String> columnDefault = Optional.ofNullable(rs.getString("COLUMN_DEF"));
+
+                OptionalInt oCharOctetLength = OptionalInt.of(rs.getInt("CHAR_OCTET_LENGTH"));
+                if (rs.wasNull()) {
+                    oCharOctetLength = OptionalInt.empty();
+                }
                 final ColumnMetaData.Nullability nullability = oNullable.isPresent()
                         ? ColumnMetaData.Nullability.of(oNullable.getAsInt())
                         : ColumnMetaData.Nullability.UNKNOWN;

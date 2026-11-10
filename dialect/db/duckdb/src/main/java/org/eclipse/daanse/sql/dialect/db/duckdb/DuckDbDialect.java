@@ -12,14 +12,19 @@
 */
 package org.eclipse.daanse.sql.dialect.db.duckdb;
 
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 
@@ -71,6 +76,24 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return "SMALLINT";
     }
 
+    /**
+     * Long text is {@code VARCHAR}, binary {@code BLOB}: DuckDB knows no {@code CLOB}, and its {@code VARCHAR} has no
+     * length limit, so a large object of text is a plain {@code VARCHAR} (the CWM structure of Adventure Works DW
+     * declares {@code nvarchar(max)} and {@code xml} as national large objects, its images as binary ones).
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "VARCHAR";
+        case BLOB, BINARY, VARBINARY, LONGVARBINARY -> "BLOB";
+        default -> super.nativeType(meta);
+        };
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
 
     /** JDBC-free constructor for SQL generation. */
@@ -86,6 +109,48 @@ public class DuckDbDialect extends AbstractJdbcDialect {
     @Override
     public String name() {
         return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    /**
+     * DuckDB has no {@code ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY}; its
+     * foreign keys are declared in {@code CREATE TABLE}.
+     */
+    @Override
+    public boolean supportsAddForeignKeyConstraint() {
+        return false;
+    }
+
+    /**
+     * DuckDB adds a unique constraint to an existing table only while no other table refers to it,
+     * so its unique constraints are declared in {@code CREATE TABLE}.
+     */
+    @Override
+    public boolean supportsAddUniqueConstraint() {
+        return false;
+    }
+
+    /** DuckDB cannot add a check to an existing table; its checks are declared in {@code CREATE TABLE}. */
+    @Override
+    public boolean supportsAddCheckConstraint() {
+        return false;
+    }
+
+    /**
+     * DuckDB knows only {@code NO ACTION} and {@code RESTRICT} on a foreign key. {@code CASCADE},
+     * {@code SET NULL} and {@code SET DEFAULT} cannot be written and are left out, so such a key
+     * behaves as {@code NO ACTION}.
+     */
+    @Override
+    public String foreignKeyClause(String constraintName, List<String> fkColumns, TableReference referencedTable,
+            List<String> referencedColumns, String onDelete, String onUpdate) {
+        return super.foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns,
+                knownAction(onDelete), knownAction(onUpdate));
+    }
+
+    private static String knownAction(String action) {
+        return action != null && (action.equalsIgnoreCase("NO ACTION") || action.equalsIgnoreCase("RESTRICT"))
+                ? action.toUpperCase(Locale.ROOT)
+                : null;
     }
 
     /**
@@ -164,13 +229,48 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         sb.append(" IS NOT NULL AND regexp_matches(CAST(");
         sb.append(source);
         sb.append(" AS VARCHAR), ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches (RE2 supports \A and \z)
+        quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
         if (mappedFlags.length() > 0) {
             sb.append(", ");
             quoteStringLiteral(sb, mappedFlags.toString());
         }
         sb.append(")");
         return Optional.of(sb.toString());
+    }
+
+    /** DuckDB has no {@code ALTER INDEX ... RENAME} — verified unsupported. */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false;
+    }
+
+    /** DuckDB has no constraint rename — verified unsupported. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /**
+     * True — DuckDB supports the ANSI {@code RENAME TO} syntax. It still rejects
+     * it at runtime with a "Dependency Error" if the table has a dependent
+     * object (e.g. an index); that's a runtime constraint, not a syntax gap, so
+     * the flag stays true and callers must handle the failure themselves.
+     */
+    @Override
+    public boolean supportsRenameTable() {
+        return true;
+    }
+
+    /**
+     * True — DuckDB supports the ANSI {@code RENAME COLUMN} syntax. Same runtime
+     * caveat as {@link #supportsRenameTable}: rejected with a "Dependency Error"
+     * when the column has a dependent index, not because the syntax is
+     * unsupported.
+     */
+    @Override
+    public boolean supportsRenameColumn() {
+        return true;
     }
 
     /** DuckDB supports {@code GROUPING SETS}, {@code ROLLUP} and {@code CUBE}. */
@@ -215,6 +315,28 @@ public class DuckDbDialect extends AbstractJdbcDialect {
                     sb.append(" OFFSET ").append(o);
                 });
                 return sb.toString();
+            }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
             }
         };
         cachedPaginationGenerator = local;
@@ -302,7 +424,7 @@ public class DuckDbDialect extends AbstractJdbcDialect {
                 .of((buildPercentileFunction("quantile_disc", percentile, desc, tableName, columnName)).toString());
     }
 
-	@Override
+    @Override
     public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
             String columnName) {
         return java.util.Optional
@@ -324,11 +446,26 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         return buf;
     }
 
+    /** The n-th value of the group's rows in their order: an ordered list, its n-th element (V-82). */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.of(buildNthValueOfArray("list", operand, ignoreNulls, columns, "list_extract(",
+                ", " + AggregationGenerator.nthIndex(n) + ")").toString());
+    }
+
+    /**
+     * No.
+     *
+     * <p>
+     * DuckDB, like SQLite, is single-writer: concurrent {@code CREATE TABLE}
+     * transactions from separate connections against the same database
+     * conflict on the shared catalog ("Catalog write-write conflict") instead
+     * of dividing the work.
+     */
+    @Override
+    public boolean supportsParallelLoading() {
+        return false;
     }
 
     @Override
@@ -349,5 +486,34 @@ public class DuckDbDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsListAgg() {
         return true;
+    }
+
+    @Override
+    public StringBuilder generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
+            java.util.List<? extends CharSequence> arguments) {
+        return switch (function) {
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // monthname gives the English name whatever the locale
+            yield new StringBuilder("monthname(").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            // DuckDB's VARCHAR has no length
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS VARCHAR)");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("make_date(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(", ").append(arguments.get(2)).append(")");
+        }
+        default -> super.generateKnownFunction(function, arguments);
+        };
     }
 }

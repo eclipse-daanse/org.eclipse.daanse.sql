@@ -37,6 +37,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.PseudoColumn;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SuperTable;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.SuperType;
 import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
@@ -122,6 +123,21 @@ public interface MetadataProvider {
      * @throws SQLException on database access error
      */
     default List<Sequence> getAllSequences(Connection connection, String catalog, String schema) throws SQLException {
+        return List.of();
+    }
+
+    /**
+     * Synonyms (aliases) owned by the schema. Dialects that know public synonyms
+     * include only those pointing into the schema, not every public synonym of the
+     * database.
+     *
+     * @param catalog the catalog name, or null
+     * @param schema  the schema name, or null for the connection's current schema
+     * @return the synonyms — empty when the engine has no synonyms or the loader is
+     *         not implemented for this dialect
+     * @throws SQLException on database access error
+     */
+    default List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
         return List.of();
     }
 

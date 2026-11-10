@@ -76,6 +76,49 @@ public class OracleDialect extends AbstractJdbcDialect {
         return "DECIMAL(15,0)";
     }
 
+    /** Oracle's longest {@code VARCHAR2} under the standard string size, in bytes. */
+    private static final int MAX_VARCHAR2 = 4_000;
+
+    /**
+     * A text column of n characters is {@code VARCHAR2 (n CHAR)}, beyond 4000 a {@code CLOB}; a fixed one
+     * {@code CHAR (n CHAR)}.
+     *
+     * <p>
+     * Oracle counts the length of a {@code VARCHAR2} in bytes unless the column says otherwise, and a character of
+     * a text in UTF-8 takes up to four: a Thai text of 400 characters needs 536 bytes and more ({@code ORA-12899
+     * value too large for column}).
+     */
+    @Override
+    public String nativeType(ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case VARCHAR, NVARCHAR, LONGVARCHAR, LONGNVARCHAR -> {
+            int length = meta.columnSize().orElse(255);
+            yield length > MAX_VARCHAR2 ? "CLOB" : "VARCHAR2(" + length + " CHAR)";
+        }
+        case CHAR, NCHAR -> "CHAR(" + meta.columnSize().orElse(1) + " CHAR)";
+        default -> super.nativeType(meta);
+        };
+    }
+
+    /** Oracle's longest {@code RAW} under the standard string size. */
+    private static final int MAX_RAW = 2_000;
+
+    /**
+     * {@code RAW (n)} up to 2000 bytes, a {@code BLOB} without a length or beyond it.
+     *
+     * <p>
+     * Oracle has no VARBINARY: {@code ORA-00902 invalid datatype}.
+     */
+    @Override
+    public String binaryTypeName(java.util.OptionalInt size) {
+        return size.isPresent() && size.getAsInt() > 0 && size.getAsInt() <= MAX_RAW ? "RAW(" + size.getAsInt() + ")"
+                : "BLOB";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
 
@@ -237,9 +280,13 @@ public class OracleDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /**
+     * From Oracle 23 ({@code DROP TABLE IF EXISTS} came with 23ai); before, a drop of a missing table fails with
+     * ORA-00942. A dialect made without a connection knows no version and says no.
+     */
     @Override
     public boolean supportsDropTableIfExists() {
-        return false;
+        return dialectVersion.atLeast(23, 0);
     }
 
     @Override
@@ -262,10 +309,9 @@ public class OracleDialect extends AbstractJdbcDialect {
         return generateOrderByNullsAnsi(expr, ascending, collateNullsLast);
     }
 
-    @Override
-    public boolean allowsJoinOn() {
-        return false;
-    }
+    // No allowsJoinOn override: Oracle reads ANSI JOIN ... ON since 9i. The false it returned was an inherited
+    // base-class default rather than a reason of Oracle's, and Oracle alone wrote comma joins with the join
+    // condition in WHERE (database run 19./20.10., the drill-through statements; F-10.6 5a).
 
     @Override
     public boolean allowsRegularExpressionInWhereClause() {
@@ -284,6 +330,12 @@ public class OracleDialect extends AbstractJdbcDialect {
         StringBuilder mappedFlags = new StringBuilder();
         String[][] mapping = new String[][] { { "c", "c" }, { "i", "i" }, { "m", "m" } };
         javaRegex = extractEmbeddedFlags(javaRegex, mapping, mappedFlags);
+        if (mappedFlags.toString().contains("m")) {
+            // MDX MATCHES is anchored over the WHOLE value; Oracle's POSIX
+            // regex has no \A/\z, and under the m flag ^/$ anchor per
+            // line - no correct rendering, the calc engine takes over
+            return Optional.empty();
+        }
 
         final Matcher escapeMatcher = DialectUtil.ESCAPE_PATTERN.matcher(javaRegex);
         while (escapeMatcher.find()) {
@@ -295,7 +347,8 @@ public class OracleDialect extends AbstractJdbcDialect {
         sb.append("REGEXP_LIKE(");
         sb.append(source);
         sb.append(", ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches; POSIX has no non-capturing group
+        quoteStringLiteral(sb, "^(" + javaRegex + ")$");
         sb.append(", ");
         quoteStringLiteral(sb, mappedFlags.toString());
         sb.append(")");
@@ -433,6 +486,20 @@ public class OracleDialect extends AbstractJdbcDialect {
             yield new StringBuilder("INSTR(").append(arguments.get(1)).append(", ").append(arguments.get(0))
                     .append(")");
         }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            // VARCHAR needs a length in Oracle; TO_CHAR writes a number or a date as text
+            yield new StringBuilder("TO_CHAR(").append(arguments.get(0)).append(")");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("TO_DATE(").append(arguments.get(0)).append(" || '-' || ").append(arguments.get(1))
+                    .append(" || '-' || ").append(arguments.get(2)).append(", 'YYYY-MM-DD')");
+        }
         default -> super.generateKnownFunction(function, arguments);
         };
     }
@@ -521,21 +588,24 @@ public class OracleDialect extends AbstractJdbcDialect {
         return java.util.Optional.of((buf).toString());
     }
 
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, true)).toString());
+        return java.util.Optional.empty();
     }
 
     @Override
     public boolean supportsNthValue() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsNthValueIgnoreNulls() {
-        return true;
+        return false;
     }
 
     @Override
@@ -580,20 +650,23 @@ public class OracleDialect extends AbstractJdbcDialect {
         return Optional.of("DROP PROCEDURE " + qualified);
     }
 
+    /**
+     * A foreign key as Oracle takes it, both after {@code ALTER TABLE ... ADD} and in {@code CREATE TABLE}.
+     */
     @Override
-    public String addForeignKeyConstraint(TableReference table, String constraintName, java.util.List<String> fkColumns,
+    public String foreignKeyClause(String constraintName, java.util.List<String> fkColumns,
             TableReference referencedTable, java.util.List<String> referencedColumns, String onDelete,
             String onUpdate) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" FOREIGN KEY (");
         appendQuotedCsv(sb, fkColumns);
         sb.append(") REFERENCES ").append(qualified(referencedTable)).append(" (");
         appendQuotedCsv(sb, referencedColumns);
         sb.append(")");
-        if (onDelete != null && !onDelete.isBlank())
-            sb.append(" ON DELETE ").append(onDelete);
+        // Oracle only knows ON DELETE CASCADE / SET NULL; NO ACTION is the implicit
+        // behavior and RESTRICT / SET DEFAULT do not exist — writing them is ORA-02000.
+        if (onDelete != null && (onDelete.equalsIgnoreCase("CASCADE") || onDelete.equalsIgnoreCase("SET NULL")))
+            sb.append(" ON DELETE ").append(onDelete.toUpperCase());
         // Oracle: no ON UPDATE clause — silently drop {@code onUpdate}.
         return sb.toString();
     }
@@ -656,6 +729,18 @@ public class OracleDialect extends AbstractJdbcDialect {
 
     // RENAME COLUMN/TABLE/INDEX/CONSTRAINT inherit the SQL-99 default.
 
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO newname}. */
+    @Override
+    public boolean supportsRenameTrigger() {
+        return true;
+    }
+
+    /** Oracle: {@code RENAME oldname TO newname} — also used for views and sequences. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
     /** Oracle takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
     @Override
     public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
@@ -673,5 +758,93 @@ public class OracleDialect extends AbstractJdbcDialect {
     public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
         return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
                 + quoteIdentifier(grantee);
+    }
+
+    /**
+     * Oracle renames views with the standalone {@code RENAME old TO new}, which
+     * only works in the current schema — no qualification of either side.
+     */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME ").append(quoteIdentifier(view.name())).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO new} — no table clause. */
+    @Override
+    public String renameTrigger(String triggerName, TableReference table, String newName) {
+        if (!supportsRenameTrigger()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TRIGGER ").append(quoteIdentifier(triggerName)).append(" RENAME TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code RENAME old TO new} — current schema only. */
+    @Override
+    public Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringBuilder("RENAME ").append(quoteIdentifier(name)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString());
+    }
+
+    /** Oracle has no {@code IS NULL} form — an empty string literal removes the comment. */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + oracleLiteral(comment));
+    }
+
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
+                + oracleLiteral(comment));
+    }
+
+    private static String oracleLiteral(String comment) {
+        return "'" + (comment == null ? "" : comment.replace("'", "''")) + "'";
+    }
+
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] [PUBLIC] SYNONYM [schema.]name FOR [schema.]object[@link]}.
+     * A public synonym has no schema. Empty for a target in another catalog — Oracle
+     * reaches other databases only through a DB link.
+     */
+    @Override
+    public Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (synonym.targetCatalogName() != null) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (orReplace)
+            sb.append("OR REPLACE ");
+        if (synonym.isPublic())
+            sb.append("PUBLIC ");
+        sb.append("SYNONYM ").append(synonymName(synonym.schemaName(), synonym.name(), synonym.isPublic()));
+        sb.append(" FOR ").append(quoteIdentifier(synonym.targetSchemaName(), synonym.targetName()));
+        if (synonym.dbLink() != null)
+            sb.append('@').append(synonym.dbLink());
+        return Optional.of(sb.toString());
+    }
+
+    /** {@code DROP [PUBLIC] SYNONYM [schema.]name}; Oracle has no {@code IF EXISTS} here. */
+    @Override
+    public Optional<String> dropSynonym(String schemaName, String name, boolean isPublic, boolean ifExists) {
+        return Optional.of((isPublic ? "DROP PUBLIC SYNONYM " : "DROP SYNONYM ")
+                + synonymName(schemaName, name, isPublic));
+    }
+
+    private String synonymName(String schemaName, String name, boolean isPublic) {
+        return isPublic ? quoteIdentifier(name) : quoteIdentifier(schemaName, name);
     }
 }

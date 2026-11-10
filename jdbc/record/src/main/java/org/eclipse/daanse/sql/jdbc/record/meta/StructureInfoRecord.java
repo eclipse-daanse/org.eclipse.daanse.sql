@@ -29,6 +29,7 @@ import org.eclipse.daanse.sql.model.schema.PrimaryKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership;
@@ -59,7 +60,24 @@ public record StructureInfoRecord(
         List<ColumnPrivilege> columnPrivileges,
         List<ObjectPrivilege> objectPrivileges,
         List<RoleMembership> roleMemberships,
-        List<DatabasePrincipal> principals) implements StructureInfo {
+        List<DatabasePrincipal> principals,
+        List<Synonym> synonyms) implements StructureInfo {
+
+    /** Compatibility constructor without synonyms. */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions, List<TablePrivilege> tablePrivileges,
+            List<ColumnPrivilege> columnPrivileges, List<ObjectPrivilege> objectPrivileges,
+            List<RoleMembership> roleMemberships, List<DatabasePrincipal> principals) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, tablePrivileges, columnPrivileges, objectPrivileges, roleMemberships, principals,
+                List.of());
+    }
 
     /** Compatibility constructor without principals. */
     public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,

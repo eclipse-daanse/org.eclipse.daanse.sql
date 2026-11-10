@@ -545,6 +545,14 @@ public final class DialectSqlRenderer implements SqlRenderer {
             return "(" + chooseVariant(v.byDialectName()) + ")" + (dialect.allowsFromAlias() ? " as " : " ")
                     + dialect.quoteIdentifier(v.alias().name());
         }
+        if (from instanceof FromClause.FromPortable p) {
+            String own = p.byDialectName().get(dialect.name());
+            if (own == null && p.tree() != null) {
+                return renderFrom(p.tree(), whereSink, options);
+            }
+            return "(" + (own != null ? own : chooseVariant(p.byDialectName())) + ")"
+                    + (dialect.allowsFromAlias() ? " as " : " ") + dialect.quoteIdentifier(p.alias().name());
+        }
         if (from instanceof FromClause.FromInline inl) {
             // Generate the inline-table VALUES SQL for the live dialect here (the one render-time dialect touch),
             // then wrap like a derived table — the same generateInline call the legacy build path made.
@@ -809,14 +817,24 @@ public final class DialectSqlRenderer implements SqlRenderer {
             dialect.quote(b, l.value(), l.datatype());
             return b.toString();
         }
+        if (e instanceof SqlExpression.Aggregate a && a.arguments().size() == 1 && "avg".equalsIgnoreCase(a.name())) {
+            // the one dialect touch of a plain aggregate: an engine that averages whole numbers to a whole number
+            // reads the operand otherwise (SQL Server; F-10.6 2)
+            return a.name() + "(" + (a.distinct() ? "distinct " : "")
+                    + dialect.aggregationGenerator().averageOperand(renderExpression(a.arguments().get(0))) + ")";
+        }
         if (e instanceof SqlExpression.Call c) {
             boolean distinct = c instanceof SqlExpression.Aggregate a && a.distinct();
             return c.name() + "(" + (distinct ? "distinct " : "")
                     + c.arguments().stream().map(this::renderExpression).collect(Collectors.joining(", ")) + ")";
         }
         if (e instanceof SqlExpression.Binary b) {
-            String rendered = renderExpression(b.left()) + " " + b.operator().symbol() + " "
-                    + renderExpression(b.right());
+            String left = renderExpression(b.left());
+            if (b.operator() == org.eclipse.daanse.sql.statement.api.expression.ArithmeticOperator.DIVIDE) {
+                // the one dialect touch of arithmetic: an engine that cuts a quotient's scale divides a cast dividend
+                left = dialect.functionGenerator().quotientDividend(left).toString();
+            }
+            String rendered = left + " " + b.operator().symbol() + " " + renderExpression(b.right());
             return b.parenthesized() ? "(" + rendered + ")" : rendered;
         }
         if (e instanceof SqlExpression.Case c) {
@@ -860,6 +878,13 @@ public final class DialectSqlRenderer implements SqlRenderer {
         }
         if (e instanceof SqlExpression.RawVariant v) {
             return chooseVariant(v.byDialectName());
+        }
+        if (e instanceof SqlExpression.Portable p) {
+            String own = p.byDialectName().get(dialect.name());
+            if (own != null) {
+                return own;
+            }
+            return p.tree() != null ? renderExpression(p.tree()) : chooseVariant(p.byDialectName());
         }
         if (e instanceof SqlExpression.ExtraAggregate ea) {
             return renderExtraAggregate(ea);

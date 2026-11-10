@@ -42,7 +42,9 @@ public interface DialectCapabilitiesProvider {
                 dropIndexRequiresTable(), supportsCreateTableIfNotExists(), supportsCreateIndexIfNotExists(),
                 supportsDropIndexIfExists(), supportsCreateOrReplaceView(), supportsCreateOrReplaceTrigger(),
                 supportsDropViewIfExists(), supportsDropConstraintIfExists(), supportsDropTableIfExists(),
-                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength());
+                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength(),
+                supportsRenameTable(), supportsRenameColumn(), supportsRenameIndex(), supportsRenameConstraint(),
+                supportsAtomicMultiRenameTable(), supportsRenameView(), supportsRenameTrigger(), supportsRenameSequence());
     }
 
     int getMaxColumnNameLength();
@@ -137,6 +139,18 @@ public interface DialectCapabilitiesProvider {
      */
     default boolean supportsDropTableIfExists() {
         return true;
+    }
+
+    /**
+     * Whether {@code SUM} keeps the type of its operand: SQL Server and Derby sum an INTEGER column as an INTEGER and
+     * fail past 2 147 483 647 ("Arithmetic overflow error converting expression to data type int"); PostgreSQL,
+     * MySQL, Oracle, H2 and DuckDB sum it wider. Where true, the engine widens the operand of a sum over a whole number
+     * column ({@code TO_WIDE_INTEGER}).
+     *
+     * @return true if a sum of an INTEGER operand is itself an INTEGER
+     */
+    default boolean sumKeepsTheTypeOfItsOperand() {
+        return false;
     }
 
     /**
@@ -239,4 +253,21 @@ public interface DialectCapabilitiesProvider {
     default boolean supportsNullsLast() {
         return true;
     }
+
+    boolean supportsRenameSequence();
+
+    boolean supportsRenameTrigger();
+
+    boolean supportsRenameView();
+
+    boolean supportsAtomicMultiRenameTable();
+
+    boolean supportsRenameConstraint();
+
+    boolean supportsRenameIndex();
+
+    boolean supportsRenameColumn();
+
+    boolean supportsRenameTable();
+
 }
