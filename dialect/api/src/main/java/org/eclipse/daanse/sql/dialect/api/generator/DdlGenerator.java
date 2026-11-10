@@ -59,6 +59,18 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     default String createTable(TableReference table, List<ColumnDefinition> columns, PrimaryKey primaryKey,
             boolean ifNotExists) {
+        return createTable(table, columns, primaryKey, List.of(), ifNotExists);
+    }
+
+    /**
+     * {@code CREATE TABLE} with further table constraints after the primary
+     * key — e.g. the {@link #foreignKeyClause foreign keys} of a dialect that
+     * cannot {@link #supportsAddForeignKeyConstraint add them later}.
+     *
+     * @param tableConstraints complete constraint clauses, in order
+     */
+    default String createTable(TableReference table, List<ColumnDefinition> columns, PrimaryKey primaryKey,
+            List<String> tableConstraints, boolean ifNotExists) {
         StringBuilder sb = new StringBuilder();
         boolean useIfNotExists = ifNotExists && supportsCreateTableIfNotExists();
         sb.append(useIfNotExists ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ");
@@ -78,33 +90,104 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
             cd.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
         }
         if (primaryKey != null && !primaryKey.columns().isEmpty()) {
-            sb.append(",\n  PRIMARY KEY (");
+            sb.append(",\n  ");
+            primaryKey.constraintName().filter(n -> supportsNamedPrimaryKey())
+                    .ifPresent(n -> sb.append("CONSTRAINT ").append(quoteIdentifier(n)).append(' '));
+            sb.append("PRIMARY KEY (");
             sb.append(String.join(", ",
                     primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
             sb.append(")");
         }
+        for (String constraint : tableConstraints) {
+            sb.append(",\n  ").append(constraint);
+        }
         sb.append("\n)");
+        sb.append(createTableSuffix(primaryKey == null ? List.of()
+                : primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
         return sb.toString();
+    }
+
+    /**
+     * What has to follow the closing parenthesis of a {@code CREATE TABLE},
+     * empty for every dialect that needs nothing there.
+     *
+     * <p>
+     * ClickHouse is the one that does — it refuses a table without a storage
+     * engine and a sort order. Exposed separately from {@link #createTable} so
+     * that a caller assembling its own {@code CREATE TABLE} can obtain it too.
+     *
+     * @param quotedOrderByColumns the key columns, already quoted, or empty
+     *                             where the table has no key
+     */
+    default String createTableSuffix(List<String> quotedOrderByColumns) {
+        return "";
     }
 
     // -------------------- DML --------------------
 
     /** {@code INSERT INTO schema.table (col1, …) VALUES (?, …)} — parameterised. */
     default String insertInto(TableReference table, List<ColumnDefinition> columns) {
+        return insertInto(table, columns, 1);
+    }
+
+    /**
+     * How many value tuples one {@code INSERT} may carry on this dialect.
+     * Unlimited by default; a dialect whose grammar has no multi-row
+     * {@code VALUES} returns 1, and callers cap {@link #insertInto(TableReference,
+     * List, int)} by it rather than knowing dialects themselves.
+     */
+    default int maxInsertRows() {
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * {@code INSERT INTO schema.table (col1, …) VALUES (?, …), (?, …), …} with
+     * {@code rows} value tuples — parameterised. Ask {@link #maxInsertRows()}
+     * first; this throws rather than emitting SQL the dialect cannot parse.
+     *
+     * <p>
+     * One statement carrying many rows costs one execution instead of many. How
+     * much that is worth depends entirely on the driver: one that implements
+     * {@code executeBatch()} as a single protocol message gains nothing, while one
+     * that implements it as a loop over {@code execute()} gains the whole factor.
+     *
+     * <p>
+     * Callers must cap {@code rows} so that {@code rows × columns} stays under
+     * what the driver accepts — 65535 bound parameters on PostgreSQL, 2100 on SQL
+     * Server. A dialect whose grammar has no multi-row {@code VALUES} (Oracle
+     * wants {@code INSERT ALL}) overrides this to reject anything but 1.
+     *
+     * @param rows number of value tuples, at least 1
+     */
+    default String insertInto(TableReference table, List<ColumnDefinition> columns, int rows) {
         if (columns.isEmpty()) {
             throw new IllegalArgumentException("columns must not be empty for INSERT");
+        }
+        if (rows < 1) {
+            throw new IllegalArgumentException("rows must be at least 1, was " + rows);
+        }
+        if (rows > maxInsertRows()) {
+            throw new IllegalArgumentException(
+                    "this dialect takes at most " + maxInsertRows() + " value tuples per INSERT, was asked for " + rows);
         }
         StringBuilder sb = new StringBuilder("INSERT INTO ");
         sb.append(qualified(table));
         sb.append(" (");
         appendColumnList(sb, columns);
-        sb.append(") VALUES (");
-        for (int i = 0; i < columns.size(); i++) {
-            if (i > 0)
+        sb.append(") VALUES ");
+        for (int row = 0; row < rows; row++) {
+            if (row > 0) {
                 sb.append(", ");
-            sb.append('?');
+            }
+            sb.append('(');
+            for (int i = 0; i < columns.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append('?');
+            }
+            sb.append(')');
         }
-        sb.append(")");
         return sb.toString();
     }
 
@@ -227,21 +310,41 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     }
 
     default String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME COLUMN ")
                 .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
     }
 
     default String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME TO ")
                 .append(quoteIdentifier(newName)).toString();
     }
 
+    /**
+     * {@code ALTER INDEX schema.old RENAME TO new}. Index names are schema-scoped
+     * (PostgreSQL, H2, Oracle), so the old name is qualified with the table's
+     * schema — unqualified it would only be found on the search path.
+     */
     default String renameIndex(String oldName, String newName, TableReference table) {
-        return new StringBuilder("ALTER INDEX ").append(quoteIdentifier(oldName)).append(" RENAME TO ")
+        if (!supportsRenameIndex()) {
+            return null;
+        }
+        String old = table != null && table.schema().isPresent()
+                ? quoteIdentifier(table.schema().get().name(), oldName).toString()
+                : quoteIdentifier(oldName);
+        return new StringBuilder("ALTER INDEX ").append(old).append(" RENAME TO ")
                 .append(quoteIdentifier(newName)).toString();
     }
 
     default String renameConstraint(TableReference table, String oldName, String newName) {
+        if (!supportsRenameConstraint()) {
+            return null;
+        }
         return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME CONSTRAINT ")
                 .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
     }
@@ -437,6 +540,73 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return Optional.of("NEXT VALUE FOR " + quoteIdentifier(schemaName, name));
     }
 
+    // -------------------- DDL — synonyms --------------------
+
+    /**
+     * A synonym (alias) for another schema object.
+     *
+     * @param schemaName        schema of the synonym; ignored for a public synonym
+     * @param name              synonym name
+     * @param targetCatalogName catalog (database) of the target, or null for the current one
+     * @param targetSchemaName  schema of the target, or null
+     * @param targetName        name of the target
+     * @param dbLink            database link / linked server the target lives behind, or null
+     * @param isPublic          Oracle {@code PUBLIC} synonym
+     */
+    record SynonymDefinition(String schemaName, String name, String targetCatalogName, String targetSchemaName,
+            String targetName, String dbLink, boolean isPublic) {
+
+        public SynonymDefinition {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("synonym name must not be blank");
+            }
+            if (targetName == null || targetName.isBlank()) {
+                throw new IllegalArgumentException("synonym target name must not be blank");
+            }
+        }
+
+        /** Private synonym {@code schema.name} for the local object {@code targetSchema.targetName}. */
+        public static SynonymDefinition of(String schemaName, String name, String targetSchemaName,
+                String targetName) {
+            return new SynonymDefinition(schemaName, name, null, targetSchemaName, targetName, null, false);
+        }
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] SYNONYM schema.name FOR targetSchema.target}.
+     * Empty when the dialect has no synonyms or cannot express the definition —
+     * the default spelling knows neither a target catalog, a DB link nor public
+     * synonyms.
+     */
+    default Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (!supportsSynonyms() || synonym.isPublic() || synonym.dbLink() != null
+                || synonym.targetCatalogName() != null) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (orReplace)
+            sb.append("OR REPLACE ");
+        sb.append("SYNONYM ").append(quoteIdentifier(synonym.schemaName(), synonym.name()));
+        sb.append(" FOR ").append(quoteIdentifier(synonym.targetSchemaName(), synonym.targetName()));
+        return Optional.of(sb.toString());
+    }
+
+    /**
+     * {@code DROP SYNONYM [IF EXISTS] schema.name}; {@code IF EXISTS} follows
+     * {@link #supportsDropTableIfExists()}. Empty when the dialect has no synonyms
+     * or no public ones.
+     */
+    default Optional<String> dropSynonym(String schemaName, String name, boolean isPublic, boolean ifExists) {
+        if (!supportsSynonyms() || isPublic) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("DROP SYNONYM ");
+        if (ifExists && supportsDropTableIfExists())
+            sb.append("IF EXISTS ");
+        sb.append(quoteIdentifier(schemaName, name));
+        return Optional.of(sb.toString());
+    }
+
     // -------------------- DDL — table-level constraints --------------------
 
     /**
@@ -457,12 +627,25 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** {@code ALTER TABLE schema.table ADD CONSTRAINT name UNIQUE (col1, …)}. */
     default String addUniqueConstraint(TableReference table, String constraintName, List<String> columnNames) {
+        return "ALTER TABLE " + qualified(table) + " ADD " + uniqueConstraintClause(constraintName, columnNames);
+    }
+
+    /**
+     * Whether a unique constraint can be added to an existing table
+     * ({@link #addUniqueConstraint}). Where it cannot, it goes into the
+     * {@code CREATE TABLE} as a {@link #uniqueConstraintClause clause}.
+     */
+    default boolean supportsAddUniqueConstraint() {
+        return true;
+    }
+
+    /** One unique constraint as a table constraint: {@code CONSTRAINT name UNIQUE (cols)}. */
+    default String uniqueConstraintClause(String constraintName, List<String> columnNames) {
         if (columnNames == null || columnNames.isEmpty()) {
             throw new IllegalArgumentException("columnNames must not be empty for UNIQUE");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder();
+        sb.append("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" UNIQUE (");
         appendQuotedNames(sb, columnNames);
         sb.append(")");
@@ -471,15 +654,34 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     default String addForeignKeyConstraint(TableReference table, String constraintName, List<String> fkColumns,
             TableReference referencedTable, List<String> referencedColumns, String onDelete, String onUpdate) {
+        return "ALTER TABLE " + qualified(table) + " ADD "
+                + foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns, onDelete, onUpdate);
+    }
+
+    /**
+     * Whether a foreign key can be added to an existing table
+     * ({@link #addForeignKeyConstraint}). Where it cannot, the foreign keys go
+     * into the {@code CREATE TABLE} as {@link #foreignKeyClause clauses}, and
+     * the referenced table has to exist first.
+     */
+    default boolean supportsAddForeignKeyConstraint() {
+        return true;
+    }
+
+    /**
+     * One foreign key as a table constraint:
+     * {@code CONSTRAINT name FOREIGN KEY (cols) REFERENCES table (cols) [ON DELETE ..] [ON UPDATE ..]}.
+     */
+    default String foreignKeyClause(String constraintName, List<String> fkColumns, TableReference referencedTable,
+            List<String> referencedColumns, String onDelete, String onUpdate) {
         if (fkColumns == null || fkColumns.isEmpty()) {
             throw new IllegalArgumentException("fkColumns must not be empty for FOREIGN KEY");
         }
         if (referencedColumns == null || referencedColumns.isEmpty()) {
             throw new IllegalArgumentException("referencedColumns must not be empty for FOREIGN KEY");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
+        StringBuilder sb = new StringBuilder();
+        sb.append("CONSTRAINT ").append(quoteIdentifier(constraintName));
         sb.append(" FOREIGN KEY (");
         appendQuotedNames(sb, fkColumns);
         sb.append(") REFERENCES ");
@@ -496,14 +698,24 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** {@code ALTER TABLE schema.table ADD CONSTRAINT name CHECK (expression)}. */
     default String addCheckConstraint(TableReference table, String constraintName, String expression) {
+        return "ALTER TABLE " + qualified(table) + " ADD " + checkConstraintClause(constraintName, expression);
+    }
+
+    /**
+     * Whether a check can be added to an existing table
+     * ({@link #addCheckConstraint}). Where it cannot, it goes into the
+     * {@code CREATE TABLE} as a {@link #checkConstraintClause clause}.
+     */
+    default boolean supportsAddCheckConstraint() {
+        return true;
+    }
+
+    /** One check as a table constraint: {@code CONSTRAINT name CHECK (expression)}. */
+    default String checkConstraintClause(String constraintName, String expression) {
         if (expression == null || expression.isBlank()) {
             throw new IllegalArgumentException("expression must not be blank for CHECK");
         }
-        StringBuilder sb = new StringBuilder("ALTER TABLE ");
-        sb.append(qualified(table));
-        sb.append(" ADD CONSTRAINT ").append(quoteIdentifier(constraintName));
-        sb.append(" CHECK (").append(expression).append(")");
-        return sb.toString();
+        return "CONSTRAINT " + quoteIdentifier(constraintName) + " CHECK (" + expression + ")";
     }
 
     default String dropConstraint(TableReference table, String constraintName, boolean ifExists) {
@@ -537,7 +749,7 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         if (orReplace && supportsCreateOrReplaceTrigger())
             sb.append("OR REPLACE ");
         sb.append("TRIGGER ");
-        sb.append(quoteIdentifier(triggerName));
+        sb.append(triggerName(triggerName, table));
         sb.append(' ').append(triggerTimingKeyword(timing)).append(' ').append(event);
         sb.append(" ON ").append(qualified(table));
         sb.append(' ').append(scope.forEachClause());
@@ -546,6 +758,14 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         }
         sb.append(' ').append(body);
         return sb.toString();
+    }
+
+    /**
+     * How a trigger name is written. Unqualified by default; a dialect that
+     * scopes a trigger to its table's schema has to say so in the name.
+     */
+    default String triggerName(String triggerName, TableReference table) {
+        return quoteIdentifier(triggerName);
     }
 
     default Optional<String> createTriggerProcedure(String procedureName, String schemaName, String body) {
@@ -561,6 +781,38 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     default Optional<String> dropProcedure(String procedureName, String schemaName, boolean ifExists) {
         return Optional.empty();
+    }
+
+    // -------------------- comments --------------------
+
+    /**
+     * {@code COMMENT ON TABLE schema.table IS '…'}; a {@code null} comment
+     * removes it ({@code IS NULL}).
+     *
+     * @return empty when the dialect cannot store table comments
+     */
+    default Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + commentLiteral(comment));
+    }
+
+    /**
+     * {@code COMMENT ON COLUMN schema.table.column IS '…'}; a {@code null}
+     * comment removes it.
+     *
+     * @param currentMeta the column's current definition — required by dialects
+     *                    that can only set a column comment by restating the
+     *                    whole column (MySQL/MariaDB); may be {@code null} otherwise
+     * @return empty when the dialect cannot store column comments
+     */
+    default Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
+                + commentLiteral(comment));
+    }
+
+    /** ANSI string literal for a comment ({@code '} doubled), or {@code NULL}. */
+    private static String commentLiteral(String comment) {
+        return comment == null ? "NULL" : "'" + comment.replace("'", "''") + "'";
     }
 
     default java.util.List<String> dropTriggerOnTable(String triggerName, TableReference table, boolean ifExists) {
@@ -584,10 +836,102 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return quoteIdentifier(schemaName, table.name());
     }
 
+    /**
+     * How this dialect spells a boolean column.
+     *
+     * <p>
+     * SQL-99 says {@code BOOLEAN} and that is the default, but the spelling is
+     * where the databases disagree most: SQL Server and Sybase have only
+     * {@code BIT}, MySQL and MariaDB read {@code BOOLEAN} as an alias for
+     * {@code TINYINT(1)}, and several engines are read back through
+     * {@code ResultSet.getInt}, which a native boolean column refuses.
+     */
+    default String booleanTypeName() {
+        return "BOOLEAN";
+    }
+
+    /**
+     * The statement that gathers optimizer statistics for the whole database,
+     * or empty where the dialect has none.
+     *
+     * <p>
+     * Worth running: measured over the legacy suite against PostgreSQL, 5:03
+     * with against 7:18 without, and without it two queries ran into their
+     * timeout because the planner had nothing to go on. Gather them once the
+     * indexes exist — Derby's and PostgreSQL's statistics describe index
+     * cardinalities.
+     */
+    default java.util.Optional<String> analyzeSchema() {
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * The statement that gathers statistics for one table, or empty where the
+     * dialect has none. The spelling differs even among those that have it:
+     * PostgreSQL takes the table straight after the keyword, H2 wants
+     * {@code TABLE} in between.
+     */
+    default java.util.Optional<String> analyzeTable(TableReference table) {
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * How this dialect spells a timestamp column.
+     *
+     * <p>
+     * SQL Server, MySQL, MariaDB and Sybase want {@code DATETIME}: their
+     * {@code TIMESTAMP} is something else entirely — on MySQL it only reaches
+     * back to 1970, so a birth date of 1946 is rejected outright.
+     */
+    default String timestampTypeName() {
+        return "TIMESTAMP";
+    }
+
+    /**
+     * The type of a binary column of {@code size} bytes, any length when empty. {@code VARBINARY} by default; Derby
+     * has none and writes {@code VARCHAR (n) FOR BIT DATA}, or a {@code BLOB} beyond its limit.
+     */
+    default String binaryTypeName(OptionalInt size) {
+        return "VARBINARY";
+    }
+
+    /**
+     * How this dialect spells a 64-bit integer column.
+     *
+     * <p>
+     * SQL-99 has no {@code BIGINT} — it arrived with SQL:2003, which is why the
+     * CWM specification's catalogue of SQL-99 types does not list it either.
+     * Oracle and Firebird took that literally; Oracle answers
+     * {@code ORA-00902 invalid datatype}. Everything else in use accepts the
+     * name, so it stays the default and Oracle renders {@code DECIMAL(15,0)},
+     * as the legacy loader did.
+     */
+    default String bigintTypeName() {
+        return "BIGINT";
+    }
+
+    /**
+     * The physical type for a column, rendered from its JDBC type.
+     *
+     * <p>
+     * Deliberately <em>not</em> from {@link ColumnMetaData#typeName()}. A model
+     * that is to be created on ten databases can only state the logical type;
+     * which physical type carries it is the dialect's to say, and they disagree
+     * far more than SQL-99 suggests. A model saying {@code CHARACTER VARYING}
+     * is legal SQL-99 and unknown to SQL Server; one saying {@code TIMESTAMP}
+     * means something different to MySQL than to PostgreSQL.
+     *
+     * <p>
+     * The model's own name is used only when there is no JDBC type to render
+     * from — the escape hatch for a genuinely vendor-specific declaration.
+     */
     default String nativeType(ColumnMetaData meta) {
-        String tn = meta.typeName();
-        if (tn != null && !tn.isBlank() && !"UNKNOWN".equalsIgnoreCase(tn)) {
-            return applyLengthAndScale(tn, meta);
+        JDBCType jt = meta.dataType();
+        if (jt == null || jt == JDBCType.OTHER) {
+            String tn = meta.typeName();
+            if (tn != null && !tn.isBlank() && !"UNKNOWN".equalsIgnoreCase(tn)) {
+                return applyLengthAndScale(tn, meta);
+            }
         }
         return defaultTypeName(meta);
     }
@@ -664,34 +1008,40 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         };
     }
 
-    private static String defaultTypeName(ColumnMetaData meta) {
+    // Not static: it asks the dialect how to spell the types the databases
+    // disagree about.
+    private String defaultTypeName(ColumnMetaData meta) {
         JDBCType jt = meta.dataType();
         OptionalInt size = meta.columnSize();
         OptionalInt scale = meta.decimalDigits();
         return switch (jt) {
-        case BIT, BOOLEAN -> "BOOLEAN";
+        case BIT, BOOLEAN -> booleanTypeName();
         case TINYINT -> "TINYINT";
         case SMALLINT -> "SMALLINT";
         case INTEGER -> "INTEGER";
-        case BIGINT -> "BIGINT";
+        case BIGINT -> bigintTypeName();
         case FLOAT, REAL -> "REAL";
         case DOUBLE -> "DOUBLE PRECISION";
+        // NUMERIC and DECIMAL are separate SQL types — NUMERIC has to hold
+        // exactly the declared precision, DECIMAL may hold more — and the model
+        // states which one it means, so it is not ours to collapse.
         case NUMERIC, DECIMAL -> {
+            String name = jt == JDBCType.NUMERIC ? "NUMERIC" : "DECIMAL";
             if (size.isPresent() && scale.isPresent()) {
-                yield "DECIMAL(" + size.getAsInt() + ", " + scale.getAsInt() + ")";
+                yield name + "(" + size.getAsInt() + ", " + scale.getAsInt() + ")";
             } else if (size.isPresent()) {
-                yield "DECIMAL(" + size.getAsInt() + ")";
+                yield name + "(" + size.getAsInt() + ")";
             } else {
-                yield "DECIMAL";
+                yield name;
             }
         }
         case DATE -> "DATE";
         case TIME, TIME_WITH_TIMEZONE -> "TIME";
-        case TIMESTAMP, TIMESTAMP_WITH_TIMEZONE -> "TIMESTAMP";
+        case TIMESTAMP, TIMESTAMP_WITH_TIMEZONE -> timestampTypeName();
         case CHAR -> size.isPresent() ? "CHAR(" + size.getAsInt() + ")" : "CHAR(1)";
         case VARCHAR, LONGVARCHAR, NVARCHAR, LONGNVARCHAR, NCHAR ->
             size.isPresent() ? "VARCHAR(" + size.getAsInt() + ")" : "VARCHAR(255)";
-        case BINARY, VARBINARY, LONGVARBINARY, BLOB -> "VARBINARY";
+        case BINARY, VARBINARY, LONGVARBINARY, BLOB -> binaryTypeName(size);
         case CLOB, NCLOB -> "CLOB";
         case null, default -> "VARCHAR(255)";
         };
@@ -701,5 +1051,224 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         String s = tbl.schema().map(SchemaReference::name).orElse("");
         String c = tbl.schema().flatMap(SchemaReference::catalog).map(CatalogReference::name).orElse("");
         return c + "" + s;
+    }
+
+    // -------------------- Privileges (GRANT/REVOKE) --------------------
+    // The grantor of a privilege is never rendered — it is implied by the
+    // session executing the statement.
+
+    /** {@code CREATE ROLE "x"}; users are not creatable (no credentials). */
+    default String createRole(String roleName) {
+        return "CREATE ROLE " + quoteIdentifier(roleName);
+    }
+
+    /** {@code DROP ROLE "x"}. */
+    default String dropRole(String roleName) {
+        return "DROP ROLE " + quoteIdentifier(roleName);
+    }
+
+    /** {@code GRANT <action> ON "s"."t" TO "g" [WITH GRANT OPTION]}. */
+    default String grantTablePrivilege(String action, TableReference table, String grantee,
+            boolean withGrantOption) {
+        return grantTablePrivilege(action, table, List.of(), grantee, withGrantOption);
+    }
+
+    /** {@code GRANT <action> ("c1", "c2") ON "s"."t" TO "g"} — empty columns = whole table. */
+    default String grantTablePrivilege(String action, TableReference table, List<String> columns,
+            String grantee, boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT ").append(action);
+        appendColumnRestriction(sb, columns);
+        sb.append(" ON ").append(qualified(table)).append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE <action> ON "s"."t" FROM "g"}. */
+    default String revokeTablePrivilege(String action, TableReference table, String grantee) {
+        return revokeTablePrivilege(action, table, List.of(), grantee);
+    }
+
+    /** {@code REVOKE <action> ("c1", "c2") ON "s"."t" FROM "g"}. */
+    default String revokeTablePrivilege(String action, TableReference table, List<String> columns,
+            String grantee) {
+        StringBuilder sb = new StringBuilder("REVOKE ").append(action);
+        appendColumnRestriction(sb, columns);
+        sb.append(" ON ").append(qualified(table)).append(" FROM ").append(quoteIdentifier(grantee));
+        return sb.toString();
+    }
+
+    private void appendColumnRestriction(StringBuilder sb, List<String> columns) {
+        if (columns != null && !columns.isEmpty()) {
+            sb.append(" (");
+            for (int i = 0; i < columns.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(quoteIdentifier(columns.get(i)));
+            }
+            sb.append(')');
+        }
+    }
+
+    /**
+     * {@code GRANT EXECUTE ON FUNCTION|PROCEDURE "s"."f" TO "g"}. No signature is
+     * rendered — PG accepts the bare name while it is unambiguous.
+     */
+    default String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(isFunction ? "FUNCTION " : "PROCEDURE ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE EXECUTE ON FUNCTION|PROCEDURE "s"."f" FROM "g"}. */
+    default String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + (isFunction ? "FUNCTION " : "PROCEDURE ")
+                + qualifiedRoutine(schemaName, routineName) + " FROM " + quoteIdentifier(grantee);
+    }
+
+    /** {@code GRANT "role" TO "g" [WITH ADMIN OPTION]} — role membership. */
+    default String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        StringBuilder sb = new StringBuilder("GRANT ").append(quoteIdentifier(roleName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withAdminOption) {
+            sb.append(" WITH ADMIN OPTION");
+        }
+        return sb.toString();
+    }
+
+    /** {@code REVOKE "role" FROM "g"} — removes a role membership. */
+    default String revokeRole(String roleName, String grantee) {
+        return "REVOKE " + quoteIdentifier(roleName) + " FROM " + quoteIdentifier(grantee);
+    }
+
+    /** Schema-qualified routine name; the bare name when no schema is given. */
+    default String qualifiedRoutine(String schemaName, String routineName) {
+        return schemaName == null || schemaName.isBlank() ? quoteIdentifier(routineName)
+                : quoteIdentifier(schemaName, routineName);
+    }
+
+    /** @return true if {@code renameTable} renders a valid statement */
+    default boolean supportsRenameTable() {
+        return true;
+    }
+
+    /** @return true if {@code renameColumn} renders a valid statement */
+    default boolean supportsRenameColumn() {
+        return true;
+    }
+
+    /** @return true if {@code renameIndex} renders a valid statement */
+    default boolean supportsRenameIndex() {
+        return true;
+    }
+
+    /** @return true if {@code renameConstraint} renders a valid statement */
+    default boolean supportsRenameConstraint() {
+        return true;
+    }
+
+    /**
+     * @return true if {@code createTable} may name the primary key
+     *         ({@code CONSTRAINT name PRIMARY KEY (…)}); without it the
+     *         database picks the name and a later rename or drop by name misses
+     */
+    default boolean supportsNamedPrimaryKey() {
+        return true;
+    }
+
+    /**
+     * @return true if {@code renameTables} renders ONE statement that applies all
+     *         renames atomically (MySQL family {@code RENAME TABLE a TO b, c TO d},
+     *         ClickHouse {@code RENAME TABLE}); false when the default renders one
+     *         statement per pair with no atomicity guarantee
+     */
+    default boolean supportsAtomicMultiRenameTable() {
+        return false;
+    }
+
+    /** @return true if {@code renameView} renders a valid statement */
+    default boolean supportsRenameView() {
+        return true;
+    }
+
+    /** @return true if {@code renameTrigger} renders a valid statement */
+    default boolean supportsRenameTrigger() {
+        return false;
+    }
+
+    /** @return true if {@code renameSequence} renders a valid statement */
+    default boolean supportsRenameSequence() {
+        return false;
+    }
+
+    /** @return true if {@code createSynonym} / {@code dropSynonym} render statements */
+    default boolean supportsSynonyms() {
+        return false;
+    }
+
+    /** One table-rename step of a multi-rename. */
+    record TableRename(TableReference table, String newName) {
+    }
+
+    /**
+     * Renames several tables. Atomic (one statement, e.g. the classic
+     * {@code a→tmp, b→a, tmp→b} swap) when {@code supportsAtomicMultiRenameTable()};
+     * otherwise one {@code renameTable} statement per step, in list order, no
+     * atomicity guarantee. Empty when any step is unsupported.
+     */
+    default List<String> renameTables(List<TableRename> renames) {
+        if (!supportsRenameTable() || renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        return renames.stream().map(r -> renameTable(r.table(), r.newName())).toList();
+    }
+
+    /** {@code ALTER VIEW schema.view RENAME TO new}. Null when unsupported. */
+    default String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("ALTER VIEW ").append(qualified(view)).append(" RENAME TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * PostgreSQL shape: {@code ALTER TRIGGER name ON schema.table RENAME TO new} —
+     * the trigger's table is part of the statement, so it is part of the
+     * signature. Null when unsupported (the default flag is false; PostgreSQL and
+     * Oracle switch it on).
+     */
+    default String renameTrigger(String triggerName, TableReference table, String newName) {
+        if (!supportsRenameTrigger()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TRIGGER ").append(quoteIdentifier(triggerName)).append(" ON ")
+                .append(qualified(table)).append(" RENAME TO ").append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code ALTER SEQUENCE schema.name RENAME TO new}. Empty when unsupported. */
+    default Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringBuilder("ALTER SEQUENCE ").append(quoteIdentifier(schemaName, name))
+                .append(" RENAME TO ").append(quoteIdentifier(newName)).toString());
+    }
+
+    /**
+     * Rename with the column's full definition in hand. The default ignores the
+     * metadata; the MySQL family uses it to render the pre-8.0/10.5.2
+     * {@code ALTER TABLE t CHANGE old new <definition>} fallback.
+     */
+    default String renameColumn(TableReference table, String oldName, String newName, ColumnMetaData currentMeta) {
+        return renameColumn(table, oldName, newName);
     }
 }

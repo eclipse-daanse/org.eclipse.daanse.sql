@@ -152,7 +152,7 @@ class ClickHouseDialectTest {
 
         @Test
         void testSupportsNthValue() {
-            assertTrue(dialect.supportsNthValue());
+            assertFalse(dialect.supportsNthValue()); // V-82: no ordered array aggregate, the window form ran over the groups
         }
 
         @Test
@@ -165,5 +165,10 @@ class ClickHouseDialectTest {
             String result = dialect.generateListAgg("column1", false, null, null, null, null).orElseThrow();
             assertEquals("groupArrayArray( column1)", result);
         }
+    }
+
+    @Test
+    void primaryKeyStaysUnnamed() {
+        assertFalse(dialect.supportsNamedPrimaryKey());
     }
 }

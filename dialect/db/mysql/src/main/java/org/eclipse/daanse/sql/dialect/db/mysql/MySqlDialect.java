@@ -39,6 +39,8 @@ import org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
 import org.eclipse.daanse.sql.dialect.api.generator.StatementHint;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
@@ -48,7 +50,53 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
  * @since Nov 23, 2008
  */
 public class MySqlDialect extends AbstractJdbcDialect {
+
+    /**
+     * Long text is {@code LONGTEXT}, binary {@code LONGBLOB}: MySQL and MariaDB know no {@code CLOB} and no
+     * {@code VARBINARY} without a length (the CWM structure of Adventure Works DW declares {@code nvarchar(max)} and
+     * {@code xml} as national large objects, its images as {@code varbinary(max)}).
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "LONGTEXT";
+        case BLOB, LONGVARBINARY -> "LONGBLOB";
+        // MySQL's VARBINARY needs a length; one of any length is a LONGBLOB
+        case VARBINARY -> meta.columnSize().isPresent() ? "VARBINARY(" + meta.columnSize().getAsInt() + ")" : "LONGBLOB";
+        default -> super.nativeType(meta);
+        };
+    }
+
     private static final String SUPPORTED_PRODUCT_NAME = "MYSQL";
+
+    /**
+     * {@code TINYINT(1)}.
+     *
+     * <p>
+     * MySQL reads BOOLEAN as an alias for TINYINT(1); saying so outright keeps
+     * the emitted DDL the same as what the server stores.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "TINYINT(1)";
+    }
+
+    /**
+     * {@code DATETIME}.
+     *
+     * <p>
+     * MySQL's TIMESTAMP only reaches from 1970 to 2038 and is converted to UTC on the
+     * way in. DATETIME spans years 1000 to 9999 and stores what it is given -
+     * FoodMart holds birth dates from the 1940s.
+     */
+    @Override
+    public String timestampTypeName() {
+        return "DATETIME";
+    }
 
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
@@ -97,6 +145,28 @@ public class MySqlDialect extends AbstractJdbcDialect {
                     sb.append(" LIMIT ").append(offset.getAsLong()).append(", 18446744073709551615");
                 }
                 return sb.toString();
+            }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
             }
         };
         cachedPaginationGenerator = local;
@@ -374,10 +444,15 @@ public class MySqlDialect extends AbstractJdbcDialect {
             sb.append(")");
         }
         sb.append(" REGEXP ");
+        // MDX MATCHES is anchored (Pattern.matches); REGEXP is contains —
+        // anchor AFTER the case fold, or the fold would turn \z into \Z.
+        // REGEXP follows the collation of its operand, case-insensitive by default (utf8mb4_0900_ai_ci): a
+        // case-sensitive match says so in the pattern. (?-i) is read by ICU (MySQL 8.0.4+) and PCRE (MariaDB), the
+        // engines \A and \z already need; without it "a.*" matched "A..." natively, not when interpreted.
         if (caseSensitive) {
-            quoteStringLiteral(sb, javaRegex);
+            quoteStringLiteral(sb, "(?-i)\\A(?:" + javaRegex + ")\\z");
         } else {
-            quoteStringLiteral(sb, javaRegex.toUpperCase());
+            quoteStringLiteral(sb, "\\A(?:" + javaRegex.toUpperCase() + ")\\z");
         }
         return Optional.of(sb.toString());
     }
@@ -401,6 +476,15 @@ public class MySqlDialect extends AbstractJdbcDialect {
     @Override
     public org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding caseFolding() {
         return org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding.PRESERVE;
+    }
+
+    /**
+     * MySQL and MariaDB average an INTEGER column to a DECIMAL of four places ({@code div_precision_increment}): 35 / 3
+     * reads 11.6667 (database run 30.10.2026). The operand is read as a double, the way every measure value travels.
+     */
+    @Override
+    public CharSequence averageOperand(CharSequence operand) {
+        return "CAST(" + operand + " AS DOUBLE)";
     }
 
     @Override
@@ -428,6 +512,27 @@ public class MySqlDialect extends AbstractJdbcDialect {
                     .append(")");
         }
         // LENGTH stays CHAR_LENGTH: MySQL's LENGTH() counts bytes, CHAR_LENGTH() characters.
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // MONTHNAME follows lc_time_names, en_US unless the session sets another
+            yield new StringBuilder("MONTHNAME(").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS CHAR)");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            // MySQL has MAKEDATE(year, day of the year) only: the parts as text, read with their format
+            yield new StringBuilder("STR_TO_DATE(CONCAT_WS('-', ").append(arguments.get(0)).append(", ")
+                    .append(arguments.get(1)).append(", ").append(arguments.get(2)).append("), '%Y-%c-%e')");
+        }
         default -> super.generateKnownFunction(function, arguments);
         };
     }
@@ -441,9 +546,12 @@ public class MySqlDialect extends AbstractJdbcDialect {
         case AND -> buf.append("BIT_AND(").append(operand).append(")");
         case OR -> buf.append("BIT_OR(").append(operand).append(")");
         case XOR -> buf.append("BIT_XOR(").append(operand).append(")");
-        case NAND -> buf.append("NOT(BIT_AND(").append(operand).append("))");
-        case NOR -> buf.append("NOT(BIT_OR(").append(operand).append("))");
-        case NXOR -> buf.append("NOT(BIT_XOR(").append(operand).append("))");
+        // NOT is logical in MySQL and MariaDB: NOT(BIT_AND(1)) is 0, which the tutorial oracle read silently as the
+        // NAND (database run 20.10.). ~ is bitwise, but on the unsigned 64-bit result of BIT_AND (~1 is
+        // 18446744073709551614); read as SIGNED it is -2, as DuckDB writes it and the provider computes it
+        case NAND -> buf.append("CAST(~BIT_AND(").append(operand).append(") AS SIGNED)");
+        case NOR -> buf.append("CAST(~BIT_OR(").append(operand).append(") AS SIGNED)");
+        case NXOR -> buf.append("CAST(~BIT_XOR(").append(operand).append(") AS SIGNED)");
         };
         return java.util.Optional.of(result.toString());
     }
@@ -501,16 +609,19 @@ public class MySqlDialect extends AbstractJdbcDialect {
         return java.util.Optional.of((buf).toString());
     }
 
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.empty();
     }
 
     @Override
     public boolean supportsNthValue() {
-        return true;
+        return false;
     }
 
     @Override
@@ -542,6 +653,17 @@ public class MySqlDialect extends AbstractJdbcDialect {
                 ? quoteIdentifier(schemaName, procedureName).toString()
                 : quoteIdentifier(procedureName).toString();
         return createTrigger(triggerName, timing, event, table, scope, whenCondition, "CALL " + qualified + "()");
+    }
+
+    /**
+     * MySQL and MariaDB scope a trigger to its table's schema, and the name has
+     * to say so. Left unqualified the server creates it in the session's current
+     * database and then refuses it: <em>Trigger in wrong schema</em>.
+     */
+    @Override
+    public String triggerName(String triggerName, org.eclipse.daanse.sql.model.schema.TableReference table) {
+        return table == null || table.schema().isEmpty() ? quoteIdentifier(triggerName)
+                : quoteIdentifier(table.schema().get().name(), triggerName);
     }
 
     /** MySQL/MariaDB: {@code DROP PROCEDURE [IF EXISTS] schema.procedureName}. */
@@ -582,8 +704,91 @@ public class MySqlDialect extends AbstractJdbcDialect {
                 .append(nullable ? " NULL" : " NOT NULL").toString();
     }
 
+    /** {@code ALTER TABLE t COMMENT = '…'} — MySQL has no COMMENT ON; {@code null} clears it. */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("ALTER TABLE " + qualified(table) + " COMMENT = " + mysqlLiteral(comment));
+    }
+
+    /**
+     * {@code ALTER TABLE t MODIFY COLUMN c <type> [NOT NULL] [DEFAULT d] COMMENT '…'}
+     * — MySQL can only set a column comment by restating the whole column, so
+     * type, nullability and default come from {@code currentMeta}.
+     */
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        if (currentMeta == null) {
+            throw new IllegalArgumentException("currentMeta must not be null for a MySQL column comment");
+        }
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY COLUMN ")
+                .append(quoteIdentifier(columnName)).append(' ').append(nativeType(currentMeta));
+        if (currentMeta.nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        currentMeta.columnDefault().filter(d -> !d.isBlank()).ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        sb.append(" COMMENT ").append(mysqlLiteral(comment));
+        return Optional.of(sb.toString());
+    }
+
+    /** MySQL string literal: {@code '} and {@code \} escaped; {@code null} becomes the empty comment. */
+    private static String mysqlLiteral(String comment) {
+        String s = comment == null ? "" : comment;
+        return "'" + s.replace("\\", "\\\\").replace("'", "''") + "'";
+    }
+
     // SET DEFAULT / DROP DEFAULT inherit the SQL-99 default — MySQL 8.0+ accepts
     // it.
+
+    /**
+     * MySQL 8.0+. Overridden by {@code MariaDBDialect}: its native rename landed
+     * at 10.5.2, not comparable to MySQL's 8.0 cut since MariaDB's own
+     * major/minor numbering (10.x/11.x) needs its own gate.
+     */
+    protected boolean supportsNativeRenameColumn() {
+        return dialectVersion.isUnknownOrAtLeast(8, 0);
+    }
+
+    /**
+     * MySQL 8.0+: ANSI {@code RENAME COLUMN}. Before 8.0, null —
+     * {@code supportsRenameColumn()} stays true because the capability is
+     * expressed through the {@code currentMeta} overload's {@code CHANGE}
+     * fallback instead.
+     */
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn() || !supportsNativeRenameColumn()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" RENAME COLUMN ")
+                .append(quoteIdentifier(oldName)).append(" TO ").append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * MySQL 8.0+: delegates to the metadata-free form. Before 8.0:
+     * {@code ALTER TABLE t CHANGE old new <definition>} — needs
+     * {@code currentMeta} to restate the column's full definition.
+     */
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName, ColumnMetaData currentMeta) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
+        if (supportsNativeRenameColumn()) {
+            return renameColumn(table, oldName, newName);
+        }
+        if (currentMeta == null) {
+            throw new IllegalArgumentException("currentMeta must not be null for the CHANGE-based rename fallback");
+        }
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" CHANGE ")
+                .append(quoteIdentifier(oldName)).append(' ').append(quoteIdentifier(newName)).append(' ')
+                .append(nativeType(currentMeta));
+        if (currentMeta.nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        currentMeta.columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        return sb.toString();
+    }
 
     /**
      * MySQL: {@code ALTER TABLE x RENAME INDEX old TO new} — index names are
@@ -591,6 +796,9 @@ public class MySqlDialect extends AbstractJdbcDialect {
      */
     @Override
     public String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
         if (table == null) {
             throw new IllegalArgumentException("table must not be null for MySQL RENAME INDEX");
         }
@@ -602,6 +810,43 @@ public class MySqlDialect extends AbstractJdbcDialect {
     @Override
     public String renameConstraint(TableReference table, String oldName, String newName) {
         return null;
+    }
+
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /** MySQL/MariaDB rename views with RENAME TABLE. */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(view)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code RENAME TABLE a TO b, c TO d} — one atomic statement (table swap). */
+    @Override
+    public List<String> renameTables(List<TableRename> renames) {
+        if (renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sb = new StringBuilder("RENAME TABLE ");
+        for (int i = 0; i < renames.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            TableRename r = renames.get(i);
+            sb.append(qualified(r.table())).append(" TO ").append(quoteIdentifier(r.newName()));
+        }
+        return List.of(sb.toString());
+    }
+
+    @Override
+    public boolean supportsAtomicMultiRenameTable() {
+        return true;
     }
 
     private static org.eclipse.daanse.sql.dialect.api.DialectInitData initDataFor(java.sql.Connection c) {

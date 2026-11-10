@@ -62,7 +62,7 @@
     <dependency>
       <groupId>org.mariadb.jdbc</groupId>
       <artifactId>mariadb-java-client</artifactId>
-      <version>3.4.1</version>
+      <version>3.4.5</version>
       <scope>test</scope>
     </dependency>
     <!-- Round-trip test (Testcontainer-backed). JUnit + assertj come from
@@ -76,13 +76,13 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>mariadb</artifactId>
-      <version>1.19.7</version>
+      <version>1.21.4</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>1.19.7</version>
+      <version>1.21.4</version>
       <scope>test</scope>
     </dependency>
     <dependency>

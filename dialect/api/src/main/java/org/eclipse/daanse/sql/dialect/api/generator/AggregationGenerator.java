@@ -27,6 +27,17 @@ public interface AggregationGenerator extends IdentifierQuoter {
     String IGNORE_NULLS = " IGNORE NULLS ";
     String RESPECT_NULLS = " RESPECT NULLS ";
 
+    // -------------------- AVG --------------------
+
+    /**
+     * The operand of an {@code avg} aggregate as this dialect needs it to compute the mean: the operand itself, unless
+     * the engine averages whole numbers to a whole number. SQL Server returns 31 for the mean of 31 and 32 over an
+     * INTEGER column, where every other engine, MDX and SSAS give 31.5 (database run 19./20.10., F-10.6 2).
+     */
+    default CharSequence averageOperand(CharSequence operand) {
+        return operand;
+    }
+
     // -------------------- list / string aggregation --------------------
 
     default java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
@@ -109,25 +120,35 @@ public interface AggregationGenerator extends IdentifierQuoter {
      * @param supportsNullsHandling whether the engine accepts {@code IGNORE NULLS}/
      *                              {@code RESPECT NULLS}
      */
-    default StringBuilder buildNthValueFunction(String functionName, CharSequence operand, boolean ignoreNulls,
-            Integer n, List<OrderedColumn> columns, boolean supportsNullsHandling) {
+    /**
+     * The n-th value of the rows of the group, in the order of the columns, as an ordered array aggregate:
+     * {@code <arrayExtractOpen>ARRAY_AGG(operand ORDER BY ...) FILTER (WHERE operand IS NOT NULL)<arrayExtractClose>}.
+     * An aggregate, not the window function {@code NTH_VALUE ... OVER (ORDER BY ...)}: a window in a grouped
+     * query runs over the groups, so a cell showed the values of other members' groups (V-82). n counts from 1; a
+     * group with fewer values gives NULL.
+     *
+     * @param arrayAgg the dialect's ordered array aggregate, {@code ARRAY_AGG} or {@code list}
+     * @param open     what stands before the array, {@code "("} or {@code "list_extract("}
+     * @param close    what follows it and picks the element: {@code ")[" + n + "]"} or {@code ", " + n + ")"}
+     */
+    default StringBuilder buildNthValueOfArray(String arrayAgg, CharSequence operand, boolean ignoreNulls,
+            List<OrderedColumn> columns, String open, String close) {
         StringBuilder buf = new StringBuilder(64);
-        buf.append(functionName);
-        buf.append(OPEN_PAREN);
-        buf.append(operand);
-        buf.append(COMMA);
-        buf.append(n == null || n < 1 ? 1 : n);
-        buf.append(CLOSE_PAREN);
-        if (supportsNullsHandling) {
-            buf.append(ignoreNulls ? IGNORE_NULLS : RESPECT_NULLS);
-        }
-        buf.append(OVER);
+        buf.append(open).append(arrayAgg).append('(').append(operand);
         if (columns != null && !columns.isEmpty()) {
-            buf.append(ORDER_BY);
-            buf.append(buildOrderedColumnsClause(columns));
+            buf.append(" ORDER BY ").append(buildOrderedColumnsClause(columns));
         }
-        buf.append(CLOSE_PAREN);
+        buf.append(')');
+        if (ignoreNulls) {
+            buf.append(" FILTER (WHERE ").append(operand).append(" IS NOT NULL)");
+        }
+        buf.append(close);
         return buf;
+    }
+
+    /** n as the element to pick: at least 1. */
+    static int nthIndex(Integer n) {
+        return n == null || n < 1 ? 1 : n;
     }
 
     default CharSequence buildOrderedColumnsClause(List<OrderedColumn> columns) {

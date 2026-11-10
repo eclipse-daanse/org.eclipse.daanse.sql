@@ -13,6 +13,7 @@
 */
 package org.eclipse.daanse.sql.jdbc.record.schema;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.eclipse.daanse.sql.model.schema.Trigger;
@@ -23,9 +24,27 @@ import org.eclipse.daanse.sql.model.schema.TriggerReference;
 public record TriggerRecord(
         TriggerReference reference,
         TriggerTiming timing,
-        TriggerEvent event,
+        List<TriggerEvent> events,
+        Optional<String> whenCondition,
         Optional<String> body,
         Optional<String> fullDefinition,
         Optional<String> orientation) implements Trigger {
 
+    public TriggerRecord {
+        if (events == null || events.isEmpty()) {
+            throw new IllegalArgumentException("events must not be empty");
+        }
+        events = List.copyOf(events);
+    }
+
+    /** Single-event trigger without a {@code WHEN} condition. */
+    public TriggerRecord(TriggerReference reference, TriggerTiming timing, TriggerEvent event, Optional<String> body,
+            Optional<String> fullDefinition, Optional<String> orientation) {
+        this(reference, timing, List.of(event), Optional.empty(), body, fullDefinition, orientation);
+    }
+
+    @Override
+    public TriggerEvent event() {
+        return events.get(0);
+    }
 }

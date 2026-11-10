@@ -25,6 +25,7 @@ import org.eclipse.daanse.sql.model.schema.PrimaryKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.model.schema.Trigger;
 import org.eclipse.daanse.sql.jdbc.api.schema.UniqueConstraint;
@@ -52,6 +53,11 @@ public interface StructureInfo {
 
     /** @return the sequences, empty list if not available */
     default List<Sequence> sequences() {
+        return List.of();
+    }
+
+    /** @return the synonyms, empty list if not available */
+    default List<Synonym> synonyms() {
         return List.of();
     }
 
@@ -92,6 +98,31 @@ public interface StructureInfo {
 
     /** @return the partitions, empty list if not available */
     default List<org.eclipse.daanse.sql.jdbc.api.schema.Partition> partitions() {
+        return List.of();
+    }
+
+    /** @return the table privileges, empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege> tablePrivileges() {
+        return List.of();
+    }
+
+    /** @return the column privileges, empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege> columnPrivileges() {
+        return List.of();
+    }
+
+    /** @return privileges on non-table objects (schema, database, routine, ...), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> objectPrivileges() {
+        return List.of();
+    }
+
+    /** @return role membership edges (GRANT role TO grantee), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> roleMemberships() {
+        return List.of();
+    }
+
+    /** @return database principals (users and roles), empty list if not available */
+    default List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> principals() {
         return List.of();
     }
 

@@ -42,7 +42,9 @@ public interface DialectCapabilitiesProvider {
                 dropIndexRequiresTable(), supportsCreateTableIfNotExists(), supportsCreateIndexIfNotExists(),
                 supportsDropIndexIfExists(), supportsCreateOrReplaceView(), supportsCreateOrReplaceTrigger(),
                 supportsDropViewIfExists(), supportsDropConstraintIfExists(), supportsDropTableIfExists(),
-                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength());
+                supportsDropSchemaIfExists(), requiresDropSchemaRestrict(), getMaxColumnNameLength(),
+                supportsRenameTable(), supportsRenameColumn(), supportsRenameIndex(), supportsRenameConstraint(),
+                supportsAtomicMultiRenameTable(), supportsRenameView(), supportsRenameTrigger(), supportsRenameSequence());
     }
 
     int getMaxColumnNameLength();
@@ -140,6 +142,18 @@ public interface DialectCapabilitiesProvider {
     }
 
     /**
+     * Whether {@code SUM} keeps the type of its operand: SQL Server and Derby sum an INTEGER column as an INTEGER and
+     * fail past 2 147 483 647 ("Arithmetic overflow error converting expression to data type int"); PostgreSQL,
+     * MySQL, Oracle, H2 and DuckDB sum it wider. Where true, the engine widens the operand of a sum over a whole number
+     * column ({@code TO_WIDE_INTEGER}).
+     *
+     * @return true if a sum of an INTEGER operand is itself an INTEGER
+     */
+    default boolean sumKeepsTheTypeOfItsOperand() {
+        return false;
+    }
+
+    /**
      * @return true if the dialect honours {@code IF EXISTS} on {@code DROP SCHEMA}
      */
     default boolean supportsDropSchemaIfExists() {
@@ -171,6 +185,13 @@ public interface DialectCapabilitiesProvider {
 
     /** @return true if parallel loading is supported */
     boolean supportsParallelLoading();
+
+    /**
+     * @return true if the database has transactions. ClickHouse has none: it
+     *         refuses {@code setAutoCommit(false)} outright, so a writer that
+     *         wraps a load in one transaction per table cannot even begin.
+     */
+    boolean supportsTransactions();
 
     /** @return true if batch operations are supported */
     boolean supportsBatchOperations();
@@ -232,4 +253,21 @@ public interface DialectCapabilitiesProvider {
     default boolean supportsNullsLast() {
         return true;
     }
+
+    boolean supportsRenameSequence();
+
+    boolean supportsRenameTrigger();
+
+    boolean supportsRenameView();
+
+    boolean supportsAtomicMultiRenameTable();
+
+    boolean supportsRenameConstraint();
+
+    boolean supportsRenameIndex();
+
+    boolean supportsRenameColumn();
+
+    boolean supportsRenameTable();
+
 }

@@ -21,16 +21,45 @@
  */
 package org.eclipse.daanse.sql.dialect.db.sqlite;
 
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.List;
 
 import org.eclipse.daanse.sql.model.type.BestFitColumnType;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 
 public class SqliteDialect extends AbstractJdbcDialect {
 
     private static final String SUPPORTED_PRODUCT_NAME = "SQLITE";
+
+    /**
+     * No.
+     *
+     * <p>
+     * SQLite takes one writer at a time. Loading tables concurrently does not
+     * divide the work, it makes the connections starve each other on the shared
+     * cache — which is why the testkit used to compare against this dialect's
+     * name in two places.
+     */
+    @Override
+    public boolean supportsParallelLoading() {
+        return false;
+    }
+
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * SQLite has no boolean type; it stores 0 and 1 in an INTEGER affinity.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
 
     private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
@@ -59,6 +88,24 @@ public class SqliteDialect extends AbstractJdbcDialect {
 
     @Override
     public boolean supportsCreateOrReplaceView() {
+        return false;
+    }
+
+    /** SQLite has no {@code ALTER INDEX ... RENAME}. */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false;
+    }
+
+    /** SQLite can't rename constraints — same reason it can't drop them. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    /** SQLite has no {@code ALTER VIEW ... RENAME}. */
+    @Override
+    public boolean supportsRenameView() {
         return false;
     }
 
@@ -153,6 +200,28 @@ public class SqliteDialect extends AbstractJdbcDialect {
                 }
                 return sb.toString();
             }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
+            }
         };
         cachedPaginationGenerator = local;
         return local;
@@ -241,4 +310,15 @@ public class SqliteDialect extends AbstractJdbcDialect {
         return local;
     }
 
+    /** SQLite cannot store comments on tables or columns. */
+    @Override
+    public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        return java.util.Optional.empty();
+    }
+
+    @Override
+    public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        return java.util.Optional.empty();
+    }
 }

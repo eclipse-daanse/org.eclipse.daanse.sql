@@ -9,9 +9,12 @@
  */
 package org.eclipse.daanse.sql.dialect.db.testsupport;
 
+import java.sql.JDBCType;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
@@ -58,5 +61,19 @@ public final class GeneratorTestSupport {
             throw new IllegalArgumentException("at least one column (the key) required");
         }
         return new MergeGenerator.UpsertSpec(target, List.of(columns[0]), List.of(columns), List.of());
+    }
+
+    /** A minimal {@link ColumnMetaData} for tests that just need some valid metadata. */
+    public static ColumnMetaData columnMeta(JDBCType jdbc, OptionalInt size, ColumnMetaData.Nullability nullability) {
+        return new SimpleColumnMetaData(jdbc, jdbc.getName(), size, OptionalInt.empty(), OptionalInt.empty(),
+                nullability, OptionalInt.empty(), Optional.empty(), Optional.empty(),
+                ColumnMetaData.AutoIncrement.UNKNOWN, ColumnMetaData.GeneratedColumn.UNKNOWN);
+    }
+
+    private record SimpleColumnMetaData(JDBCType dataType, String typeName, OptionalInt columnSize,
+            OptionalInt decimalDigits, OptionalInt numPrecRadix, ColumnMetaData.Nullability nullability,
+            OptionalInt charOctetLength, Optional<String> remarks, Optional<String> columnDefault,
+            ColumnMetaData.AutoIncrement autoIncrement, ColumnMetaData.GeneratedColumn generatedColumn)
+            implements ColumnMetaData {
     }
 }

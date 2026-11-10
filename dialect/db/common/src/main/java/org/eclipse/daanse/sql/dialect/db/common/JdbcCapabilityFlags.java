@@ -120,6 +120,10 @@ final class JdbcCapabilityFlags {
         return true;
     }
 
+    boolean supportsTransactions() {
+        return true;
+    }
+
     boolean supportsBatchOperations() {
         return true;
     }

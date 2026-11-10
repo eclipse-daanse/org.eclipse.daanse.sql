@@ -81,6 +81,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT t.tgname AS trigger_name, c.relname AS table_name, n.nspname AS schema_name,
                         pg_get_triggerdef(t.oid) AS definition,
+                        t.tgtype AS tgtype,
                         p.prosrc AS proc_body
                 FROM pg_trigger t
                 JOIN pg_class c ON c.oid = t.tgrelid
@@ -109,6 +110,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT t.tgname AS trigger_name, c.relname AS table_name, n.nspname AS schema_name,
                         pg_get_triggerdef(t.oid) AS definition,
+                        t.tgtype AS tgtype,
                         p.prosrc AS proc_body
                 FROM pg_trigger t
                 JOIN pg_class c ON c.oid = t.tgrelid
@@ -392,17 +394,19 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     public Optional<List<ImportedKey>> getAllImportedKeys(Connection connection, String catalog, String schema)
             throws SQLException {
         String sql = """
-                SELECT con.conname AS fk_name, fk_class.relname AS fk_table, fk_att.attname AS fk_column,
-                        pk_class.relname AS pk_table, pk_att.attname AS pk_column,
+                SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
+                        fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
+                        pk_att.attname AS pk_column,
                         cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
-                JOIN pg_namespace n ON n.oid = fk_class.relnamespace
+                JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
                 JOIN pg_class pk_class ON pk_class.oid = con.confrelid
+                JOIN pg_namespace pk_n ON pk_n.oid = pk_class.relnamespace
                 JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(fk_attnum, pk_attnum, ord) ON TRUE
                 JOIN pg_attribute fk_att ON fk_att.attrelid = con.conrelid AND fk_att.attnum = cols.fk_attnum
                 JOIN pg_attribute pk_att ON pk_att.attrelid = con.confrelid AND pk_att.attnum = cols.pk_attnum
-                WHERE con.contype = 'f' AND n.nspname = ?
+                WHERE con.contype = 'f' AND fk_n.nspname = ?
                 ORDER BY fk_class.relname, con.conname, cols.ord
                 """;
         String schemaName = resolveSchema(schema, connection);
@@ -411,7 +415,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -425,11 +429,13 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         // Symmetric to getAllImportedKeys: filter by the namespace of the REFERENCED
         // (PK-side) table.
         String sql = """
-                SELECT con.conname AS fk_name, fk_class.relname AS fk_table, fk_att.attname AS fk_column,
-                        pk_class.relname AS pk_table, pk_att.attname AS pk_column,
+                SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
+                        fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
+                        pk_att.attname AS pk_column,
                         cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
+                JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
                 JOIN pg_class pk_class ON pk_class.oid = con.confrelid
                 JOIN pg_namespace pk_n ON pk_n.oid = pk_class.relnamespace
                 JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS cols(fk_attnum, pk_attnum, ord) ON TRUE
@@ -444,7 +450,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -459,7 +465,9 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                 SELECT c.relname AS table_name, i_class.relname AS index_name,
                         a.attname AS column_name, array_position(ix.indkey, a.attnum) AS ordinal,
                         ix.indisunique AS is_unique,
-                        am.amname AS index_type
+                        am.amname AS index_type,
+                        (ix.indoption[array_position(ix.indkey, a.attnum)] & 1) = 1 AS is_desc,
+                        pg_get_expr(ix.indpred, ix.indrelid) AS filter_condition
                 FROM pg_index ix
                 JOIN pg_class c ON c.oid = ix.indrelid
                 JOIN pg_class i_class ON i_class.oid = ix.indexrelid
@@ -482,8 +490,14 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                     int ordinal = rs.getInt("ordinal");
                     boolean isUnique = rs.getBoolean("is_unique");
                     String indexType = rs.getString("index_type");
+                    boolean isDesc = rs.getBoolean("is_desc");
+                    boolean noSortOrder = rs.wasNull();
+                    String filterCondition = rs.getString("filter_condition");
 
                     IndexInfoItem.IndexType mappedType = mapPgIndexType(indexType);
+                    // Only ordered access methods (btree) have a sort direction.
+                    Optional<Boolean> ascending = "btree".equals(indexType) && !noSortOrder ? Optional.of(!isDesc)
+                            : Optional.empty();
 
                     TableReference tableRef = tableRefs.computeIfAbsent(tableName, k -> {
                         Optional<SchemaReference> oSchema = Optional
@@ -495,7 +509,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                             .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
 
                     IndexInfoItem item = new IndexInfoItemRecord(Optional.ofNullable(indexName), mappedType, colRef,
-                            ordinal, Optional.empty(), 0L, 0L, Optional.empty(), isUnique);
+                            ordinal, ascending, 0L, 0L, Optional.ofNullable(filterCondition), isUnique);
 
                     tableIndexes.computeIfAbsent(tableName, k -> new ArrayList<>()).add(item);
                 }
@@ -735,6 +749,10 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String triggerName = rs.getString("trigger_name");
         String tableName = rs.getString("table_name");
         String definition = rs.getString("definition");
+        int tgtype = rs.getInt("tgtype");
+        // pg_get_expr(tgqual) refuses trigger WHEN clauses (OLD/NEW span two
+        // relations), so the guard is carved out of pg_get_triggerdef instead.
+        String whenClause = parseTriggerWhen(rs.getString("definition"));
         // pg_proc.prosrc is the procedural source of the function the trigger
         // calls — this is what callers need to reconstruct the trigger.
         String procBody = rs.getString("proc_body");
@@ -743,13 +761,43 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         TableReference tableRef = new TableReference(oSchema, tableName);
 
         TriggerTiming timing = parseTriggerTiming(definition);
-        TriggerEvent event = parseTriggerEvent(definition);
+        List<TriggerEvent> events = mapPgTriggerEvents(tgtype, definition);
         Optional<String> orientation = parseTriggerOrientation(definition);
 
-        return new TriggerRecord(new TriggerReference(tableRef, triggerName), timing, event,
+        return new TriggerRecord(new TriggerReference(tableRef, triggerName), timing, events,
+                Optional.ofNullable(whenClause).map(String::strip).filter(w -> !w.isEmpty()),
                 Optional.ofNullable(procBody), Optional.ofNullable(definition), orientation);
     }
 
+
+    /**
+     * Extract the WHEN guard from a {@code pg_get_triggerdef} definition:
+     * {@code ... WHEN ((expr)) EXECUTE FUNCTION ...} → {@code (expr)} without
+     * the outermost parentheses; {@code null} when the trigger has no guard.
+     */
+    private static String parseTriggerWhen(String definition) {
+        if (definition == null) {
+            return null;
+        }
+        int when = definition.indexOf(" WHEN (");
+        if (when < 0) {
+            return null;
+        }
+        int start = when + " WHEN (".length();
+        int depth = 1;
+        for (int i = start; i < definition.length(); i++) {
+            char c = definition.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0) {
+                    return definition.substring(start, i).strip();
+                }
+            }
+        }
+        return null;
+    }
 
     private static Optional<String> parseTriggerOrientation(String definition) {
         if (definition == null)
@@ -763,7 +811,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema, so a key across schemas points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("fk_name");
         String fkTable = rs.getString("fk_table");
         String fkColumn = rs.getString("fk_column");
@@ -774,12 +823,14 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String updateRule = rs.getString("update_rule");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("fk_schema")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("pk_schema")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
@@ -840,18 +891,32 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     }
 
 
-    private static TriggerEvent parseTriggerEvent(String definition) {
-        if (definition == null) {
-            return TriggerEvent.INSERT;
+    /**
+     * Decode the {@code pg_trigger.tgtype} event bits (2 = INSERT, 8 = DELETE,
+     * 16 = UPDATE); falls back to scanning the definition when no bit is set.
+     */
+    private static List<TriggerEvent> mapPgTriggerEvents(int tgtype, String definition) {
+        List<TriggerEvent> events = new ArrayList<>();
+        if ((tgtype & (1 << 2)) != 0) {
+            events.add(TriggerEvent.INSERT);
         }
-        String upper = definition.toUpperCase();
+        if ((tgtype & (1 << 4)) != 0) {
+            events.add(TriggerEvent.UPDATE);
+        }
+        if ((tgtype & (1 << 3)) != 0) {
+            events.add(TriggerEvent.DELETE);
+        }
+        if (!events.isEmpty()) {
+            return List.copyOf(events);
+        }
+        String upper = definition == null ? "" : definition.toUpperCase();
         if (upper.contains("DELETE")) {
-            return TriggerEvent.DELETE;
+            return List.of(TriggerEvent.DELETE);
         }
         if (upper.contains("UPDATE")) {
-            return TriggerEvent.UPDATE;
+            return List.of(TriggerEvent.UPDATE);
         }
-        return TriggerEvent.INSERT;
+        return List.of(TriggerEvent.INSERT);
     }
 
 
@@ -912,6 +977,74 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             }
         }
         return Optional.of(List.copyOf(result));
+    }
+
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege>> getAllObjectPrivileges(
+            Connection connection, String catalog, String schema) throws SQLException {
+        // ACL-based privileges on non-table objects. aclexplode() skips NULL ACLs
+        // (implicit owner-only default) — matching information_schema behaviour is
+        // not required here; explicit grants are what matters.
+        String schemaName = resolveSchema(schema, connection);
+        List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> result = new ArrayList<>();
+
+        // Schema privileges are deliberately not read — support is too opaque
+        // across dialects (Oracle: schema == user).
+        String databaseSql = """
+                SELECT d.datname AS object_name, 'DATABASE' AS object_kind,
+                        pg_get_userbyid(a.grantor) AS grantor,
+                        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+                        a.privilege_type, a.is_grantable
+                FROM pg_database d, aclexplode(d.datacl) a
+                WHERE d.datname = current_database()
+                """;
+        readObjectPrivileges(connection, databaseSql, null, null, result);
+
+        String routineSql = """
+                SELECT p.proname AS object_name,
+                        CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS object_kind,
+                        pg_get_userbyid(a.grantor) AS grantor,
+                        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+                        a.privilege_type, a.is_grantable
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace, aclexplode(p.proacl) a
+                WHERE n.nspname = ?
+                """;
+        readObjectPrivileges(connection, routineSql, schemaName, schemaName, result);
+
+        String sequenceSql = """
+                SELECT c.relname AS object_name, 'SEQUENCE' AS object_kind,
+                        pg_get_userbyid(a.grantor) AS grantor,
+                        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+                        a.privilege_type, a.is_grantable
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a
+                WHERE c.relkind = 'S' AND n.nspname = ?
+                """;
+        readObjectPrivileges(connection, sequenceSql, schemaName, schemaName, result);
+
+        return Optional.of(List.copyOf(result));
+    }
+
+
+    private static void readObjectPrivileges(Connection connection, String sql, String parameter,
+            String schemaName, List<org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege> result)
+            throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            if (parameter != null) {
+                ps.setString(1, parameter);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new org.eclipse.daanse.sql.jdbc.record.schema.ObjectPrivilegeRecord(
+                            rs.getString("object_kind"), Optional.empty(), Optional.ofNullable(schemaName),
+                            rs.getString("object_name"), Optional.ofNullable(rs.getString("grantor")),
+                            rs.getString("grantee"), rs.getString("privilege_type"),
+                            Optional.of(rs.getBoolean("is_grantable") ? "YES" : "NO")));
+                }
+            }
+        }
     }
 
 
@@ -1010,5 +1143,48 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                     .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // pg_auth_members: every membership edge incl. grantor and ADMIN OPTION.
+        String sql = """
+                SELECT m.rolname AS grantee, r.rolname AS role_name,
+                        g.rolname AS grantor, am.admin_option
+                FROM pg_auth_members am
+                JOIN pg_roles r ON r.oid = am.roleid
+                JOIN pg_roles m ON m.oid = am.member
+                LEFT JOIN pg_roles g ON g.oid = am.grantor
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.ofNullable(rs.getString("grantor")),
+                        Optional.of(rs.getBoolean("admin_option") ? "YES" : "NO")));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // pg_roles is world-readable; rolcanlogin separates users from roles.
+        String sql = "SELECT rolname, rolcanlogin FROM pg_roles ORDER BY rolname";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("rolname"),
+                        rs.getBoolean("rolcanlogin") ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER
+                                : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE));
+            }
+        }
+        return Optional.of(List.copyOf(result));
     }
 }
