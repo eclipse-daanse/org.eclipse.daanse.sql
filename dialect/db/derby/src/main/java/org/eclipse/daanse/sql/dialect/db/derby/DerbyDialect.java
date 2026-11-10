@@ -95,12 +95,40 @@ public class DerbyDialect extends AbstractJdbcDialect {
         case YEAR, MONTH, DAY, HOUR, MINUTE, SECOND -> arguments.size() == 1
                 ? new StringBuilder(function.name()).append("(").append(arguments.get(0)).append(")")
                 : super.generateKnownFunction(function, arguments);
-        // Derby casts no number to VARCHAR ("Cannot convert types 'INTEGER' to 'VARCHAR'"), but to CHAR, which it pads
+        // Derby casts no number to VARCHAR ("Cannot convert types 'INTEGER' to 'VARCHAR'") and no DOUBLE or REAL to
+        // CHAR either (42846); its CHAR function takes every number, a DOUBLE as Java writes it (2.24, 17.0, 1.0E10),
+        // a DECIMAL with its scale (2.50), and pads the text
         case TO_TEXT -> arguments.size() == 1
-                ? new StringBuilder("TRIM(CAST(").append(arguments.get(0)).append(" AS CHAR(254)))")
+                ? new StringBuilder("TRIM(CHAR(").append(arguments.get(0)).append("))")
+                : super.generateKnownFunction(function, arguments);
+        // Derby has no RPAD ("'RPAD' is not recognized as a function"): the text and as many spaces as the length,
+        // cut to the length
+        case PAD_RIGHT -> padRight(arguments);
+        // Derby casts no whole number to VARCHAR and has no LPAD: the ISO text yyyy-mm-dd from CHAR, a month and a day
+        // two digits wide as the last two of 100 more
+        case DATE_FROM_PARTS -> arguments.size() == 3
+                ? new StringBuilder("CAST(TRIM(CHAR(").append(arguments.get(0)).append(")) || '-' || SUBSTR(TRIM(CHAR(100 + ")
+                        .append(arguments.get(1)).append(")), 2) || '-' || SUBSTR(TRIM(CHAR(100 + ")
+                        .append(arguments.get(2)).append(")), 2) AS DATE)")
                 : super.generateKnownFunction(function, arguments);
         default -> super.generateKnownFunction(function, arguments);
         };
+    }
+
+    private StringBuilder padRight(List<? extends CharSequence> arguments) {
+        if (arguments.size() != 2) {
+            return super.generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.PAD_RIGHT,
+                    arguments);
+        }
+        int length;
+        try {
+            length = Integer.parseInt(arguments.get(1).toString().trim());
+        } catch (NumberFormatException notALiteral) {
+            return super.generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.PAD_RIGHT,
+                    arguments);
+        }
+        return new StringBuilder("SUBSTR(").append(arguments.get(0)).append(" || '").append(" ".repeat(length))
+                .append("', 1, ").append(length).append(")");
     }
 
     /** A sum keeps the type of its operand: an INTEGER column sums to an INTEGER and overflows past 2^31 - 1. */
