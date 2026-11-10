@@ -26,6 +26,8 @@ import java.util.Optional;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
 import org.eclipse.daanse.sql.jdbc.api.schema.CheckConstraint;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership;
 import org.eclipse.daanse.sql.model.schema.ColumnReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Function;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
@@ -708,5 +710,33 @@ class MariaDBMetadataProviderTest {
         return indexInfos.stream().flatMap(ii -> ii.indexInfoItems().stream())
                 .filter(item -> item.indexName().isPresent() && indexName.equalsIgnoreCase(item.indexName().get()))
                 .findFirst().orElseThrow(() -> new AssertionError("Index not found: " + indexName));
+    }
+
+    @Test
+    void rolePrincipalsAndMembershipsAreReadable() throws Exception {
+        // MariaDB flags roles first-class (mysql.user.Is_role) — unlike MySQL,
+        // where users and roles are structurally indistinguishable.
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute("CREATE ROLE mdb_parent");
+            stmt.execute("CREATE ROLE mdb_child");
+            stmt.execute("GRANT mdb_parent TO mdb_child WITH ADMIN OPTION");
+        }
+
+        List<DatabasePrincipal> principals = provider.getAllPrincipals(connection).orElseThrow();
+        assertThat(principals.stream()
+                .filter(p -> DatabasePrincipal.KIND_ROLE.equals(p.kind()))
+                .map(DatabasePrincipal::name))
+                .contains("mdb_parent", "mdb_child");
+        assertThat(principals.stream()
+                .filter(p -> "root".equals(p.name()))
+                .findFirst().orElseThrow().kind())
+                .isEqualTo(DatabasePrincipal.KIND_USER);
+
+        List<RoleMembership> memberships = provider.getAllRoleMemberships(connection).orElseThrow();
+        assertThat(memberships).anySatisfy(m -> {
+            assertThat(m.grantee()).isEqualTo("mdb_child");
+            assertThat(m.role()).isEqualTo("mdb_parent");
+            assertThat(m.adminOption()).contains("YES");
+        });
     }
 }

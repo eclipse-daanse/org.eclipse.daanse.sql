@@ -18,16 +18,22 @@ import java.util.List;
 import org.eclipse.daanse.sql.jdbc.api.meta.StructureInfo;
 import org.eclipse.daanse.sql.model.schema.CatalogReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.CheckConstraint;
+import org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege;
 import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.jdbc.api.schema.Function;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.MaterializedView;
+import org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege;
 import org.eclipse.daanse.sql.jdbc.api.schema.Partition;
 import org.eclipse.daanse.sql.model.schema.PrimaryKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership;
+import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.Trigger;
 import org.eclipse.daanse.sql.jdbc.api.schema.UniqueConstraint;
 import org.eclipse.daanse.sql.jdbc.api.schema.UserDefinedType;
@@ -49,5 +55,83 @@ public record StructureInfoRecord(
         List<Procedure> procedures,
         List<Function> functions,
         List<MaterializedView> materializedViews,
-        List<Partition> partitions) implements StructureInfo {
+        List<Partition> partitions,
+        List<TablePrivilege> tablePrivileges,
+        List<ColumnPrivilege> columnPrivileges,
+        List<ObjectPrivilege> objectPrivileges,
+        List<RoleMembership> roleMemberships,
+        List<DatabasePrincipal> principals,
+        List<Synonym> synonyms) implements StructureInfo {
+
+    /** Compatibility constructor without synonyms. */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions, List<TablePrivilege> tablePrivileges,
+            List<ColumnPrivilege> columnPrivileges, List<ObjectPrivilege> objectPrivileges,
+            List<RoleMembership> roleMemberships, List<DatabasePrincipal> principals) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, tablePrivileges, columnPrivileges, objectPrivileges, roleMemberships, principals,
+                List.of());
+    }
+
+    /** Compatibility constructor without principals. */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions, List<TablePrivilege> tablePrivileges,
+            List<ColumnPrivilege> columnPrivileges, List<ObjectPrivilege> objectPrivileges,
+            List<RoleMembership> roleMemberships) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, tablePrivileges, columnPrivileges, objectPrivileges, roleMemberships, List.of());
+    }
+
+    /** Compatibility constructor without role memberships. */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions, List<TablePrivilege> tablePrivileges,
+            List<ColumnPrivilege> columnPrivileges, List<ObjectPrivilege> objectPrivileges) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, tablePrivileges, columnPrivileges, objectPrivileges, List.of());
+    }
+
+    /** Compatibility constructor without object privileges. */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions, List<TablePrivilege> tablePrivileges,
+            List<ColumnPrivilege> columnPrivileges) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, tablePrivileges, columnPrivileges, List.of());
+    }
+
+    /** Compatibility constructor without privileges (plain-JDBC path). */
+    public StructureInfoRecord(List<CatalogReference> catalogs, List<SchemaReference> schemas,
+            List<TableDefinition> tables, List<ColumnDefinition> columns, List<ImportedKey> importedKeys,
+            List<PrimaryKey> primaryKeys, List<Trigger> triggers, List<Sequence> sequences,
+            List<CheckConstraint> checkConstraints, List<UniqueConstraint> uniqueConstraints,
+            List<UserDefinedType> userDefinedTypes, List<ViewDefinition> viewDefinitions,
+            List<Procedure> procedures, List<Function> functions, List<MaterializedView> materializedViews,
+            List<Partition> partitions) {
+        this(catalogs, schemas, tables, columns, importedKeys, primaryKeys, triggers, sequences, checkConstraints,
+                uniqueConstraints, userDefinedTypes, viewDefinitions, procedures, functions, materializedViews,
+                partitions, List.of(), List.of());
+    }
 }

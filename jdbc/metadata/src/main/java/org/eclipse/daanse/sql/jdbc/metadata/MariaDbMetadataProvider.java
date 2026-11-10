@@ -82,7 +82,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
     public List<Trigger> getAllTriggers(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
                 SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION,
-                       ACTION_STATEMENT, ACTION_ORIENTATION
+                        ACTION_STATEMENT, ACTION_ORIENTATION
                 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?
                 ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME
                 """;
@@ -105,7 +105,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION,
-                       ACTION_STATEMENT, ACTION_ORIENTATION
+                        ACTION_STATEMENT, ACTION_ORIENTATION
                 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
                 ORDER BY TRIGGER_NAME
                 """;
@@ -196,11 +196,11 @@ public class MariaDbMetadataProvider implements MetadataProvider {
         // sub-partition rows carry their parent's name in parentPartitionName.
         String sql = """
                 SELECT TABLE_NAME, PARTITION_NAME, SUBPARTITION_NAME,
-                       PARTITION_METHOD, SUBPARTITION_METHOD,
-                       PARTITION_EXPRESSION, SUBPARTITION_EXPRESSION,
-                       PARTITION_DESCRIPTION,
-                       PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION,
-                       TABLE_ROWS
+                        PARTITION_METHOD, SUBPARTITION_METHOD,
+                        PARTITION_EXPRESSION, SUBPARTITION_EXPRESSION,
+                        PARTITION_DESCRIPTION,
+                        PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION,
+                        TABLE_ROWS
                 FROM information_schema.PARTITIONS
                 WHERE TABLE_SCHEMA = ? AND PARTITION_NAME IS NOT NULL
                 ORDER BY TABLE_NAME, PARTITION_ORDINAL_POSITION, SUBPARTITION_ORDINAL_POSITION
@@ -265,7 +265,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE, tc.TABLE_NAME
                 FROM information_schema.CHECK_CONSTRAINTS cc
                 JOIN information_schema.TABLE_CONSTRAINTS tc
-                  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+                    ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
                 WHERE cc.CONSTRAINT_SCHEMA = ? AND tc.CONSTRAINT_TYPE = 'CHECK'
                 ORDER BY tc.TABLE_NAME, cc.CONSTRAINT_NAME
                 """;
@@ -297,7 +297,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE, tc.TABLE_NAME
                 FROM information_schema.CHECK_CONSTRAINTS cc
                 JOIN information_schema.TABLE_CONSTRAINTS tc
-                  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+                    ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
                 WHERE cc.CONSTRAINT_SCHEMA = ? AND tc.CONSTRAINT_TYPE = 'CHECK' AND tc.TABLE_NAME = ?
                 ORDER BY cc.CONSTRAINT_NAME
                 """;
@@ -329,7 +329,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME, kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
                 WHERE tc.CONSTRAINT_TYPE = 'UNIQUE' AND tc.TABLE_SCHEMA = ?
                 ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
                 """;
@@ -344,7 +344,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 SELECT tc.CONSTRAINT_NAME, tc.TABLE_NAME, kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
                 WHERE tc.CONSTRAINT_TYPE = 'UNIQUE' AND tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ?
                 ORDER BY tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
                 """;
@@ -359,7 +359,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 SELECT tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.COLUMN_NAME, kcu.ORDINAL_POSITION
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
                 WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND tc.TABLE_SCHEMA = ?
                 ORDER BY tc.TABLE_NAME, kcu.ORDINAL_POSITION
                 """;
@@ -392,13 +392,14 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
-                       kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
+                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                        kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
                 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
-                  ON tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                    ON tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
                 WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY' AND tc.TABLE_SCHEMA = ?
                 ORDER BY kcu.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
                 """;
@@ -408,7 +409,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -422,13 +423,14 @@ public class MariaDbMetadataProvider implements MetadataProvider {
         // Symmetric to getAllImportedKeys: filter by the referenced (PK-side) schema.
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                       kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
-                       kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
+                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                        kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
-                  ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    ON tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_NAME = kcu.TABLE_NAME
                 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
-                  ON tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                    ON tc.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
                 WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY' AND kcu.REFERENCED_TABLE_SCHEMA = ?
                 ORDER BY kcu.REFERENCED_TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
                 """;
@@ -438,7 +440,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -620,7 +622,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
-                       ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
+                        ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
                 FROM information_schema.PARAMETERS
                 WHERE SPECIFIC_SCHEMA = ? AND ORDINAL_POSITION > 0
                 ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
@@ -661,7 +663,7 @@ public class MariaDbMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT SPECIFIC_NAME, PARAMETER_NAME, PARAMETER_MODE, DATA_TYPE,
-                       ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
+                        ORDINAL_POSITION, NUMERIC_PRECISION, NUMERIC_SCALE
                 FROM information_schema.PARAMETERS
                 WHERE SPECIFIC_SCHEMA = ?
                 ORDER BY SPECIFIC_NAME, ORDINAL_POSITION
@@ -764,7 +766,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema (database), so a key across them points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("FK_NAME");
         String fkTable = rs.getString("FK_TABLE");
         String fkColumn = rs.getString("FK_COLUMN");
@@ -776,13 +779,15 @@ public class MariaDbMetadataProvider implements MetadataProvider {
 
         // FK side - MariaDB uses catalog as database name, schema is same
         Optional<CatalogReference> fkCatRef = Optional.empty();
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(fkCatRef, schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(fkCatRef,
+                rs.getString("FK_SCHEMA")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
-        // PK side - referenced table is in the same schema context
+        // PK side - the referenced table, in its own database
         Optional<CatalogReference> pkCatRef = Optional.empty();
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(pkCatRef, schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(pkCatRef,
+                rs.getString("PK_SCHEMA")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
@@ -931,5 +936,48 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                     .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // mysql.roles_mapping; needs privileges on the mysql schema.
+        String sql = """
+                SELECT User AS grantee, Role AS role_name, Admin_option
+                FROM mysql.roles_mapping
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(),
+                        Optional.of("Y".equalsIgnoreCase(rs.getString("Admin_option")) ? "YES" : "NO")));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // MariaDB flags roles first-class (Is_role).
+        String sql = "SELECT User, Is_role FROM mysql.user ORDER BY User";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("User"),
+                        "Y".equalsIgnoreCase(rs.getString("Is_role")) ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE
+                                : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
     }
 }

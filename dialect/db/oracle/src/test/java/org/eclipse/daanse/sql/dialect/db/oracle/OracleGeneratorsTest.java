@@ -93,4 +93,34 @@ class OracleGeneratorsTest {
                 () -> d.functionGenerator().generateKnownFunction(KnownFunction.INDEX_OF, List.of("n", "h", "z")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INDEX_OF");
     }
+
+    @Test
+    void comment_null_becomes_empty_literal() {
+        assertThat(d.commentOnTable(table("APP", "USERS"), null).orElseThrow())
+                .isEqualTo("COMMENT ON TABLE \"APP\".\"USERS\" IS ''");
+        assertThat(d.commentOnColumn(table("APP", "USERS"), "NAME", "it's", null).orElseThrow())
+                .isEqualTo("COMMENT ON COLUMN \"APP\".\"USERS\".\"NAME\" IS 'it''s'");
+    }
+
+    @Test
+    void foreign_key_writes_only_actions_oracle_knows() {
+        String noAction = d.addForeignKeyConstraint(table("APP", "O"), "FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "NO ACTION", "NO ACTION");
+        assertThat(noAction).doesNotContain(" ON DELETE").doesNotContain(" ON UPDATE");
+        String cascade = d.addForeignKeyConstraint(table("APP", "O"), "FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "cascade", null);
+        assertThat(cascade).endsWith(" ON DELETE CASCADE");
+        assertThat(noAction).isEqualTo("ALTER TABLE \"APP\".\"O\" ADD " + d.foreignKeyClause("FK", List.of("C"),
+                table("APP", "P"), List.of("ID"), "NO ACTION", "NO ACTION"));
+    }
+
+    @org.junit.jupiter.api.Test
+    void known_functions_of_a_data_source_view() {
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.TO_TEXT, List.of("x")))
+                .hasToString("TO_CHAR(x)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("TO_DATE(y || '-' || m || '-' || d, 'YYYY-MM-DD')");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.MONTH_NAME, List.of("x")).toString())
+                .startsWith("CASE EXTRACT(MONTH FROM x) WHEN 1 THEN 'January'");
+    }
 }

@@ -31,17 +31,19 @@ public record DdlCapabilities(boolean supportsDdl, boolean dropTableCascade, boo
         boolean dropIndexRequiresTable, boolean createTableIfNotExists, boolean createIndexIfNotExists,
         boolean dropIndexIfExists, boolean createOrReplaceView, boolean createOrReplaceTrigger,
         boolean dropViewIfExists, boolean dropConstraintIfExists, boolean dropTableIfExists, boolean dropSchemaIfExists,
-        boolean requiresDropSchemaRestrict, int maxColumnNameLength) {
+        boolean requiresDropSchemaRestrict, int maxColumnNameLength,
+        boolean renameTable, boolean renameColumn, boolean renameIndex, boolean renameConstraint,
+        boolean atomicMultiRenameTable, boolean renameView, boolean renameTrigger, boolean renameSequence) {
 
     /** All supported, no special requirements — default for modern engines. */
     public static DdlCapabilities full() {
         return new DdlCapabilities(true, true, true, false, true, true, true, true, true, true, true, true, true, false,
-                128);
+                128, true, true, true, true, true, true, true, true);
     }
 
     /** Most conservative — DDL allowed but no convenience clauses. */
     public static DdlCapabilities minimal() {
         return new DdlCapabilities(true, false, false, true, false, false, false, false, false, false, false, false,
-                false, true, 30);
+                false, true, 30, false, false, false, false, false, false, false, false);
     }
 }

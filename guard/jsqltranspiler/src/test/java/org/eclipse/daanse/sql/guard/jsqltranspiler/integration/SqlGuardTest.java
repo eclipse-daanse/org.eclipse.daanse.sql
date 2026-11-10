@@ -29,7 +29,9 @@ import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseColumn;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseSchema;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseTable;
+import org.eclipse.daanse.sql.guard.api.exception.EmptyStatementGuardException;
 import org.eclipse.daanse.sql.guard.api.exception.GuardException;
+import org.eclipse.daanse.sql.guard.api.exception.UnallowedStatementTypeGuardException;
 import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -240,8 +242,79 @@ public class SqlGuardTest {
 
     private static final String SQL_MULTIPLE_CTE_WRONG_COLUMN = """
             WITH cte1 AS (SELECT foo.id FROM foo),
-                 cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
+                cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
+
+    private static final String SQL_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='pwned' WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_UPDATE_ALL_ROWS = """
+            WITH x AS (UPDATE foo SET name='pwned') SELECT id FROM foo""";
+
+    private static final String SQL_MULTIPLE_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='a' RETURNING id),
+                y AS (UPDATE foo SET name='b' RETURNING id)
+            SELECT id FROM foo""";
+
+    private static final String SQL_CTE_INSERT = """
+            WITH x AS (INSERT INTO foo (id, name) VALUES (1, 'a') RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_DELETE = """
+            WITH x AS (DELETE FROM foo WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_NESTED_SUBQUERY_CTE_UPDATE = """
+            SELECT foo.id FROM foo
+            WHERE foo.id IN (SELECT sub.id FROM (WITH y AS (UPDATE foo SET name='z' RETURNING id) SELECT id FROM foo) sub)""";
+
+    private static final String UPDATE_IS_NOT_PERMITTED = "UPDATE is not permitted.";
+
+    private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
+
+    private static final String DELETE_IS_NOT_PERMITTED = "DELETE is not permitted.";
+
+    private static final String SQL_SELECT_INTO = "SELECT foo.id INTO bar FROM foo";
+
+    private static final String SQL_SELECT_FOR_UPDATE = "SELECT foo.id FROM foo FOR UPDATE";
+
+    private static final String SQL_SELECT_FOR_SHARE = "SELECT foo.id FROM foo FOR SHARE";
+
+    private static final String SQL_UNION_FOR_UPDATE = """
+            SELECT foo.id FROM foo UNION SELECT fooFact.id FROM fooFact FOR UPDATE""";
+
+    private static final String SELECT_INTO_IS_NOT_PERMITTED = "SELECT INTO is not permitted.";
+
+    private static final String ROW_LOCKING_IS_NOT_PERMITTED = "Row locking (FOR UPDATE/SHARE) is not permitted.";
+
+    private static final String SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED =
+            "SELECT INTO OUTFILE/DUMPFILE/variable is not permitted.";
+
+    private static final String ONLY_ONE_STATEMENT_IS_PERMITTED = "Only a single statement is permitted.";
+
+    // MySQL file/variable targets, parsed since JSqlParser 5.4; INTO @var and INTO TEMP
+    // do not parse with the default grammar and must then fail closed.
+    private static final String SQL_SELECT_INTO_OUTFILE = "SELECT foo.id INTO OUTFILE '/tmp/x' FROM foo";
+    private static final String SQL_SELECT_INTO_OUTFILE_AFTER_FROM = "SELECT foo.id FROM foo INTO OUTFILE '/tmp/x'";
+    private static final String SQL_SELECT_INTO_DUMPFILE = "SELECT foo.id INTO DUMPFILE '/tmp/x' FROM foo";
+    private static final String SQL_SELECT_INTO_VARIABLE = "SELECT foo.id INTO @v FROM foo";
+    private static final String SQL_SELECT_INTO_TEMP = "SELECT foo.id INTO TEMP bar FROM foo";
+    private static final String SQL_SELECT_INTO_SCHEMA_QUALIFIED = "SELECT foo.id INTO public.evil FROM foo";
+
+    private static final String SQL_SELECT_FOR_UPDATE_OF = "SELECT foo.id FROM foo FOR UPDATE OF foo";
+    private static final String SQL_SELECT_FOR_NO_KEY_UPDATE = "SELECT foo.id FROM foo FOR NO KEY UPDATE";
+    private static final String SQL_SELECT_FOR_KEY_SHARE = "SELECT foo.id FROM foo FOR KEY SHARE";
+    private static final String SQL_SELECT_FOR_UPDATE_SKIP_LOCKED = "SELECT foo.id FROM foo FOR UPDATE SKIP LOCKED";
+    private static final String SQL_SELECT_LOCK_IN_SHARE_MODE = "SELECT foo.id FROM foo LOCK IN SHARE MODE";
+
+    private static final String SQL_TRAILING_DROP = "SELECT foo.id FROM foo; DROP TABLE foo";
+    private static final String SQL_TRAILING_SELECT = "SELECT foo.id FROM foo; SELECT foo.name FROM foo";
+    private static final String SQL_TRAILING_SEMICOLON = "SELECT foo.id FROM foo;";
+    private static final String SQL_COMMENT_ONLY = "/* nothing */";
+
+    private static final String SQL_CORRELATED_EXISTS = """
+            SELECT foo.id FROM foo WHERE EXISTS (SELECT 1 FROM fooFact WHERE fooFact.id = foo.id)""";
+    private static final String SQL_CORRELATED_SCALAR = """
+            SELECT foo.id, (SELECT count(fooFact.id) FROM fooFact WHERE fooFact.id = foo.id) FROM foo""";
+    private static final String SQL_WINDOW_FUNCTION = "SELECT sum(foo.id) OVER () FROM foo";
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
 
@@ -337,6 +410,14 @@ public class SqlGuardTest {
 
     private static Dialect dialect;
 
+    private static final String CAT = "FoodMart";
+
+    private static final String SELECT_FROM_QUALIFIED_FOO = "select * from sch.foo";
+
+    private static final String SELECT_FROM_CATALOG_QUALIFIED_FOO = "select * from FoodMart.sch.foo";
+
+    private static final String SELECT_QUALIFIED_COLUMNS_FROM_QUALIFIED_FOO = "select sch.foo.id, FoodMart.sch.foo.name from sch.foo";
+
     @BeforeAll
     public static void setUp() {
         dialect = new H2Dialect();
@@ -352,6 +433,32 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_FROM_FOO);
             assertThat(result).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /**
+         * JSqlParser reads two or more blank lines as the end of a statement: a formatted query with an empty
+         * paragraph in it was refused as two broken statements. Blank lines are whitespace.
+         */
+        @Test
+        void aQueryWithBlankLinesInItIsOneStatement(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select *\n\n\n\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+            assertThat(guard.guard("select *\r\n  \r\n\t\r\n\r\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /** Two statements separated only by blank lines stay refused: collapsing them gives no valid statement. */
+        @Test
+        void twoStatementsSeparatedByBlankLinesAreStillRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from foo\n\n\n\ndelete from foo"))
+                    .isInstanceOf(GuardException.class);
+        }
+
+        /** Blank lines inside a string literal are data and reach the database as written. */
+        @Test
+        void blankLinesInALiteralStay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select * from foo where foo.name = 'a\n\n\nb'")).contains("'a\n\n\nb'");
         }
 
         @Test
@@ -994,6 +1101,193 @@ public class SqlGuardTest {
     }
 
     @Nested
+    @DisplayName("CTE Data-Modifying (DML) Security Tests")
+    class CteDmlSecurityTests {
+
+        // A data-modifying CTE parses as a Select and resolves against the whitelisted
+        // table, so it must be rejected by the read-only gate, not the column resolver.
+
+        @Test
+        void testCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteUpdateAllRows(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE_ALL_ROWS))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testMultipleCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteInsert(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_INSERT))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(INSERT_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteDelete(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_DELETE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(DELETE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testNestedSubqueryCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_NESTED_SUBQUERY_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testValidCteStillPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertNotNull(guard.guard(SQL_VALID_CTE));
+        }
+    }
+
+    @Nested
+    @DisplayName("Side-Effecting Select Security Tests (SELECT INTO / FOR UPDATE)")
+    class SideEffectingSelectSecurityTests {
+
+        // These parse as a Select but are not read-only: SELECT INTO writes a table,
+        // FOR UPDATE/SHARE takes row locks. They must be rejected by the read-only gate.
+
+        @Test
+        void testSelectInto(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_INTO))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForShare(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_SHARE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testUnionForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectIntoSchemaQualified(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_INTO_SCHEMA_QUALIFIED))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_INTO_OUTFILE, SQL_SELECT_INTO_OUTFILE_AFTER_FROM, SQL_SELECT_INTO_DUMPFILE })
+        void testSelectIntoFile(String sql, @InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_FOR_UPDATE_OF, SQL_SELECT_FOR_NO_KEY_UPDATE, SQL_SELECT_FOR_KEY_SHARE,
+                SQL_SELECT_FOR_UPDATE_SKIP_LOCKED })
+        void testSelectRowLockVariants(String sql, @InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        // Not parsed by the default grammar today: whatever the parser does with them in
+        // a future version, the guard must never let them through.
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_INTO_VARIABLE, SQL_SELECT_INTO_TEMP, SQL_SELECT_LOCK_IN_SHARE_MODE })
+        void testSideEffectingSelectFailsClosed(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql)).isInstanceOf(GuardException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Script Security Tests (multiple statements)")
+    class ScriptSecurityTests {
+
+        // CCJSqlParserUtil.parse() stops after the first statement, so a trailing
+        // statement would otherwise be silently dropped instead of rejected.
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_TRAILING_DROP, SQL_TRAILING_SELECT })
+        void testTrailingStatementIsRejected(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(UnallowedStatementTypeGuardException.class)
+                    .hasMessage(ONLY_ONE_STATEMENT_IS_PERMITTED);
+        }
+
+        @Test
+        void testTrailingSemicolonStillPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThat(guard.guard(SQL_TRAILING_SEMICOLON)).doesNotContain(";");
+        }
+
+        @Test
+        void testCommentOnlyIsEmpty(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_COMMENT_ONLY)).isInstanceOf(EmptyStatementGuardException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("JOIN Security Tests")
     class JoinSecurityTests {
 
@@ -1208,6 +1502,23 @@ public class SqlGuardTest {
     @DisplayName("Positive Tests - Valid Queries Should Pass")
     class PositiveTests {
 
+        // Correlated sub queries resolve against the enclosing query since jsqltranspiler 1.13.
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_CORRELATED_EXISTS, SQL_CORRELATED_SCALAR })
+        void testCorrelatedSubqueryPasses(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
+            assertThat(guard.guard(sql)).isNotNull();
+        }
+
+        @Test
+        void testWindowFunctionPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
+            assertThat(guard.guard(SQL_WINDOW_FUNCTION)).contains("OVER");
+        }
+
         @Test
         void testValidSubselect(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
@@ -1254,6 +1565,53 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_VALID_ORDER_BY);
             assertNotNull(result);
+        }
+    }
+
+    @Nested
+    @DisplayName("current catalog and schema")
+    class CurrentCatalogAndSchema {
+
+        @Test
+        void aBareNameResolvesInTheCurrentSchema(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aSchemaQualifiedNameResolvesTheSameWay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_QUALIFIED_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aCatalogQualifiedNameResolvesWhenTheCatalogIsTheCurrentOne(@InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            String emitted = guard.guard(SELECT_FROM_CATALOG_QUALIFIED_FOO);
+            // Settles §4.3: the database must receive the two-part name.
+            assertThat(emitted).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aQualifiedColumnReferenceIsReducedToTheTableName(@InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            // the FROM item carries the schema, column references only the table name
+            assertThat(guard.guard(SELECT_QUALIFIED_COLUMNS_FROM_QUALIFIED_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aBareNameWithNoCurrentSchemaIsReportedAsUnknown(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, "", schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SELECT_FROM_FOO)).isInstanceOf(UnresolvableObjectsGuardException.class);
+        }
+
+        @Test
+        void aForeignCatalogIsRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from Other.sch.foo"))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 

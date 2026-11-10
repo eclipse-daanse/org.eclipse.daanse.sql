@@ -43,9 +43,12 @@ import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
 import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.PseudoColumn;
+import org.eclipse.daanse.sql.model.schema.CatalogReference;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
+import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
@@ -69,6 +72,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PseudoColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.SynonymRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TablePrivilegeRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
@@ -169,6 +173,53 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             }
         }
         return List.copyOf(sequences);
+    }
+
+
+    @Override
+    public List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
+        // base_object_name is the target as written in CREATE SYNONYM, up to
+        // [server].[database].[schema].[object]; PARSENAME splits it and strips brackets.
+        // The target type is only looked up for objects in the current database —
+        // sys.objects knows nothing about other databases or linked servers.
+        String sql = """
+                SELECT s.name AS synonym_name,
+                        PARSENAME(s.base_object_name, 4) AS server_name,
+                        PARSENAME(s.base_object_name, 3) AS database_name,
+                        PARSENAME(s.base_object_name, 2) AS target_schema,
+                        PARSENAME(s.base_object_name, 1) AS target_name,
+                        CASE WHEN PARSENAME(s.base_object_name, 4) IS NULL
+                                AND (PARSENAME(s.base_object_name, 3) IS NULL
+                                    OR PARSENAME(s.base_object_name, 3) = DB_NAME())
+                            THEN o.type_desc END AS target_type
+                FROM sys.synonyms s
+                LEFT JOIN sys.objects o ON o.object_id = OBJECT_ID(s.base_object_name)
+                WHERE s.schema_id = SCHEMA_ID(?)
+                ORDER BY s.name
+                """;
+        String schemaName = resolveSchema(schema, connection);
+        List<Synonym> synonyms = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString("synonym_name");
+                    String databaseName = rs.getString("database_name");
+                    String targetSchema = rs.getString("target_schema");
+
+                    Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+                    Optional<CatalogReference> oTargetCatalog = databaseName == null ? Optional.empty()
+                            : Optional.of(new CatalogReference(databaseName));
+                    Optional<SchemaReference> oTargetSchema = targetSchema == null ? Optional.empty()
+                            : Optional.of(new SchemaReference(oTargetCatalog, targetSchema));
+
+                    synonyms.add(new SynonymRecord(new SynonymReference(oSchema, name), oTargetSchema,
+                            rs.getString("target_name"), Optional.ofNullable(rs.getString("server_name")), false,
+                            Optional.ofNullable(rs.getString("target_type"))));
+                }
+            }
+        }
+        return List.copyOf(synonyms);
     }
 
 
@@ -365,6 +416,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT fk.name AS fk_name, OBJECT_NAME(fk.parent_object_id) AS fk_table,
                         fk_col.name AS fk_column, OBJECT_NAME(fk.referenced_object_id) AS pk_table,
+                        OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS pk_schema,
+                        OBJECT_SCHEMA_NAME(fk.parent_object_id) AS fk_schema,
                         pk_col.name AS pk_column, fkc.constraint_column_id AS key_seq,
                         fk.delete_referential_action_desc AS delete_rule,
                         fk.update_referential_action_desc AS update_rule
@@ -381,7 +434,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -397,6 +450,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT fk.name AS fk_name, OBJECT_NAME(fk.parent_object_id) AS fk_table,
                         fk_col.name AS fk_column, OBJECT_NAME(fk.referenced_object_id) AS pk_table,
+                        OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS pk_schema,
+                        OBJECT_SCHEMA_NAME(fk.parent_object_id) AS fk_schema,
                         pk_col.name AS pk_column, fkc.constraint_column_id AS key_seq,
                         fk.delete_referential_action_desc AS delete_rule,
                         fk.update_referential_action_desc AS update_rule
@@ -413,7 +468,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -730,7 +785,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema, so a key across schemas points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("fk_name");
         String fkTable = rs.getString("fk_table");
         String fkColumn = rs.getString("fk_column");
@@ -741,12 +797,14 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String updateRule = rs.getString("update_rule");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("fk_schema")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("pk_schema")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
@@ -1086,5 +1144,51 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // No ADMIN OPTION and no grantor on SQL Server memberships.
+        String sql = """
+                SELECT rp.name AS role_name, mp.name AS grantee
+                FROM sys.database_role_members drm
+                JOIN sys.database_principals rp ON rp.principal_id = drm.role_principal_id
+                JOIN sys.database_principals mp ON mp.principal_id = drm.member_principal_id
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(), Optional.empty()));
+            }
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // S/U = users; R/G = roles (groups join like roles). Application roles
+        // ('A') are excluded — not grantable to principals.
+        String sql = """
+                SELECT name, type FROM sys.database_principals
+                WHERE type IN ('S', 'U', 'R', 'G')
+                ORDER BY name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String type = rs.getString("type");
+                boolean user = "S".equalsIgnoreCase(type) || "U".equalsIgnoreCase(type);
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("name"),
+                        user ? org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_USER : org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_ROLE));
+            }
+        }
+        return Optional.of(List.copyOf(result));
     }
 }

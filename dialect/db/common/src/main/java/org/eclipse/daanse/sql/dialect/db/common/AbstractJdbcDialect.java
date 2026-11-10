@@ -524,6 +524,11 @@ public abstract class AbstractJdbcDialect implements Dialect, SqlGenerator, DdlG
     }
 
     @Override
+    public boolean supportsTransactions() {
+        return caps.supportsTransactions();
+    }
+
+    @Override
     public boolean supportsBatchOperations() {
         return caps.supportsBatchOperations();
     }

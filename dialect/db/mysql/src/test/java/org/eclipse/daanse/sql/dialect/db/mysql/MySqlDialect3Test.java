@@ -70,13 +70,14 @@ class MySqlDialect3Test {
     void testGenerateRegularExpression_CaseInsensitive() throws Exception {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", "(?i)|(?u).*a.*").get()
                 .toString();
-        assertEquals("table.column IS NOT NULL AND UPPER(table.column) REGEXP '.*A.*'", sql);
+        assertEquals("table.column IS NOT NULL AND UPPER(table.column) REGEXP '\\\\A(?:.*A.*)\\\\z'", sql);
     }
 
     @Test
     void testGenerateRegularExpression_CaseSensitive() throws Exception {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", ".*a.*").get().toString();
-        assertEquals("table.column IS NOT NULL AND table.column REGEXP '.*a.*'", sql);
+        // REGEXP follows the collation, case-insensitive by default: the pattern asks for case
+        assertEquals("table.column IS NOT NULL AND table.column REGEXP '(?-i)\\\\A(?:.*a.*)\\\\z'", sql);
     }
 
     @Test

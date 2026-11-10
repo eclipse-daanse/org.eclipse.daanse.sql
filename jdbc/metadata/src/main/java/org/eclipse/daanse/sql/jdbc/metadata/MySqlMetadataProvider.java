@@ -338,7 +338,8 @@ public class MySqlMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
                         kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
@@ -354,7 +355,7 @@ public class MySqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -369,7 +370,8 @@ public class MySqlMetadataProvider implements MetadataProvider {
         // schema.
         String sql = """
                 SELECT tc.CONSTRAINT_NAME AS FK_NAME, kcu.TABLE_NAME AS FK_TABLE, kcu.COLUMN_NAME AS FK_COLUMN,
-                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
+                        kcu.REFERENCED_TABLE_NAME AS PK_TABLE, kcu.REFERENCED_TABLE_SCHEMA AS PK_SCHEMA,
+                        kcu.TABLE_SCHEMA AS FK_SCHEMA, kcu.REFERENCED_COLUMN_NAME AS PK_COLUMN,
                         kcu.ORDINAL_POSITION AS KEY_SEQ, rc.DELETE_RULE, rc.UPDATE_RULE
                 FROM information_schema.TABLE_CONSTRAINTS tc
                 JOIN information_schema.KEY_COLUMN_USAGE kcu
@@ -385,7 +387,7 @@ public class MySqlMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -715,7 +717,8 @@ public class MySqlMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema (database), so a key across them points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("FK_NAME");
         String fkTable = rs.getString("FK_TABLE");
         String fkColumn = rs.getString("FK_COLUMN");
@@ -726,12 +729,14 @@ public class MySqlMetadataProvider implements MetadataProvider {
         String updateRule = rs.getString("UPDATE_RULE");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("FK_SCHEMA")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("PK_SCHEMA")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
@@ -882,5 +887,49 @@ public class MySqlMetadataProvider implements MetadataProvider {
                     .map(col -> (ColumnReference) new ColumnReference(Optional.of(tableRef), col)).toList();
             return new UniqueConstraintRecord(constraintName, tableRef, colRefs);
         }
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership>> getAllRoleMemberships(Connection connection)
+            throws SQLException {
+        // mysql.role_edges (8.0+); needs privileges on the mysql schema.
+        String sql = """
+                SELECT FROM_USER AS role_name, TO_USER AS grantee, WITH_ADMIN_OPTION
+                FROM mysql.role_edges
+                ORDER BY grantee, role_name
+                """;
+        List<org.eclipse.daanse.sql.jdbc.api.schema.RoleMembership> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.RoleMembershipRecord(
+                        rs.getString("grantee"), rs.getString("role_name"),
+                        Optional.empty(),
+                        Optional.of("Y".equalsIgnoreCase(rs.getString("WITH_ADMIN_OPTION")) ? "YES" : "NO")));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
+    }
+
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal>> getAllPrincipals(Connection connection)
+            throws SQLException {
+        // MySQL keeps no structural user/role distinction ("little to
+        // distinguish them") — every principal reports KIND_UNKNOWN.
+        // mysql.user needs privileges on the mysql schema.
+        String sql = "SELECT user FROM mysql.user ORDER BY user";
+        List<org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal> result = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.add(new org.eclipse.daanse.sql.jdbc.record.schema.DatabasePrincipalRecord(rs.getString("user"),
+                        org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal.KIND_UNKNOWN));
+            }
+        } catch (SQLException e) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(result));
     }
 }

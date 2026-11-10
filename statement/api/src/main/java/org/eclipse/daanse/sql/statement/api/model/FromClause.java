@@ -38,7 +38,7 @@ public sealed interface FromClause {
      * {@code instanceof Aliased} rather than enumerating every leaf variant.
      */
     sealed interface Aliased extends FromClause
-            permits FromTable, FromSubquery, FromSet, FromRaw, FromVariant, FromInline {
+            permits FromTable, FromSubquery, FromSet, FromRaw, FromVariant, FromPortable, FromInline {
         TableAlias alias();
     }
 
@@ -120,6 +120,23 @@ public sealed interface FromClause {
      * @param alias         the derived-table alias
      */
     record FromVariant(Map<String, String> byDialectName, TableAlias alias) implements Aliased {
+    }
+
+    /**
+     * A derived table written once for every database, beside the texts a description gives for some dialects: the
+     * renderer takes the live dialect's own text where there is one, else renders the tree (a subquery or a set
+     * operation under the same alias) in that dialect, else takes the {@code "generic"} text. A named query of an
+     * Analysis Services data source view comes this way: its Transact-SQL for SQL Server, its tree for every other
+     * database.
+     *
+     * @param tree          the derived table as a tree, or {@code null} when there is none
+     * @param byDialectName the {@code dialect-name -> SQL} texts, possibly empty
+     * @param alias         the derived-table alias
+     */
+    record FromPortable(Aliased tree, Map<String, String> byDialectName, TableAlias alias) implements Aliased {
+        public FromPortable {
+            byDialectName = Map.copyOf(byDialectName);
+        }
     }
 
     /**
