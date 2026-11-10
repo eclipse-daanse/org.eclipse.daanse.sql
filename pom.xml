@@ -32,7 +32,9 @@
     <scm.repo.detail>org.eclipse.daanse.sql</scm.repo.detail>
     <slf4j.version>2.0.9</slf4j.version>
     <mockito.version>4.9.0</mockito.version>
+    <!-- AssertJ is built against this Byte Buddy and imports it from 1.18 on: change the two together. -->
     <assertj.version>3.27.7</assertj.version>
+    <bytebuddy.version>1.18.3</bytebuddy.version>
 
     <java.version>17</java.version>
     <java.release>17</java.release>
