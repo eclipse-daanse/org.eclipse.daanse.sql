@@ -1,0 +1,898 @@
+/*
+ * Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
+ *
+ * For more information please visit the Project: Hitachi Vantara - Mondrian
+ *
+ * ---- All changes after Fork in 2023 ------------------------
+ *
+ * Project: Eclipse daanse
+ *
+ * Copyright (c) 2023 Contributors to the Eclipse Foundation.
+ *
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * Contributors after Fork in 2023:
+ *   SmartCity Jena - initial adapt parts of Syntax.class
+ *   Stefan Bischof (bipolis.org) - initial
+ */
+package org.eclipse.daanse.sql.dialect.db.mssqlserver;
+
+import java.sql.Date;
+import java.sql.Timestamp;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.List;
+import java.util.Optional;
+
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
+import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.Trigger;
+import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
+import org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming;
+import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
+import org.eclipse.daanse.sql.dialect.api.generator.StatementHint;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
+import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+
+/**
+ * @author jhyde
+ * @since Nov 23, 2008
+ */
+public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
+
+    private final DateFormat df = new SimpleDateFormat("yyyyMMdd");
+
+    private static final String SUPPORTED_PRODUCT_NAME = "MSSQL";
+
+    /**
+     * {@code BIT}.
+     *
+     * <p>
+     * SQL Server has no BOOLEAN at all; BIT is the type that carries it.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "BIT";
+    }
+
+    /**
+     * {@code DATETIME}.
+     *
+     * <p>
+     * SQL Server's TIMESTAMP is a row-version counter, not a point in time. DATETIME
+     * is the type that stores one.
+     */
+    @Override
+    public String timestampTypeName() {
+        return "DATETIME";
+    }
+
+    /**
+     * National text keeps its national type, long text and binary their {@code MAX} form. SQL Server's
+     * {@code VARCHAR(n)} counts bytes: the UTF-8 of a national text of n characters overran it (Adventure Works'
+     * product descriptions in Arabic, Chinese and Thai). A large object without a length is no SQL Server type
+     * ({@code CLOB}) or a single byte ({@code VARBINARY}); n above 4000 national or 8000 other characters or bytes
+     * is {@code MAX}.
+     */
+    @Override
+    public String nativeType(ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        java.util.OptionalInt size = meta.columnSize();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case NVARCHAR, NCHAR -> size.isPresent() && size.getAsInt() <= 4000
+                ? (type == java.sql.JDBCType.NCHAR ? "NCHAR(" : "NVARCHAR(") + size.getAsInt() + ")"
+                : "NVARCHAR(MAX)";
+        case LONGNVARCHAR, NCLOB -> "NVARCHAR(MAX)";
+        case LONGVARCHAR, CLOB -> "VARCHAR(MAX)";
+        case VARCHAR -> size.isPresent() && size.getAsInt() > 8000 ? "VARCHAR(MAX)" : super.nativeType(meta);
+        case VARBINARY, BINARY -> size.isPresent() && size.getAsInt() <= 8000
+                ? (type == java.sql.JDBCType.BINARY ? "BINARY(" : "VARBINARY(") + size.getAsInt() + ")"
+                : "VARBINARY(MAX)";
+        case LONGVARBINARY, BLOB -> "VARBINARY(MAX)";
+        default -> super.nativeType(meta);
+        };
+    }
+
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.CteGenerator cachedCteGenerator;
+
+    /** A sum keeps the type of its operand: an INTEGER column sums to an INTEGER and overflows past 2^31 - 1. */
+    @Override
+    public boolean sumKeepsTheTypeOfItsOperand() {
+        return true;
+    }
+
+    public MicrosoftSqlServerDialect() {
+        super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
+    }
+
+    /** Construct from a captured snapshot — the canonical entry point. */
+    public MicrosoftSqlServerDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData init) {
+        super(init);
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator paginationGenerator() {
+        return new org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator() {
+            @Override
+            public java.util.Optional<String> selectPrefix(java.util.OptionalLong limit, java.util.OptionalLong offset) {
+                // SQL Server expresses a pure row cap as a leading "TOP n". When an offset is
+                // present it uses the trailing OFFSET/FETCH form instead (see paginate).
+                if (limit.isPresent() && offset.isEmpty()) {
+                    return java.util.Optional.of("TOP " + limit.getAsLong());
+                }
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public String paginate(java.util.OptionalLong limit, java.util.OptionalLong offset) {
+                // No offset → the cap is emitted as a leading TOP (selectPrefix), so nothing
+                // trailing. With an offset, fall back to ANSI OFFSET/FETCH (SQL Server 2012+).
+                return offset.isEmpty()
+                        ? ""
+                        : org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.super.paginate(limit,
+                                offset);
+            }
+        };
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator returningGenerator() {
+        var local = cachedReturningGenerator;
+        if (local != null)
+            return local;
+        local = new org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator() {
+            @Override
+            public boolean supportsReturning() {
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<String> returning(java.util.List<String> columns) {
+                if (columns == null || columns.isEmpty())
+                    return java.util.Optional.empty();
+                if (columns.size() == 1 && "*".equals(columns.get(0))) {
+                    return java.util.Optional.of(" OUTPUT INSERTED.*");
+                }
+                StringBuilder sb = new StringBuilder(" OUTPUT ");
+                boolean first = true;
+                for (String c : columns) {
+                    if (!first)
+                        sb.append(", ");
+                    sb.append("INSERTED.").append(quoteIdentifier(c));
+                    first = false;
+                }
+                return java.util.Optional.of(sb.toString());
+            }
+        };
+        cachedReturningGenerator = local;
+        return local;
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator mergeGenerator() {
+        var local = cachedMergeGenerator;
+        if (local != null)
+            return local;
+        // SQL Server major version map: 2008=10, 2012=11, 2014=12, 2016=13, 2017=14,
+        // 2019=15, 2022=16.
+        if (!dialectVersion.isUnknownOrAtLeast(10, 0)) {
+            local = super.mergeGenerator();
+            cachedMergeGenerator = local;
+            return local;
+        }
+        local = new org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator() {
+            @Override
+            public boolean supportsMerge() {
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<String> upsert(UpsertSpec spec, java.util.List<String> values) {
+                if (values == null || values.size() != spec.insertColumns().size()) {
+                    throw new IllegalArgumentException("values must match insertColumns in length");
+                }
+                StringBuilder sb = new StringBuilder("MERGE INTO ").append(qualified(spec.target()))
+                        .append(" AS T USING (VALUES (");
+                for (int i = 0; i < values.size(); i++) {
+                    if (i > 0)
+                        sb.append(", ");
+                    sb.append(values.get(i));
+                }
+                sb.append(")) AS S(");
+                appendQuotedCsv(sb, spec.insertColumns());
+                sb.append(") ON ");
+                for (int i = 0; i < spec.keyColumns().size(); i++) {
+                    if (i > 0)
+                        sb.append(" AND ");
+                    sb.append("T.").append(quoteIdentifier(spec.keyColumns().get(i))).append(" = S.")
+                            .append(quoteIdentifier(spec.keyColumns().get(i)));
+                }
+                if (!spec.updateColumns().isEmpty()) {
+                    sb.append(" WHEN MATCHED THEN UPDATE SET ");
+                    boolean first = true;
+                    for (String c : spec.updateColumns()) {
+                        if (!first)
+                            sb.append(", ");
+                        sb.append("T.").append(quoteIdentifier(c)).append(" = S.").append(quoteIdentifier(c));
+                        first = false;
+                    }
+                }
+                sb.append(" WHEN NOT MATCHED THEN INSERT (");
+                appendQuotedCsv(sb, spec.insertColumns());
+                sb.append(") VALUES (");
+                for (int i = 0; i < spec.insertColumns().size(); i++) {
+                    if (i > 0)
+                        sb.append(", ");
+                    sb.append("S.").append(quoteIdentifier(spec.insertColumns().get(i)));
+                }
+                sb.append(");");
+                return java.util.Optional.of(sb.toString());
+            }
+        };
+        cachedMergeGenerator = local;
+        return local;
+    }
+
+    /**
+     * SQL Server: CTE {@code WITH …} but no {@code RECURSIVE} keyword
+     * (auto-detected).
+     */
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.CteGenerator cteGenerator() {
+        var local = cachedCteGenerator;
+        if (local != null)
+            return local;
+        local = new org.eclipse.daanse.sql.dialect.api.generator.CteGenerator() {
+            @Override
+            public boolean emitsRecursiveKeyword() {
+                return false;
+            }
+        };
+        cachedCteGenerator = local;
+        return local;
+    }
+
+    /** SQL Server rejects {@code CASCADE} on {@code DROP TABLE}. */
+    @Override
+    public boolean supportsDropTableCascade() {
+        return false;
+    }
+
+    /** SQL Server rejects {@code IF NOT EXISTS} on {@code CREATE TABLE}. */
+    @Override
+    public boolean supportsCreateTableIfNotExists() {
+        return false;
+    }
+
+    /** SQL Server rejects {@code IF NOT EXISTS} on {@code CREATE INDEX}. */
+    @Override
+    public boolean supportsCreateIndexIfNotExists() {
+        return false;
+    }
+
+    /** SQL Server requires DROP+CREATE — no {@code OR REPLACE} on views. */
+    @Override
+    public boolean supportsCreateOrReplaceView() {
+        return false;
+    }
+
+    /** SQL Server: {@code DROP INDEX name ON table_name}. */
+    @Override
+    public boolean dropIndexRequiresTable() {
+        return true;
+    }
+
+    /**
+     * SQL Server rejects {@code IF EXISTS} on
+     * {@code ALTER TABLE … DROP CONSTRAINT}.
+     */
+    @Override
+    public boolean supportsDropConstraintIfExists() {
+        return false;
+    }
+
+    @Override
+    public String createSchema(String schemaName, boolean ifNotExists) {
+        if (!ifNotExists) {
+            return "CREATE SCHEMA " + quoteIdentifier(schemaName);
+        }
+        // Single-line guarded form; works in any batch with QUOTED_IDENTIFIER on.
+        return "IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = '" + schemaName.replace("'", "''")
+                + "') EXEC('CREATE SCHEMA " + quoteIdentifier(schemaName) + "')";
+    }
+
+    @Override
+    public String dropTable(String schemaName, String tableName, boolean ifExists) {
+        if (!ifExists) {
+            return "DROP TABLE " + quoteIdentifier(schemaName, tableName);
+        }
+        return "IF OBJECT_ID('" + (schemaName == null ? "" : schemaName + ".") + tableName
+                + "', 'U') IS NOT NULL DROP TABLE " + quoteIdentifier(schemaName, tableName);
+    }
+
+    @Override
+    public StringBuilder generateInline(List<String> columnNames, List<String> columnTypes, List<String[]> valueList) {
+        return generateInlineGeneric(columnNames, columnTypes, valueList, null, false);
+    }
+
+    @Override
+    public boolean requiresAliasForFromQuery() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresUnionOrderByOrdinal() {
+        return false;
+    }
+
+    @Override
+    public void quoteBooleanLiteral(StringBuilder buf, String value) {
+        // avoid padding origin values with blanks to n for char(n),
+        // when ANSI_PADDING=ON
+        String boolLiteral = value.trim();
+        if (!boolLiteral.equalsIgnoreCase("TRUE") && !(boolLiteral.equalsIgnoreCase("FALSE"))
+                && !(boolLiteral.equalsIgnoreCase("1")) && !(boolLiteral.equalsIgnoreCase("0"))) {
+            throw new NumberFormatException("Illegal BOOLEAN literal:  " + value);
+        }
+        buf.append(DialectUtil.singleQuoteString(value));
+    }
+
+    @Override
+    protected void quoteDateLiteral(StringBuilder buf, Date date) {
+        buf.append("CONVERT(DATE, '");
+        buf.append(df.format(date));
+        // Format 112 is equivalent to "yyyyMMdd" in Java.
+        // See http://msdn.microsoft.com/en-us/library/ms187928.aspx
+        buf.append("', 112)");
+    }
+
+    @Override
+    protected void quoteTimestampLiteral(StringBuilder buf, String value, Timestamp timestamp) {
+        buf.append("CONVERT(datetime, '");
+        buf.append(timestamp.toString());
+        // Format 120 is equivalent to "yyyy-mm-dd hh:mm:ss" in Java.
+        // See http://msdn.microsoft.com/en-us/library/ms187928.aspx
+        buf.append("', 120)");
+    }
+
+    @Override
+    public String name() {
+        return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding caseFolding() {
+        return org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding.PRESERVE;
+    }
+
+    /**
+     * T-SQL spells statement hints as a trailing query-option clause:
+     * {@code OPTION (RECOMPILE, MAXDOP 2)} (leading space) — per hint the name followed by
+     * its arguments separated by spaces ({@code name args...}), hints separated by commas.
+     */
+    @Override
+    public StringBuilder statementOption(List<StatementHint> hints) {
+        if (hints.isEmpty()) {
+            return new StringBuilder();
+        }
+        StringBuilder sb = new StringBuilder(" OPTION (");
+        boolean first = true;
+        for (StatementHint hint : hints) {
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+            sb.append(hint.name());
+            for (String argument : hint.arguments()) {
+                sb.append(' ').append(argument);
+            }
+        }
+        return sb.append(")");
+    }
+
+    @Override
+    public StringBuilder generateKnownFunction(KnownFunction function, List<? extends CharSequence> arguments) {
+        return switch (function) {
+        case LENGTH -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("LENGTH expects 1 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("LEN(").append(arguments.get(0)).append(")");
+        }
+        case CONCAT -> {
+            // T-SQL + concatenates but coerces/NULL-propagates awkwardly; CONCAT is the idiom.
+            if (arguments.size() < 2) {
+                throw new IllegalArgumentException("CONCAT expects 2 or more argument(s), got " + arguments.size());
+            }
+            StringBuilder sb = new StringBuilder("CONCAT(");
+            for (int i = 0; i < arguments.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(arguments.get(i));
+            }
+            yield sb.append(")");
+        }
+        case INDEX_OF -> {
+            if (arguments.size() != 2) {
+                throw new IllegalArgumentException("INDEX_OF expects 2 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("CHARINDEX(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(")");
+        }
+        case YEAR, MONTH, DAY, HOUR, MINUTE, SECOND -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException(
+                        function.name() + " expects 1 argument(s), got " + arguments.size());
+            }
+            // T-SQL has no EXTRACT; DATEPART covers the whole family.
+            yield new StringBuilder("DATEPART(").append(function.name().toLowerCase(java.util.Locale.ROOT))
+                    .append(", ").append(arguments.get(0)).append(")");
+        }
+        case NOW -> {
+            if (!arguments.isEmpty()) {
+                throw new IllegalArgumentException("NOW expects 0 argument(s), got " + arguments.size());
+            }
+            // GETDATE() (datetime) chosen over SYSDATETIME() (datetime2): it is the
+            // ubiquitous T-SQL spelling and its precision suffices for NOW's intent.
+            yield new StringBuilder("GETDATE()");
+        }
+        case MONTH_NAME -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("MONTH_NAME expects 1 argument(s), got " + arguments.size());
+            }
+            // DATENAME follows the session's language; the English names of the default language us_english
+            yield new StringBuilder("DATENAME(month, ").append(arguments.get(0)).append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS NVARCHAR(4000))");
+        }
+        case PAD_RIGHT -> {
+            if (arguments.size() != 2) {
+                throw new IllegalArgumentException("PAD_RIGHT expects 2 argument(s), got " + arguments.size());
+            }
+            // a fixed-length text pads and cuts, as CONVERT(CHAR(n), x) does
+            yield new StringBuilder("CAST(").append(arguments.get(0)).append(" AS NCHAR(").append(arguments.get(1))
+                    .append("))");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("DATEFROMPARTS(").append(arguments.get(0)).append(", ").append(arguments.get(1))
+                    .append(", ").append(arguments.get(2)).append(")");
+        }
+        default -> super.generateKnownFunction(function, arguments);
+        };
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileDisc(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_DISC", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_CONT", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public boolean supportsPercentileDisc() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsPercentileCont() {
+        return true;
+    }
+
+    /**
+     * SQL Server divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as well: the dividend is read as
+     * float (F-10.9, a native Filter over Units Shipped / Units Ordered, database run 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS float)";
+    }
+
+    /**
+     * SQL Server averages an integer column to an integer (the result type of AVG is the operand's); the operand is
+     * read as float, the double way every measure value takes.
+     */
+    @Override
+    public CharSequence averageOperand(CharSequence operand) {
+        return "CAST(" + operand + " AS float)";
+    }
+
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        if (distinct) {
+            // SQL Server knows no STRING_AGG(DISTINCT ...) ("Incorrect syntax near ','", database run 30.10.2026):
+            // declined, so the engine names the refusal instead of sending SQL the server rejects
+            return java.util.Optional.empty();
+        }
+        StringBuilder buf = new StringBuilder(64);
+        buf.append("STRING_AGG");
+        buf.append("( ");
+        buf.append(operand);
+        buf.append(", '");
+        if (separator != null) {
+            buf.append(separator);
+        } else {
+            buf.append(", ");
+        }
+        buf.append("'");
+        buf.append(")");
+        if (columns != null && !columns.isEmpty()) {
+            buf.append(" WITHIN GROUP (ORDER BY ");
+            buf.append(buildOrderedColumnsClause(columns));
+            buf.append(")");
+        }
+        // STRING_AGG(CONVERT (NVARCHAR (MAX), EmailAddress), ';') WITHIN GROUP (ORDER
+        // BY EmailAddress ASC)
+        return java.util.Optional.of((buf).toString());
+    }
+
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
+    @Override
+    public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
+            List<OrderedColumn> columns) {
+        return java.util.Optional.empty();
+    }
+
+    @Override
+    public boolean supportsNthValue() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsNthValueIgnoreNulls() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
+    @Override
+    public String createTrigger(String triggerName, org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming timing,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent event,
+            org.eclipse.daanse.sql.model.schema.TableReference table,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerScope scope, String whenCondition, String body) {
+        if (body == null || body.isBlank()) {
+            throw new IllegalArgumentException("body must not be blank for SQL Server CREATE TRIGGER");
+        }
+        StringBuilder sb = new StringBuilder("CREATE TRIGGER ");
+        sb.append(quoteIdentifier(triggerName));
+        sb.append(" ON ").append(qualified(table));
+        // SQL Server: AFTER (or FOR), INSTEAD OF — no BEFORE.
+        if (timing == org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming.INSTEAD_OF) {
+            sb.append(" INSTEAD OF ");
+        } else {
+            sb.append(" AFTER ");
+        }
+        sb.append(event);
+        // Body should already include the {@code AS} keyword; if not, prepend.
+        String trimmed = body.stripLeading();
+        if (!trimmed.regionMatches(true, 0, "AS", 0, 2) && !trimmed.regionMatches(true, 0, "WITH", 0, 4)) {
+            sb.append(" AS ");
+        } else {
+            sb.append(' ');
+        }
+        sb.append(body);
+        return sb.toString();
+    }
+
+    // -------------------- Trigger procedures --------------------
+
+    @Override
+    public Optional<String> createTriggerProcedure(String procedureName, String schemaName, String body) {
+        if (body == null || body.isBlank()) {
+            throw new IllegalArgumentException("body must not be blank for SQL Server trigger procedure");
+        }
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        return Optional.of("CREATE OR ALTER PROCEDURE " + qualified + " AS " + body);
+    }
+
+    @Override
+    public String createTriggerUsingProcedure(String triggerName, String schemaName,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming timing,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent event,
+            org.eclipse.daanse.sql.model.schema.TableReference table,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerScope scope, String whenCondition,
+            String procedureName) {
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        return createTrigger(triggerName, timing, event, table, scope, whenCondition, "AS EXEC " + qualified);
+    }
+
+    /** SQL Server: {@code DROP PROCEDURE [IF EXISTS] schema.procedureName}. */
+    @Override
+    public Optional<String> dropProcedure(String procedureName, String schemaName, boolean ifExists) {
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        return Optional.of("DROP PROCEDURE " + (ifExists ? "IF EXISTS " : "") + qualified);
+    }
+
+    // -------------------- DDL — ALTER / RENAME (SQL-Server-specific)
+    // --------------------
+
+    @Override
+    public String alterTableAddColumn(TableReference table, ColumnDefinition column) {
+        StringBuilder sb = new StringBuilder("ALTER TABLE ");
+        sb.append(qualified(table));
+        sb.append(" ADD ");
+        sb.append(quoteIdentifier(column.column().name()));
+        sb.append(' ').append(nativeType(column.columnMetaData()));
+        if (column.columnMetaData().nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        column.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        return sb.toString();
+    }
+
+    /**
+     * SQL Server: {@code ALTER TABLE x ALTER COLUMN c <type>} (no {@code TYPE}
+     * keyword).
+     */
+    @Override
+    public String alterColumnType(TableReference table, String columnName, ColumnMetaData newMeta) {
+        if (newMeta == null) {
+            throw new IllegalArgumentException("newMeta must not be null for ALTER COLUMN");
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" ALTER COLUMN ")
+                .append(quoteIdentifier(columnName)).append(' ').append(nativeType(newMeta)).toString();
+    }
+
+    @Override
+    public String alterColumnSetNullability(TableReference table, String columnName, boolean nullable) {
+        throw new UnsupportedOperationException(
+                "SQL Server requires the column type when altering nullability — use the "
+                        + "alterColumnSetNullability(table, column, nullable, currentMeta) overload.");
+    }
+
+    @Override
+    public String alterColumnSetNullability(TableReference table, String columnName, boolean nullable,
+            ColumnMetaData currentMeta) {
+        if (currentMeta == null) {
+            throw new IllegalArgumentException("currentMeta must not be null for SQL Server ALTER COLUMN");
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" ALTER COLUMN ")
+                .append(quoteIdentifier(columnName)).append(' ').append(nativeType(currentMeta))
+                .append(nullable ? " NULL" : " NOT NULL").toString();
+    }
+
+    @Override
+    public String alterColumnSetDefault(TableReference table, String columnName, String defaultExpression) {
+        if (defaultExpression == null || defaultExpression.isBlank()) {
+            throw new IllegalArgumentException("defaultExpression must not be blank for SET DEFAULT");
+        }
+        String dfName = "DF_" + table.name() + "_" + columnName;
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" ADD CONSTRAINT ")
+                .append(quoteIdentifier(dfName)).append(" DEFAULT (").append(defaultExpression).append(") FOR ")
+                .append(quoteIdentifier(columnName)).toString();
+    }
+
+    /**
+     * Drops the assumed {@code DF_
+     *
+    <table>
+     * _<col>} default-constraint produced by {@link #alterColumnSetDefault}.
+     */
+    @Override
+    public String alterColumnDropDefault(TableReference table, String columnName) {
+        String dfName = "DF_" + table.name() + "_" + columnName;
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" DROP CONSTRAINT ")
+                .append(quoteIdentifier(dfName)).toString();
+    }
+
+    @Override
+    public String renameColumn(TableReference table, String oldName, String newName) {
+        if (!supportsRenameColumn()) {
+            return null;
+        }
+        return spRename(qualified(table) + "." + quoteIdentifier(oldName), newName, "COLUMN");
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.table', 'new'}. */
+    @Override
+    public String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
+        return spRename(qualified(table), newName, null);
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.table.idx', 'new', 'INDEX'}. */
+    @Override
+    public String renameIndex(String oldName, String newName, TableReference table) {
+        if (!supportsRenameIndex()) {
+            return null;
+        }
+        if (table == null) {
+            throw new IllegalArgumentException("table must not be null for SQL Server sp_rename INDEX");
+        }
+        return spRename(qualified(table) + "." + quoteIdentifier(oldName), newName, "INDEX");
+    }
+
+    /**
+     * SQL Server:
+     * {@code EXEC sp_rename 'schema.table.constraint', 'new', 'OBJECT'}.
+     */
+    @Override
+    public String renameConstraint(TableReference table, String oldName, String newName) {
+        if (!supportsRenameConstraint()) {
+            return null;
+        }
+        // constraints are schema-scoped objects: sp_rename wants schema.constraint, not table.constraint
+        String old = table.schema().isPresent()
+                ? quoteIdentifier(table.schema().get().name(), oldName).toString()
+                : quoteIdentifier(oldName);
+        return spRename(old, newName, "OBJECT");
+    }
+
+    /**
+     * @param objectType the sp_rename type ({@code COLUMN}/{@code INDEX}/
+     *                   {@code OBJECT}), or {@code null} for the table-rename
+     *                   overload (which omits the third argument entirely)
+     */
+    private String spRename(String quotedSourcePath, String newName, String objectType) {
+        StringBuilder sb = new StringBuilder("EXEC sp_rename '");
+        sb.append(quotedSourcePath);
+        sb.append("', '").append(newName).append("'");
+        if (objectType != null)
+            sb.append(", '").append(objectType).append("'");
+        return sb.toString();
+    }
+
+    /**
+     * SQL Server: {@code sp_rename} technically renames a view, but it does not
+     * update the view's stored definition text or any dependent objects —
+     * treated as unsupported here rather than silently producing a broken view.
+     */
+    @Override
+    public boolean supportsRenameView() {
+        return false;
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.seq', 'new'}. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
+    /** SQL Server memberships are {@code ALTER ROLE}; there is no ADMIN OPTION — the flag is ignored. */
+    @Override
+    public String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        return "ALTER ROLE " + quoteIdentifier(roleName) + " ADD MEMBER " + quoteIdentifier(grantee);
+    }
+
+    @Override
+    public String revokeRole(String roleName, String grantee) {
+        return "ALTER ROLE " + quoteIdentifier(roleName) + " DROP MEMBER " + quoteIdentifier(grantee);
+    }
+
+    /** SQL Server takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
+    @Override
+    public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
+                + quoteIdentifier(grantee);
+    }
+
+    /** SQL Server: {@code EXEC sp_rename 'schema.seq', 'new'}. */
+    @Override
+    public Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(spRename(quoteIdentifier(schemaName, name), newName, "OBJECT"));
+    }
+
+    /**
+     * SQL Server has no COMMENT ON — comments are the {@code MS_Description}
+     * extended property. Update when present, add otherwise; {@code null}
+     * drops it. The schema defaults to {@code dbo}.
+     */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of(msDescription(table, null, comment));
+    }
+
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of(msDescription(table, columnName, comment));
+    }
+
+    private String msDescription(TableReference table, String columnName, String comment) {
+        String schema = table.schema().map(s -> s.name()).orElse("dbo");
+        String levels = "@level0type = N'SCHEMA', @level0name = " + nLiteral(schema)
+                + ", @level1type = N'TABLE', @level1name = " + nLiteral(table.name())
+                + (columnName == null ? "" : ", @level2type = N'COLUMN', @level2name = " + nLiteral(columnName));
+        String object = "OBJECT_ID(" + nLiteral(quoteIdentifier(schema, table.name()).toString()) + ")";
+        String minor = columnName == null ? "0"
+                : "COLUMNPROPERTY(" + object + ", " + nLiteral(columnName) + ", 'ColumnId')";
+        String exists = "EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = " + object
+                + " AND minor_id = " + minor + " AND name = N'MS_Description')";
+        if (comment == null) {
+            return "IF " + exists + " EXEC sys.sp_dropextendedproperty @name = N'MS_Description', " + levels;
+        }
+        String value = "@name = N'MS_Description', @value = " + nLiteral(comment) + ", " + levels;
+        return "IF " + exists + " EXEC sys.sp_updateextendedproperty " + value
+                + " ELSE EXEC sys.sp_addextendedproperty " + value;
+    }
+
+    private static String nLiteral(String s) {
+        return "N'" + s.replace("'", "''") + "'";
+    }
+
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+
+    /**
+     * {@code CREATE SYNONYM schema.name FOR [server.][database.][schema.]object}; the
+     * DB link is the linked server, a missing middle part stays empty
+     * ({@code server.db..object}). SQL Server has no {@code CREATE OR REPLACE SYNONYM}
+     * — {@code orReplace} is ignored. Empty for a public synonym.
+     */
+    @Override
+    public Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (synonym.isPublic()) {
+            return Optional.empty();
+        }
+        String[] parts = { synonym.dbLink(), synonym.targetCatalogName(), synonym.targetSchemaName() };
+        int first = 0;
+        while (first < parts.length && parts[first] == null)
+            first++;
+        StringBuilder target = new StringBuilder();
+        for (int i = first; i < parts.length; i++) {
+            if (parts[i] != null)
+                target.append(quoteIdentifier(parts[i]));
+            target.append('.');
+        }
+        target.append(quoteIdentifier(synonym.targetName()));
+        return Optional.of("CREATE SYNONYM " + quoteIdentifier(synonym.schemaName(), synonym.name()) + " FOR "
+                + target);
+    }
+}

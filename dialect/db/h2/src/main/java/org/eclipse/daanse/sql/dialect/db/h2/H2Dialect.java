@@ -1,0 +1,304 @@
+/*
+ * Copyright (c) 2022 Contributors to the Eclipse Foundation.
+ *
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * Contributors:
+ *   SmartCity Jena - initial
+ *   Stefan Bischof (bipolis.org) - initial
+ */
+package org.eclipse.daanse.sql.dialect.db.h2;
+
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
+import java.util.List;
+import java.util.Optional;
+
+import org.eclipse.daanse.sql.model.sql.BitOperation;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class H2Dialect extends AbstractJdbcDialect {
+
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator cachedPaginationGenerator;
+    private static final Logger LOGGER = LoggerFactory.getLogger(H2Dialect.class);
+
+    private static final String SUPPORTED_PRODUCT_NAME = "H2";
+
+    @Override
+    public boolean allowsRegularExpressionInWhereClause() {
+        return true;
+    }
+
+    /**
+     * {@code source IS NOT NULL AND REGEXP_LIKE(source, pattern[, flags])}.
+     *
+     * <p>H2 evaluates REGEXP_LIKE with java.util.regex FIND semantics, while
+     * the MDX MATCHES operator is anchored ({@code Pattern.matches}) — the
+     * pattern is therefore wrapped in {@code \A(?:...)\z} so the SQL result
+     * equals the calc engine's. Embedded flags are extracted BEFORE anchoring
+     * (they only match at the start of the expression).
+     */
+    @Override
+    public Optional<String> generateRegularExpression(String source, String javaRegex) {
+        try {
+            java.util.regex.Pattern.compile(javaRegex);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            // Not a valid Java regex. Too risky to continue.
+            return Optional.empty();
+        }
+        javaRegex = org.eclipse.daanse.sql.dialect.db.common.DialectUtil.cleanUnicodeAwareCaseFlag(javaRegex);
+        StringBuilder mappedFlags = new StringBuilder();
+        String[][] mapping = new String[][] { { "c", "c" }, { "i", "i" }, { "m", "m" } };
+        javaRegex = extractEmbeddedFlags(javaRegex, mapping, mappedFlags);
+
+        final java.util.regex.Matcher escapeMatcher =
+                org.eclipse.daanse.sql.dialect.db.common.DialectUtil.ESCAPE_PATTERN.matcher(javaRegex);
+        while (escapeMatcher.find()) {
+            javaRegex = javaRegex.replace(escapeMatcher.group(1), escapeMatcher.group(2));
+        }
+        final StringBuilder sb = new StringBuilder();
+        sb.append(source);
+        sb.append(" IS NOT NULL AND ");
+        sb.append("REGEXP_LIKE(");
+        sb.append(source);
+        sb.append(", ");
+        quoteStringLiteral(sb, "\\A(?:" + javaRegex + ")\\z");
+        if (mappedFlags.length() > 0) {
+            sb.append(", ");
+            quoteStringLiteral(sb, mappedFlags.toString());
+        }
+        sb.append(")");
+        return Optional.of(sb.toString());
+    }
+
+    /**
+     * {@code ANALYZE}.
+     *
+     * <p>
+     * H2 samples 10000 rows per table by default; {@code ANALYZE SAMPLE_SIZE 0}
+     * makes it read every row.
+     */
+    @Override
+    public java.util.Optional<String> analyzeSchema() {
+        return java.util.Optional.of("ANALYZE");
+    }
+
+    /**
+     * {@code ANALYZE TABLE <table>}.
+     */
+    @Override
+    public java.util.Optional<String> analyzeTable(org.eclipse.daanse.sql.model.schema.TableReference table) {
+        return java.util.Optional.of("ANALYZE TABLE " + qualified(table));
+    }
+
+    /** JDBC-free constructor for SQL generation. */
+    public H2Dialect() {
+        super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
+    }
+
+    /** Construct from a captured snapshot — the canonical entry point. */
+    public H2Dialect(org.eclipse.daanse.sql.dialect.api.DialectInitData init) {
+        super(init);
+    }
+
+    /**
+     * H2 divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as
+     * well: the dividend is read as DOUBLE (F-10.9, a native Filter over Units Shipped / Units Ordered, database run
+     * 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS DOUBLE)";
+    }
+
+    @Override
+    public String name() {
+        return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    @Override
+    protected boolean supportsNullsOrdering() {
+        return true; // H2 supports NULLS FIRST/LAST
+    }
+
+    // Unified BitOperation methods
+
+    @Override
+    public java.util.Optional<String> generateBitAggregation(BitOperation operation, CharSequence operand) {
+        StringBuilder buf = new StringBuilder(64);
+        StringBuilder result = switch (operation) {
+        case AND -> buf.append("BIT_AND_AGG(").append(operand).append(")");
+        case OR -> buf.append("BIT_OR_AGG(").append(operand).append(")");
+        case XOR -> buf.append("BIT_XOR_AGG(").append(operand).append(")");
+        case NAND -> buf.append("BIT_NAND_AGG(").append(operand).append(")");
+        case NOR -> buf.append("BIT_NOR_AGG(").append(operand).append(")");
+        case NXOR -> buf.append("BIT_XNOR_AGG(").append(operand).append(")");
+        };
+        return java.util.Optional.of(result.toString());
+    }
+
+    @Override
+    public boolean supportsBitAggregation(BitOperation operation) {
+        return true; // H2 supports all bit operations
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileDisc(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_DISC", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_CONT", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        StringBuilder buf = new StringBuilder(64);
+        buf.append("LISTAGG");
+        buf.append("( ");
+        if (distinct) {
+            buf.append("DISTINCT ");
+        }
+        if (coalesce != null) {
+            buf.append("COALESCE(").append(operand).append(", '").append(coalesce).append("')");
+        } else {
+            buf.append(operand);
+        }
+        buf.append(", '");
+        if (separator != null) {
+            buf.append(separator);
+        } else {
+            buf.append(", ");
+        }
+        buf.append("'");
+        if (onOverflowTruncate != null) {
+            buf.append(" ON OVERFLOW TRUNCATE '").append(onOverflowTruncate).append("' WITHOUT COUNT)");
+        } else {
+            buf.append(")");
+        }
+        if (columns != null && !columns.isEmpty()) {
+            buf.append(" WITHIN GROUP (ORDER BY ");
+            buf.append(buildOrderedColumnsClause(columns));
+            buf.append(")");
+        }
+        return java.util.Optional.of((buf).toString());
+    }
+
+    /**
+     * The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). H2 fails an
+     * element reference past the end ("Array element error", also ARRAY_GET), so the element is sliced out and a NULL
+     * appended: a group with fewer values gives NULL, as the aggregate promises.
+     */
+    @Override
+    public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
+            List<OrderedColumn> columns) {
+        int index = AggregationGenerator.nthIndex(n);
+        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(ARRAY_SLICE(",
+                ", " + index + ", " + index + ") || ARRAY[NULL])[1]").toString());
+    }
+
+    @Override
+    public boolean supportsPercentileDisc() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsPercentileCont() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsNthValue() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsNthValueIgnoreNulls() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
+    /** H2 has no ADMIN OPTION on role grants — the flag is ignored. */
+    @Override
+    public String grantRole(String roleName, String grantee, boolean withAdminOption) {
+        return "GRANT " + quoteIdentifier(roleName) + " TO " + quoteIdentifier(grantee);
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator paginationGenerator() {
+        var local = cachedPaginationGenerator;
+        if (local != null)
+            return local;
+        local = new org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator() {
+            @Override
+            public String paginate(java.util.OptionalLong limit, java.util.OptionalLong offset) {
+                if (limit.isEmpty() && offset.isEmpty())
+                    return "";
+                StringBuilder sb = new StringBuilder();
+                if (limit.isPresent()) {
+                    long l = limit.getAsLong();
+                    if (l < 0)
+                        throw new IllegalArgumentException("limit must be >= 0");
+                    sb.append(" LIMIT ").append(l);
+                } else {
+                    sb.append(" LIMIT -1");
+                }
+                if (offset.isPresent()) {
+                    long o = offset.getAsLong();
+                    if (o < 0)
+                        throw new IllegalArgumentException("offset must be >= 0");
+                    sb.append(" OFFSET ").append(o);
+                }
+                return sb.toString();
+            }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
+            }
+        };
+        cachedPaginationGenerator = local;
+        return local;
+    }
+
+    /** H2 synonyms point to tables and views of the same database (the default spelling). */
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+}

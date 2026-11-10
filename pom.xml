@@ -19,7 +19,7 @@
   <parent>
     <groupId>org.eclipse.daanse</groupId>
     <artifactId>org.eclipse.daanse.pom.parent</artifactId>
-    <version>0.0.6</version>
+    <version>0.0.7</version>
   </parent>
   <artifactId>org.eclipse.daanse.sql</artifactId>
   <version>${revision}</version>
@@ -79,7 +79,11 @@
   </dependencyManagement>
 
   <modules>
+    <module>model</module>
+    <module>dialect</module>
+    <module>jdbc</module>
     <module>guard</module>
     <module>deparser</module>
+    <module>statement</module>
   </modules>
 </project>

@@ -13,11 +13,18 @@
  */
 package org.eclipse.daanse.sql.deparser.jsqlparser;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import java.util.HashSet;
+import java.util.Set;
+
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.IdentifierQuotingPolicy;
 
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.ExpressionVisitor;
 import net.sf.jsqlparser.schema.Table;
+import net.sf.jsqlparser.statement.select.FromItem;
+import net.sf.jsqlparser.statement.select.Join;
+import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import net.sf.jsqlparser.util.deparser.SelectDeParser;
 
@@ -37,6 +44,45 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
     }
 
     @Override
+    public <S> StringBuilder visit(PlainSelect plainSelect, S context) {
+        Set<String> aliases = collectAliases(plainSelect);
+        BasicDialectExpressionDeParser exprDeParser = currentExpressionDeParser();
+        if (exprDeParser != null) {
+            exprDeParser.pushAliasScope(aliases);
+            try {
+                return super.visit(plainSelect, context);
+            } finally {
+                exprDeParser.popAliasScope();
+            }
+        }
+        return super.visit(plainSelect, context);
+    }
+
+    private BasicDialectExpressionDeParser currentExpressionDeParser() {
+        ExpressionVisitor<StringBuilder> visitor = getExpressionVisitor();
+        return visitor instanceof BasicDialectExpressionDeParser
+                ? (BasicDialectExpressionDeParser) visitor
+                : null;
+    }
+
+    private static Set<String> collectAliases(PlainSelect ps) {
+        Set<String> out = new HashSet<>();
+        addAlias(out, ps.getFromItem());
+        if (ps.getJoins() != null) {
+            for (Join j : ps.getJoins()) {
+                addAlias(out, j.getFromItem());
+            }
+        }
+        return out;
+    }
+
+    private static void addAlias(Set<String> out, FromItem fi) {
+        if (fi != null && fi.getAlias() != null) {
+            out.add(fi.getAlias().getName());
+        }
+    }
+
+    @Override
     public <S> StringBuilder visit(Table table, S context) {
         // Quote catalog, schema, and table name
         String catalog = table.getDatabaseName(); // Gets database/catalog
@@ -44,23 +90,23 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
         String tableName = table.getName();
 
         if (catalog != null && !catalog.isEmpty()) {
-            dialect.quoteIdentifier(builder, catalog);
+            dialect.quoteIdentifierWith(catalog, builder, IdentifierQuotingPolicy.ALWAYS);
             builder.append(".");
         }
 
         if (schema != null && !schema.isEmpty()) {
-            dialect.quoteIdentifier(builder, schema);
+            dialect.quoteIdentifierWith(schema, builder, IdentifierQuotingPolicy.ALWAYS);
             builder.append(".");
         }
 
         if (tableName != null) {
-            dialect.quoteIdentifier(builder, tableName);
+            dialect.quoteIdentifierWith(tableName, builder, IdentifierQuotingPolicy.ALWAYS);
         }
 
         // Handle table alias
         Alias alias = table.getAlias();
         if (alias != null) {
-            if (dialect.allowsAs()) {
+            if (dialect.allowsFromAlias()) {
                 builder.append(" AS ");
             } else {
                 builder.append(" ");
@@ -93,7 +139,7 @@ public class BasicDialectSelectDeParser extends SelectDeParser {
         // Handle alias
         Alias alias = selectItem.getAlias();
         if (alias != null) {
-            if (dialect.allowsFieldAs() && alias.isUseAs()) {
+            if (dialect.allowsFieldAlias() && alias.isUseAs()) {
                 builder.append(" AS ");
             } else {
                 builder.append(" ");

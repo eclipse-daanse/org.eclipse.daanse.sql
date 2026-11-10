@@ -16,22 +16,22 @@ package org.eclipse.daanse.sql.guard.jsqltranspiler.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import org.mockito.ArgumentMatchers;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.db.h2.H2Dialect;
 import org.eclipse.daanse.sql.guard.api.SqlGuard;
 import org.eclipse.daanse.sql.guard.api.SqlGuardFactory;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseCatalog;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseColumn;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseSchema;
 import org.eclipse.daanse.sql.guard.api.elements.DatabaseTable;
+import org.eclipse.daanse.sql.guard.api.exception.EmptyStatementGuardException;
 import org.eclipse.daanse.sql.guard.api.exception.GuardException;
+import org.eclipse.daanse.sql.guard.api.exception.UnallowedStatementTypeGuardException;
 import org.eclipse.daanse.sql.guard.api.exception.UnresolvableObjectsGuardException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -42,8 +42,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.stream.Stream;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import org.osgi.test.common.annotation.InjectService;
 
 public class SqlGuardTest {
@@ -72,13 +70,13 @@ public class SqlGuardTest {
 
     private static final String SQL_WITH_ALLOWED_FUNCTION_IN_HAVING = "select foo.name from foo group by foo.name HAVING %s(foo.id) > 5";
 
-    private static final String SQL_WITH_FUNCTION_EXPECTED = "SELECT Trim( foo.name ) FROM sch.foo";
+    private static final String SQL_WITH_FUNCTION_EXPECTED = "SELECT Trim( \"foo\".\"name\" ) FROM \"sch\".\"foo\"";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION_EXPECTED = "SELECT %s(foo.name) FROM sch.foo";
+    private static final String SQL_WITH_ALLOWED_FUNCTION_EXPECTED = "SELECT %s(\"foo\".\"name\") FROM \"sch\".\"foo\"";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED = "SELECT foo.name FROM sch.foo WHERE %s(foo.name) = 1";
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_WHERE_EXPECTED = "SELECT \"foo\".\"name\" FROM \"sch\".\"foo\" WHERE %s(\"foo\".\"name\") = 1";
 
-    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED = "SELECT foo.name FROM sch.foo GROUP BY foo.name HAVING %s(foo.id) > 5";
+    private static final String SQL_WITH_ALLOWED_FUNCTION__IN_HAVING_EXPECTED = "SELECT \"foo\".\"name\" FROM \"sch\".\"foo\" GROUP BY \"foo\".\"name\" HAVING %s(\"foo\".\"id\") > 5";
 
     private static final String SQL_WITH_HAVING_WRONG_COLUMN = """
             select %s(foo.id) from foo group by foo.name having foo.name1 = 'tets'""";
@@ -90,13 +88,13 @@ public class SqlGuardTest {
             select %s(foo.id) from foo group by foo.name having foo.name = 'tets'""";
 
     private static final String SQL_WITH_HAVING1_EXPECTED = """
-            SELECT %s(foo.id) FROM sch.foo GROUP BY foo.name HAVING foo.name = 'tets'""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name" HAVING "foo"."name" = 'tets'""";
 
     private static final String SQL_WITH_HAVING = """
             select %s(foo.id) from foo group by foo.name having %s(foo.id) > 5""";
 
     private static final String SQL_WITH_HAVING_EXPECTED = """
-            SELECT %s(foo.id) FROM sch.foo GROUP BY foo.name HAVING %s(foo.id) > 5""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name" HAVING %s("foo"."id") > 5""";
 
     private static final String SQL_WITH_HAVING_WRONG_TABLE = """
             select %s(foo.id) from foo group by foo.name having %s(foo1.id) > 5""";
@@ -108,12 +106,12 @@ public class SqlGuardTest {
             select %s(foo.id)  from foo group by foo.name""";
 
     private static final String SQL_WITH_AGG_EXPECTED = """
-            SELECT %s(foo.id) FROM sch.foo GROUP BY foo.name""";
+            SELECT %s("foo"."id") FROM "sch"."foo" GROUP BY "foo"."name\"""";
 
     private static final String SQL_WITH_GROUP = "select * from foo group by foo.id, foo.name";
 
     private static final String SQL_WITH_GROUP_EXPECTED = """
-            SELECT foo.id, foo.name FROM sch.foo GROUP BY foo.id, foo.name""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo" GROUP BY "foo"."id", "foo"."name\"""";
 
     private static final String TABLE_FOO1_DOES_NOT_EXIST_IN_THE_GIVEN_SCHEMA_SCH = "Table foo1 not found in schema []";
 
@@ -127,42 +125,42 @@ public class SqlGuardTest {
             select *, 5 as testColumn from foo where foo.id  = 10""";
 
     private static final String SQL_WITH_CUSTOM_COLUMN_EXPECTED = """
-            SELECT foo.id, foo.name, 5 testColumn FROM sch.foo WHERE foo.id = 10""";
+            SELECT "foo"."id", "foo"."name", 5 AS testColumn FROM "sch"."foo" WHERE "foo"."id" = 10""";
 
     private static final String SQL_WITH_IN = """
             select * from foo where foo.id in (select fooFact.id from fooFact)""";
 
     private static final String SQL_WITH_IN_EXPECTED = """
-            SELECT foo.id, foo.name FROM sch.foo WHERE foo.id IN (SELECT fooFact.id FROM fooFact)""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo" WHERE "foo"."id" IN (SELECT "fooFact"."id" FROM "fooFact")""";
 
     private static final String TRIPLE_SELECT_SQL = """
             SELECT * FROM ( SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) a ) b""";
 
     private static final String TRIPLE_SELECT_SQL_EXPECTED = """
-            SELECT b.id, b.name, b.id_1, b.value FROM (SELECT a.id, a.name, a.id_1, a.value FROM (SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) a) b""";
+            SELECT b."id", b."name", b."id_1", b."value" FROM (SELECT a."id", a."name", a."id_1", a."value" FROM (SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id") a) b""";
 
     private static final String SELECT_INNER_JOIN_C_D = """
             SELECT * FROM ((SELECT * FROM foo) c inner join fooFact on c.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_C_D_EXPECTED = """
-            SELECT d.id, d.name, d.id_1, d.value FROM ((SELECT foo.id, foo.name FROM sch.foo) c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
+            SELECT d."id", d."name", d."id_1", d."value" FROM ((SELECT "foo"."id", "foo"."name" FROM "sch"."foo") c INNER JOIN sch.fooFact ON c.id = fooFact.id) d""";
 
     private static final String SELECT_INNER_JOIN_D = """
             SELECT * FROM ( SELECT * FROM foo inner join fooFact on foo.id = fooFact.id ) d""";
 
     private static final String SELECT_INNER_JOIN_D_EXPECTED = """
-            SELECT d.id, d.name, d.id_1, d.value FROM (SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id) d""";
+            SELECT d."id", d."name", d."id_1", d."value" FROM (SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id") d""";
 
     private static final String SELECT_INNER_JOIN = """
             select * from foo inner join fooFact on foo.id = fooFact.id""";
 
     private static final String SELECT_INNER_JOIN_EXPECTED = """
-            SELECT foo.id, foo.name, fooFact.id, fooFact.value FROM sch.foo INNER JOIN sch.fooFact ON foo.id = fooFact.id""";
+            SELECT "foo"."id", "foo"."name", "fooFact"."id", "fooFact"."value" FROM "sch"."foo" INNER JOIN "sch"."fooFact" ON "foo"."id" = "fooFact"."id\"""";
 
     private static final String SELECT_FROM_FOO = "select * from foo";
 
     private static final String SELECT_FROM_FOO_RESULT = """
-            SELECT foo.id, foo.name FROM sch.foo""";
+            SELECT "foo"."id", "foo"."name" FROM "sch"."foo\"""";
 
     private static final List<String> AGGREGATIONS = List.of("sum", "count", "distinctcount", "avg");
 
@@ -244,8 +242,79 @@ public class SqlGuardTest {
 
     private static final String SQL_MULTIPLE_CTE_WRONG_COLUMN = """
             WITH cte1 AS (SELECT foo.id FROM foo),
-                 cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
+                cte2 AS (SELECT fooFact.wrongCol FROM fooFact)
             SELECT * FROM cte1, cte2""";
+
+    private static final String SQL_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='pwned' WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_UPDATE_ALL_ROWS = """
+            WITH x AS (UPDATE foo SET name='pwned') SELECT id FROM foo""";
+
+    private static final String SQL_MULTIPLE_CTE_UPDATE = """
+            WITH x AS (UPDATE foo SET name='a' RETURNING id),
+                y AS (UPDATE foo SET name='b' RETURNING id)
+            SELECT id FROM foo""";
+
+    private static final String SQL_CTE_INSERT = """
+            WITH x AS (INSERT INTO foo (id, name) VALUES (1, 'a') RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_CTE_DELETE = """
+            WITH x AS (DELETE FROM foo WHERE id=1 RETURNING id) SELECT id FROM foo""";
+
+    private static final String SQL_NESTED_SUBQUERY_CTE_UPDATE = """
+            SELECT foo.id FROM foo
+            WHERE foo.id IN (SELECT sub.id FROM (WITH y AS (UPDATE foo SET name='z' RETURNING id) SELECT id FROM foo) sub)""";
+
+    private static final String UPDATE_IS_NOT_PERMITTED = "UPDATE is not permitted.";
+
+    private static final String INSERT_IS_NOT_PERMITTED = "INSERT is not permitted.";
+
+    private static final String DELETE_IS_NOT_PERMITTED = "DELETE is not permitted.";
+
+    private static final String SQL_SELECT_INTO = "SELECT foo.id INTO bar FROM foo";
+
+    private static final String SQL_SELECT_FOR_UPDATE = "SELECT foo.id FROM foo FOR UPDATE";
+
+    private static final String SQL_SELECT_FOR_SHARE = "SELECT foo.id FROM foo FOR SHARE";
+
+    private static final String SQL_UNION_FOR_UPDATE = """
+            SELECT foo.id FROM foo UNION SELECT fooFact.id FROM fooFact FOR UPDATE""";
+
+    private static final String SELECT_INTO_IS_NOT_PERMITTED = "SELECT INTO is not permitted.";
+
+    private static final String ROW_LOCKING_IS_NOT_PERMITTED = "Row locking (FOR UPDATE/SHARE) is not permitted.";
+
+    private static final String SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED =
+            "SELECT INTO OUTFILE/DUMPFILE/variable is not permitted.";
+
+    private static final String ONLY_ONE_STATEMENT_IS_PERMITTED = "Only a single statement is permitted.";
+
+    // MySQL file/variable targets, parsed since JSqlParser 5.4; INTO @var and INTO TEMP
+    // do not parse with the default grammar and must then fail closed.
+    private static final String SQL_SELECT_INTO_OUTFILE = "SELECT foo.id INTO OUTFILE '/tmp/x' FROM foo";
+    private static final String SQL_SELECT_INTO_OUTFILE_AFTER_FROM = "SELECT foo.id FROM foo INTO OUTFILE '/tmp/x'";
+    private static final String SQL_SELECT_INTO_DUMPFILE = "SELECT foo.id INTO DUMPFILE '/tmp/x' FROM foo";
+    private static final String SQL_SELECT_INTO_VARIABLE = "SELECT foo.id INTO @v FROM foo";
+    private static final String SQL_SELECT_INTO_TEMP = "SELECT foo.id INTO TEMP bar FROM foo";
+    private static final String SQL_SELECT_INTO_SCHEMA_QUALIFIED = "SELECT foo.id INTO public.evil FROM foo";
+
+    private static final String SQL_SELECT_FOR_UPDATE_OF = "SELECT foo.id FROM foo FOR UPDATE OF foo";
+    private static final String SQL_SELECT_FOR_NO_KEY_UPDATE = "SELECT foo.id FROM foo FOR NO KEY UPDATE";
+    private static final String SQL_SELECT_FOR_KEY_SHARE = "SELECT foo.id FROM foo FOR KEY SHARE";
+    private static final String SQL_SELECT_FOR_UPDATE_SKIP_LOCKED = "SELECT foo.id FROM foo FOR UPDATE SKIP LOCKED";
+    private static final String SQL_SELECT_LOCK_IN_SHARE_MODE = "SELECT foo.id FROM foo LOCK IN SHARE MODE";
+
+    private static final String SQL_TRAILING_DROP = "SELECT foo.id FROM foo; DROP TABLE foo";
+    private static final String SQL_TRAILING_SELECT = "SELECT foo.id FROM foo; SELECT foo.name FROM foo";
+    private static final String SQL_TRAILING_SEMICOLON = "SELECT foo.id FROM foo;";
+    private static final String SQL_COMMENT_ONLY = "/* nothing */";
+
+    private static final String SQL_CORRELATED_EXISTS = """
+            SELECT foo.id FROM foo WHERE EXISTS (SELECT 1 FROM fooFact WHERE fooFact.id = foo.id)""";
+    private static final String SQL_CORRELATED_SCALAR = """
+            SELECT foo.id, (SELECT count(fooFact.id) FROM fooFact WHERE fooFact.id = foo.id) FROM foo""";
+    private static final String SQL_WINDOW_FUNCTION = "SELECT sum(foo.id) OVER () FROM foo";
     private static final String SQL_LEFT_JOIN_ON_WRONG_COLUMN = """
             SELECT foo.id FROM foo LEFT JOIN fooFact ON foo.wrongCol = fooFact.id""";
 
@@ -341,55 +410,17 @@ public class SqlGuardTest {
 
     private static Dialect dialect;
 
+    private static final String CAT = "FoodMart";
+
+    private static final String SELECT_FROM_QUALIFIED_FOO = "select * from sch.foo";
+
+    private static final String SELECT_FROM_CATALOG_QUALIFIED_FOO = "select * from FoodMart.sch.foo";
+
+    private static final String SELECT_QUALIFIED_COLUMNS_FROM_QUALIFIED_FOO = "select sch.foo.id, FoodMart.sch.foo.name from sch.foo";
+
     @BeforeAll
     public static void setUp() {
-        dialect = mock(Dialect.class);
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) throws Throwable {
-                Object[] arguments = invocation.getArguments();
-
-                if (arguments != null && arguments.length >= 2 && arguments[0] != null) {
-                    StringBuilder sb = (StringBuilder) arguments[0];
-                    // Handle varargs - remaining arguments are the identifier parts
-                    boolean first = true;
-                    for (int i = 1; i < arguments.length; i++) {
-                        if (arguments[i] != null) {
-                            if (!first) {
-                                sb.append(".");
-                            }
-                            sb.append((String) arguments[i]);
-                            first = false;
-                        }
-                    }
-                }
-                return null;
-            }
-        }).when(dialect).quoteIdentifier(any(StringBuilder.class), ArgumentMatchers.<String>any());
-
-        // Mock quoteNumericLiteral to just append the value
-        doAnswer(invocation -> {
-            StringBuilder sb = (StringBuilder) invocation.getArgument(0);
-            String value = (String) invocation.getArgument(1);
-            sb.append(value);
-            return null;
-        }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), any(String.class));
-
-        // Mock quoteStringLiteral to append quoted value
-        doAnswer(invocation -> {
-            StringBuilder sb = (StringBuilder) invocation.getArgument(0);
-            String value = (String) invocation.getArgument(1);
-            sb.append("'").append(value).append("'");
-            return null;
-        }).when(dialect).quoteStringLiteral(any(StringBuilder.class), any(String.class));
-
-        // Mock quoteBooleanLiteral
-        doAnswer(invocation -> {
-            StringBuilder sb = (StringBuilder) invocation.getArgument(0);
-            String value = (String) invocation.getArgument(1);
-            sb.append(value);
-            return null;
-        }).when(dialect).quoteBooleanLiteral(any(StringBuilder.class), any(String.class));
+        dialect = new H2Dialect();
     }
 
     @Nested
@@ -402,6 +433,32 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SELECT_FROM_FOO);
             assertThat(result).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /**
+         * JSqlParser reads two or more blank lines as the end of a statement: a formatted query with an empty
+         * paragraph in it was refused as two broken statements. Blank lines are whitespace.
+         */
+        @Test
+        void aQueryWithBlankLinesInItIsOneStatement(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select *\n\n\n\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+            assertThat(guard.guard("select *\r\n  \r\n\t\r\n\r\nfrom foo")).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        /** Two statements separated only by blank lines stay refused: collapsing them gives no valid statement. */
+        @Test
+        void twoStatementsSeparatedByBlankLinesAreStillRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from foo\n\n\n\ndelete from foo"))
+                    .isInstanceOf(GuardException.class);
+        }
+
+        /** Blank lines inside a string literal are data and reach the database as written. */
+        @Test
+        void blankLinesInALiteralStay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create("", SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard("select * from foo where foo.name = 'a\n\n\nb'")).contains("'a\n\n\nb'");
         }
 
         @Test
@@ -1044,6 +1101,193 @@ public class SqlGuardTest {
     }
 
     @Nested
+    @DisplayName("CTE Data-Modifying (DML) Security Tests")
+    class CteDmlSecurityTests {
+
+        // A data-modifying CTE parses as a Select and resolves against the whitelisted
+        // table, so it must be rejected by the read-only gate, not the column resolver.
+
+        @Test
+        void testCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteUpdateAllRows(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_UPDATE_ALL_ROWS))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testMultipleCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_MULTIPLE_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteInsert(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_INSERT))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(INSERT_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testCteDelete(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_CTE_DELETE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(DELETE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testNestedSubqueryCteUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_NESTED_SUBQUERY_CTE_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(UPDATE_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testValidCteStillPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertNotNull(guard.guard(SQL_VALID_CTE));
+        }
+    }
+
+    @Nested
+    @DisplayName("Side-Effecting Select Security Tests (SELECT INTO / FOR UPDATE)")
+    class SideEffectingSelectSecurityTests {
+
+        // These parse as a Select but are not read-only: SELECT INTO writes a table,
+        // FOR UPDATE/SHARE takes row locks. They must be rejected by the read-only gate.
+
+        @Test
+        void testSelectInto(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_INTO))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectForShare(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_FOR_SHARE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testUnionForUpdate(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_UNION_FOR_UPDATE))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        @Test
+        void testSelectIntoSchemaQualified(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_SELECT_INTO_SCHEMA_QUALIFIED))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_IS_NOT_PERMITTED);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_INTO_OUTFILE, SQL_SELECT_INTO_OUTFILE_AFTER_FROM, SQL_SELECT_INTO_DUMPFILE })
+        void testSelectIntoFile(String sql, @InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(SELECT_INTO_FILE_OR_VARIABLE_IS_NOT_PERMITTED);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_FOR_UPDATE_OF, SQL_SELECT_FOR_NO_KEY_UPDATE, SQL_SELECT_FOR_KEY_SHARE,
+                SQL_SELECT_FOR_UPDATE_SKIP_LOCKED })
+        void testSelectRowLockVariants(String sql, @InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(GuardException.class)
+                    .hasMessage(ROW_LOCKING_IS_NOT_PERMITTED);
+        }
+
+        // Not parsed by the default grammar today: whatever the parser does with them in
+        // a future version, the guard must never let them through.
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_SELECT_INTO_VARIABLE, SQL_SELECT_INTO_TEMP, SQL_SELECT_LOCK_IN_SHARE_MODE })
+        void testSideEffectingSelectFailsClosed(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql)).isInstanceOf(GuardException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Script Security Tests (multiple statements)")
+    class ScriptSecurityTests {
+
+        // CCJSqlParserUtil.parse() stops after the first statement, so a trailing
+        // statement would otherwise be silently dropped instead of rejected.
+
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_TRAILING_DROP, SQL_TRAILING_SELECT })
+        void testTrailingStatementIsRejected(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(sql))
+                    .isInstanceOf(UnallowedStatementTypeGuardException.class)
+                    .hasMessage(ONLY_ONE_STATEMENT_IS_PERMITTED);
+        }
+
+        @Test
+        void testTrailingSemicolonStillPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThat(guard.guard(SQL_TRAILING_SEMICOLON)).doesNotContain(";");
+        }
+
+        @Test
+        void testCommentOnlyIsEmpty(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SQL_COMMENT_ONLY)).isInstanceOf(EmptyStatementGuardException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("JOIN Security Tests")
     class JoinSecurityTests {
 
@@ -1258,6 +1502,23 @@ public class SqlGuardTest {
     @DisplayName("Positive Tests - Valid Queries Should Pass")
     class PositiveTests {
 
+        // Correlated sub queries resolve against the enclosing query since jsqltranspiler 1.13.
+        @ParameterizedTest
+        @ValueSource(strings = { SQL_CORRELATED_EXISTS, SQL_CORRELATED_SCALAR })
+        void testCorrelatedSubqueryPasses(String sql, @InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
+            assertThat(guard.guard(sql)).isNotNull();
+        }
+
+        @Test
+        void testWindowFunctionPasses(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
+            SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, AGGREGATIONS, dialect);
+            assertThat(guard.guard(SQL_WINDOW_FUNCTION)).contains("OVER");
+        }
+
         @Test
         void testValidSubselect(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
             DatabaseCatalog databaseCatalog = schemaWithTwoTableTwoCol();
@@ -1304,6 +1565,53 @@ public class SqlGuardTest {
             SqlGuard guard = sqlGuardFactory.create("", SCH, databaseCatalog, List.of(), dialect);
             String result = guard.guard(SQL_VALID_ORDER_BY);
             assertNotNull(result);
+        }
+    }
+
+    @Nested
+    @DisplayName("current catalog and schema")
+    class CurrentCatalogAndSchema {
+
+        @Test
+        void aBareNameResolvesInTheCurrentSchema(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aSchemaQualifiedNameResolvesTheSameWay(@InjectService SqlGuardFactory sqlGuardFactory) throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThat(guard.guard(SELECT_FROM_QUALIFIED_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aCatalogQualifiedNameResolvesWhenTheCatalogIsTheCurrentOne(@InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            String emitted = guard.guard(SELECT_FROM_CATALOG_QUALIFIED_FOO);
+            // Settles §4.3: the database must receive the two-part name.
+            assertThat(emitted).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aQualifiedColumnReferenceIsReducedToTheTableName(@InjectService SqlGuardFactory sqlGuardFactory)
+                throws Exception {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            // the FROM item carries the schema, column references only the table name
+            assertThat(guard.guard(SELECT_QUALIFIED_COLUMNS_FROM_QUALIFIED_FOO)).isEqualTo(SELECT_FROM_FOO_RESULT);
+        }
+
+        @Test
+        void aBareNameWithNoCurrentSchemaIsReportedAsUnknown(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, "", schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard(SELECT_FROM_FOO)).isInstanceOf(UnresolvableObjectsGuardException.class);
+        }
+
+        @Test
+        void aForeignCatalogIsRefused(@InjectService SqlGuardFactory sqlGuardFactory) {
+            SqlGuard guard = sqlGuardFactory.create(CAT, SCH, schemaWithTwoTableTwoCol(), List.of(), dialect);
+            assertThatThrownBy(() -> guard.guard("select * from Other.sch.foo"))
+                    .isInstanceOf(UnresolvableObjectsGuardException.class);
         }
     }
 

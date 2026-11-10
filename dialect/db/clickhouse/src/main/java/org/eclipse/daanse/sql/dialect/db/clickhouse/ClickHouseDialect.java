@@ -1,0 +1,326 @@
+/*
+ * Copyright (c) 2022 Contributors to the Eclipse Foundation.
+ *
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * History:
+ *  This files came from the mondrian project. Some of the Flies
+ *  (mostly the Tests) did not have License Header.
+ *  But the Project is EPL Header. 2002-2022 Hitachi Vantara.
+ *
+ * Contributors:
+ *   Hitachi Vantara.
+ *   SmartCity Jena - initial  Java 8, Junit5
+ */
+package org.eclipse.daanse.sql.dialect.db.clickhouse;
+
+import java.util.List;
+
+import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.model.sql.BitOperation;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
+
+public class ClickHouseDialect extends AbstractJdbcDialect {
+
+    /** ClickHouse rejects plain {@code CREATE INDEX} without a data-skipping {@code TYPE}
+     *  clause (INCORRECT_QUERY 80) — b-tree index DDL is not expressible. */
+    @Override
+    public boolean supportsIndexDdl() {
+        return false;
+    }
+
+    private static final String SUPPORTED_PRODUCT_NAME = "CLICKHOUSE";
+
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * ClickHouse maps SMALLINT onto Int16 and reads it back as a number.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
+    /**
+     * No.
+     *
+     * <p>
+     * ClickHouse refuses {@code setAutoCommit(false)} with a
+     * {@code SQLFeatureNotSupportedException} — there is nothing to turn off,
+     * every statement stands alone. A writer that wraps a table load in one
+     * transaction cannot even begin.
+     */
+    @Override
+    public boolean supportsTransactions() {
+        return false;
+    }
+
+    /**
+     * Wraps a nullable column's type in {@code Nullable(…)}.
+     *
+     * <p>
+     * ClickHouse columns are not nullable by default and there is no
+     * {@code NULL} modifier to add afterwards — nullability is part of the type
+     * itself. A column declared {@code Int32} rejects every null; the same
+     * column declared {@code Nullable(Int32)} accepts them.
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        String type = super.nativeType(meta);
+        if (meta.nullability() == org.eclipse.daanse.sql.model.schema.ColumnMetaData.Nullability.NULLABLE) {
+            return "Nullable(" + type + ")";
+        }
+        return type;
+    }
+
+    /**
+     * Appends {@code ENGINE = MergeTree() ORDER BY (…)}.
+     *
+     * <p>
+     * ClickHouse refuses a table without one: <em>Code 42, ORDER BY or PRIMARY
+     * KEY clause is missing</em>. MergeTree is the general-purpose engine, and
+     * it sorts by the primary key where the schema declares one. Where it does
+     * not, {@code ORDER BY tuple()} says "no ordering" — the legal way to
+     * express what every other database means by a table without a key.
+     *
+     * <p>
+     * The {@code NOT NULL} the base implementation appends is left out here:
+     * nullability rides in the type (see {@link #nativeType}), and ClickHouse
+     * rejects the suffix.
+     */
+    @Override
+    public String createTable(org.eclipse.daanse.sql.model.schema.TableReference table,
+            List<org.eclipse.daanse.sql.model.schema.ColumnDefinition> columns,
+            org.eclipse.daanse.sql.model.schema.PrimaryKey primaryKey, boolean ifNotExists) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(ifNotExists && supportsCreateTableIfNotExists() ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ");
+        sb.append(qualified(table)).append(" (\n");
+        boolean first = true;
+        for (org.eclipse.daanse.sql.model.schema.ColumnDefinition cd : columns) {
+            if (!first) {
+                sb.append(",\n");
+            }
+            first = false;
+            sb.append("  ").append(quoteIdentifier(cd.column().name()));
+            sb.append(' ').append(nativeType(cd.columnMetaData()));
+            cd.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        }
+        sb.append("\n)");
+        sb.append(createTableSuffix(primaryKey == null ? List.of()
+                : primaryKey.columns().stream().map(c -> quoteIdentifier(c.name()).toString()).toList()));
+        return sb.toString();
+    }
+
+    /**
+     * {@code ENGINE = MergeTree() ORDER BY (…)}. MergeTree is the
+     * general-purpose engine and sorts by the key where there is one; where
+     * there is none, {@code ORDER BY tuple()} is how ClickHouse spells "no
+     * ordering".
+     */
+    @Override
+    public String createTableSuffix(List<String> quotedOrderByColumns) {
+        if (quotedOrderByColumns == null || quotedOrderByColumns.isEmpty()) {
+            return " ENGINE = MergeTree() ORDER BY tuple()";
+        }
+        return " ENGINE = MergeTree() ORDER BY (" + String.join(", ", quotedOrderByColumns) + ")";
+    }
+
+    /** JDBC-free constructor for SQL generation. */
+    public ClickHouseDialect() {
+        super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
+    }
+
+    /** Construct from a captured snapshot — the canonical entry point. */
+    public ClickHouseDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData init) {
+        super(init);
+    }
+
+    @Override
+    public boolean supportsSequences() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsDropConstraintIfExists() {
+        return false;
+    }
+
+    /** ClickHouse has no index rename — it has no b-tree index DDL at all (see {@link #supportsIndexDdl}). */
+    @Override
+    public boolean supportsRenameIndex() {
+        return false; // skipping indexes: only DROP INDEX / ADD INDEX
+    }
+
+    /** ClickHouse has no constraint rename. */
+    @Override
+    public boolean supportsRenameConstraint() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsCreateOrReplaceView() {
+        return false;
+    }
+
+    @Override
+    public boolean requiresDrillthroughMaxRowsInLimit() {
+        return true;
+    }
+
+    /**
+     * ClickHouse rejects a bare {@code UNION} when the server-side
+     * {@code union_default_mode} setting is empty (the default):
+     * {@code Code: 558 DB::Exception: Expected ALL or DISTINCT in SelectWithUnion
+     * query}. Spell the duplicate-eliminating union explicitly.
+     */
+    @Override
+    public String unionDistinctKeyword() {
+        return "union distinct";
+    }
+
+    @Override
+    public void quoteStringLiteral(StringBuilder buf, String s) {
+        buf.append('\'');
+
+        String s0 = s.replace("\\", "\\\\");
+        s0 = s0.replace("'", "\\'");
+        buf.append(s0);
+
+        buf.append('\'');
+    }
+
+    @Override
+    public String name() {
+        return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    // Unified BitOperation methods
+
+    @Override
+    public java.util.Optional<String> generateBitAggregation(BitOperation operation, CharSequence operand) {
+        StringBuilder buf = new StringBuilder(64);
+        StringBuilder result = switch (operation) {
+        case AND -> buf.append("groupBitAnd(").append(operand).append(")");
+        case OR -> buf.append("groupBitOr(").append(operand).append(")");
+        case XOR -> buf.append("groupBitXor(").append(operand).append(")");
+        case NAND -> buf.append("NOT(groupBitAnd(").append(operand).append("))");
+        case NOR -> buf.append("NOT(groupBitOr(").append(operand).append("))");
+        case NXOR -> buf.append("NOT(groupBitXor(").append(operand).append("))");
+        };
+        return java.util.Optional.of(result.toString());
+    }
+
+    @Override
+    public boolean supportsBitAggregation(BitOperation operation) {
+        return true; // ClickHouse supports all bit operations
+    }
+
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        StringBuilder buf = new StringBuilder(64);
+        buf.append("groupArrayArray");
+        buf.append("( ");
+        buf.append(operand);
+        buf.append(")");
+        // groupArrayArray(page_visits)
+        return java.util.Optional.of((buf).toString());
+    }
+
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
+    @Override
+    public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
+            List<OrderedColumn> columns) {
+        return java.util.Optional.empty();
+    }
+
+    @Override
+    public boolean supportsNthValue() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
+    /** ClickHouse: {@code RENAME TABLE a TO b} — there is no ALTER TABLE … RENAME TO. */
+    @Override
+    public String renameTable(TableReference table, String newName) {
+        if (!supportsRenameTable()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(table)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /**
+     * ClickHouse views are table-like; {@code RENAME TABLE} covers them. Renders
+     * the statement directly rather than delegating to {@link #renameTable} so
+     * the two capability flags stay independent.
+     */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME TABLE ").append(qualified(view)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** {@code RENAME TABLE a TO b, c TO d} — one atomic statement. */
+    @Override
+    public List<String> renameTables(List<TableRename> renames) {
+        if (renames == null || renames.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sb = new StringBuilder("RENAME TABLE ");
+        for (int i = 0; i < renames.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            TableRename r = renames.get(i);
+            sb.append(qualified(r.table())).append(" TO ").append(quoteIdentifier(r.newName()));
+        }
+        return List.of(sb.toString());
+    }
+
+    @Override
+    public boolean supportsAtomicMultiRenameTable() {
+        return true;
+    }
+
+    /** {@code ALTER TABLE t MODIFY COMMENT '…'}; {@code null} clears it. */
+    @Override
+    public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        return java.util.Optional.of("ALTER TABLE " + qualified(table) + " MODIFY COMMENT " + chLiteral(comment));
+    }
+
+    /** {@code ALTER TABLE t COMMENT COLUMN c '…'}; {@code null} clears it. */
+    @Override
+    public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        return java.util.Optional.of("ALTER TABLE " + qualified(table) + " COMMENT COLUMN "
+                + quoteIdentifier(columnName) + " " + chLiteral(comment));
+    }
+
+    private static String chLiteral(String comment) {
+        String s = comment == null ? "" : comment;
+        return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'";
+    }
+
+    /** ClickHouse has no named table constraints; the primary key stays unnamed. */
+    @Override
+    public boolean supportsNamedPrimaryKey() {
+        return false;
+    }
+}

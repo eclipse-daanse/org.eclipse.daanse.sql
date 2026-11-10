@@ -19,7 +19,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.IdentifierQuotingPolicy;
 
 public class MockDialectHelper {
 
@@ -34,48 +35,19 @@ public class MockDialectHelper {
     public static Dialect createSqlServerDialect() {
         Dialect dialect = mock(Dialect.class);
 
-        when(dialect.getQuoteIdentifierString()).thenReturn("[");
-
-        when(dialect.quoteIdentifier(any(CharSequence.class))).thenAnswer(inv -> {
-            CharSequence val = inv.getArgument(0);
-            return new StringBuilder("[").append(val).append("]");
-        });
-
         doAnswer(inv -> {
             String val = inv.getArgument(0);
             StringBuilder buf = inv.getArgument(1);
-            if (val != null) {
+            IdentifierQuotingPolicy policy = inv.getArgument(2);
+            if (val == null)
+                return null;
+            if (policy == IdentifierQuotingPolicy.NEVER) {
+                buf.append(val);
+            } else {
                 buf.append("[").append(val).append("]");
             }
             return null;
-        }).when(dialect).quoteIdentifier(anyString(), any(StringBuilder.class));
-
-        when(dialect.quoteIdentifier(anyString(), anyString())).thenAnswer(inv -> {
-            String qual = inv.getArgument(0);
-            String name = inv.getArgument(1);
-            StringBuilder sb = new StringBuilder();
-            if (qual != null) {
-                sb.append("[").append(qual).append("].");
-            }
-            sb.append("[").append(name).append("]");
-            return sb.toString();
-        });
-
-        doAnswer(inv -> {
-            StringBuilder buf = inv.getArgument(0);
-            Object[] args = inv.getArguments();
-            boolean first = true;
-            for (int i = 1; i < args.length; i++) {
-                String name = (String) args[i];
-                if (name == null)
-                    continue;
-                if (!first)
-                    buf.append(".");
-                buf.append("[").append(name).append("]");
-                first = false;
-            }
-            return null;
-        }).when(dialect).quoteIdentifier(any(StringBuilder.class), (String[]) any());
+        }).when(dialect).quoteIdentifierWith(anyString(), any(StringBuilder.class), any(IdentifierQuotingPolicy.class));
 
         doAnswer(inv -> {
             StringBuilder buf = inv.getArgument(0);
@@ -112,10 +84,9 @@ public class MockDialectHelper {
             return null;
         }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), anyString());
 
-        when(dialect.allowsAs()).thenReturn(true);
-        when(dialect.allowsFieldAs()).thenReturn(true);
+        when(dialect.allowsFromAlias()).thenReturn(true);
+        when(dialect.allowsFieldAlias()).thenReturn(true);
         when(dialect.needsExponent(any(), anyString())).thenReturn(false);
-        when(dialect.getDialectName()).thenReturn("sqlserver");
 
         return dialect;
     }
@@ -123,48 +94,19 @@ public class MockDialectHelper {
     public static Dialect createDialectWithQuote(String quoteChar) {
         Dialect dialect = mock(Dialect.class);
 
-        when(dialect.getQuoteIdentifierString()).thenReturn(quoteChar);
-
-        when(dialect.quoteIdentifier(any(CharSequence.class))).thenAnswer(inv -> {
-            CharSequence val = inv.getArgument(0);
-            return new StringBuilder(quoteChar).append(val).append(quoteChar);
-        });
-
         doAnswer(inv -> {
             String val = inv.getArgument(0);
             StringBuilder buf = inv.getArgument(1);
-            if (val != null) {
+            IdentifierQuotingPolicy policy = inv.getArgument(2);
+            if (val == null)
+                return null;
+            if (policy == IdentifierQuotingPolicy.NEVER) {
+                buf.append(val);
+            } else {
                 buf.append(quoteChar).append(val).append(quoteChar);
             }
             return null;
-        }).when(dialect).quoteIdentifier(anyString(), any(StringBuilder.class));
-
-        when(dialect.quoteIdentifier(anyString(), anyString())).thenAnswer(inv -> {
-            String qual = inv.getArgument(0);
-            String name = inv.getArgument(1);
-            StringBuilder sb = new StringBuilder();
-            if (qual != null) {
-                sb.append(quoteChar).append(qual).append(quoteChar).append(".");
-            }
-            sb.append(quoteChar).append(name).append(quoteChar);
-            return sb.toString();
-        });
-
-        doAnswer(inv -> {
-            StringBuilder buf = inv.getArgument(0);
-            Object[] args = inv.getArguments();
-            boolean first = true;
-            for (int i = 1; i < args.length; i++) {
-                String name = (String) args[i];
-                if (name == null)
-                    continue;
-                if (!first)
-                    buf.append(".");
-                buf.append(quoteChar).append(name).append(quoteChar);
-                first = false;
-            }
-            return null;
-        }).when(dialect).quoteIdentifier(any(StringBuilder.class), (String[]) any());
+        }).when(dialect).quoteIdentifierWith(anyString(), any(StringBuilder.class), any(IdentifierQuotingPolicy.class));
 
         doAnswer(inv -> {
             StringBuilder buf = inv.getArgument(0);
@@ -201,18 +143,17 @@ public class MockDialectHelper {
             return null;
         }).when(dialect).quoteNumericLiteral(any(StringBuilder.class), anyString());
 
-        when(dialect.allowsAs()).thenReturn(true);
-        when(dialect.allowsFieldAs()).thenReturn(true);
+        when(dialect.allowsFromAlias()).thenReturn(true);
+        when(dialect.allowsFieldAlias()).thenReturn(true);
         when(dialect.needsExponent(any(), anyString())).thenReturn(false);
-        when(dialect.getDialectName()).thenReturn("mock");
 
         return dialect;
     }
 
     public static Dialect createDialectWithoutAs() {
         Dialect dialect = createAnsiDialect();
-        when(dialect.allowsAs()).thenReturn(false);
-        when(dialect.allowsFieldAs()).thenReturn(false);
+        when(dialect.allowsFromAlias()).thenReturn(false);
+        when(dialect.allowsFieldAlias()).thenReturn(false);
         return dialect;
     }
 }

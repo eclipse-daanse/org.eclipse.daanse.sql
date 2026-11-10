@@ -1,0 +1,850 @@
+/*
+ * Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
+ *
+ * For more information please visit the Project: Hitachi Vantara - Mondrian
+ *
+ * ---- All changes after Fork in 2023 ------------------------
+ *
+ * Project: Eclipse daanse
+ *
+ * Copyright (c) 2023 Contributors to the Eclipse Foundation.
+ *
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * Contributors after Fork in 2023:
+ *   SmartCity Jena - initial adapt parts of Syntax.class
+ *   Stefan Bischof (bipolis.org) - initial
+ */
+package org.eclipse.daanse.sql.dialect.db.oracle;
+
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.util.List;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
+import org.eclipse.daanse.sql.model.schema.TableReference;
+import org.eclipse.daanse.sql.model.schema.Trigger;
+import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
+import org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming;
+import org.eclipse.daanse.sql.model.sql.BitOperation;
+import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
+import org.eclipse.daanse.sql.dialect.api.generator.StatementHint;
+import org.eclipse.daanse.sql.model.sql.OrderedColumn;
+import org.eclipse.daanse.sql.model.type.BestFitColumnType;
+import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
+import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
+
+/**
+ * @author jhyde
+ * @since Nov 23, 2008
+ */
+public class OracleDialect extends AbstractJdbcDialect {
+
+    private static final String SUPPORTED_PRODUCT_NAME = "ORACLE";
+
+    /**
+     * {@code SMALLINT}.
+     *
+     * <p>
+     * Oracle has no BOOLEAN in SQL before 23c. SMALLINT is an alias for
+     * {@code NUMBER(38)} and reads back as a number.
+     */
+    @Override
+    public String booleanTypeName() {
+        return "SMALLINT";
+    }
+
+    /**
+     * {@code DECIMAL(15,0)}.
+     *
+     * <p>
+     * Oracle has no BIGINT: {@code ORA-00902 invalid datatype}. Fifteen
+     * digits is what the legacy loader used, and it holds every value the
+     * datasets carry.
+     */
+    @Override
+    public String bigintTypeName() {
+        return "DECIMAL(15,0)";
+    }
+
+    /** Oracle's longest {@code VARCHAR2} under the standard string size, in bytes. */
+    private static final int MAX_VARCHAR2 = 4_000;
+
+    /**
+     * A text column of n characters is {@code VARCHAR2 (n CHAR)}, beyond 4000 a {@code CLOB}; a fixed one
+     * {@code CHAR (n CHAR)}.
+     *
+     * <p>
+     * Oracle counts the length of a {@code VARCHAR2} in bytes unless the column says otherwise, and a character of
+     * a text in UTF-8 takes up to four: a Thai text of 400 characters needs 536 bytes and more ({@code ORA-12899
+     * value too large for column}).
+     */
+    @Override
+    public String nativeType(ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case VARCHAR, NVARCHAR, LONGVARCHAR, LONGNVARCHAR -> {
+            int length = meta.columnSize().orElse(255);
+            yield length > MAX_VARCHAR2 ? "CLOB" : "VARCHAR2(" + length + " CHAR)";
+        }
+        case CHAR, NCHAR -> "CHAR(" + meta.columnSize().orElse(1) + " CHAR)";
+        default -> super.nativeType(meta);
+        };
+    }
+
+    /** Oracle's longest {@code RAW} under the standard string size. */
+    private static final int MAX_RAW = 2_000;
+
+    /**
+     * {@code RAW (n)} up to 2000 bytes, a {@code BLOB} without a length or beyond it.
+     *
+     * <p>
+     * Oracle has no VARBINARY: {@code ORA-00902 invalid datatype}.
+     */
+    @Override
+    public String binaryTypeName(java.util.OptionalInt size) {
+        return size.isPresent() && size.getAsInt() > 0 && size.getAsInt() <= MAX_RAW ? "RAW(" + size.getAsInt() + ")"
+                : "BLOB";
+    }
+
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
+    private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
+
+    /** JDBC-free constructor for SQL generation. */
+    public OracleDialect() {
+        super(org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults());
+    }
+
+    /** Construct from a captured snapshot — the canonical entry point. */
+    public OracleDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData init) {
+        super(init);
+    }
+
+    /**
+     * One. Oracle's {@code VALUES} clause takes a single tuple; loading several
+     * rows in one statement is written {@code INSERT ALL INTO t VALUES (…) INTO t
+     * VALUES (…) SELECT 1 FROM dual}, which is a different statement shape, not a
+     * longer {@code VALUES} list.
+     */
+    @Override
+    public int maxInsertRows() {
+        return 1;
+    }
+
+    /**
+     * Oracle 9i+: SQL-2003
+     * {@code MERGE INTO target USING ... ON ... WHEN MATCHED ... WHEN NOT MATCHED ...}.
+     */
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator mergeGenerator() {
+        var local = cachedMergeGenerator;
+        if (local != null)
+            return local;
+        local = new org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator() {
+            @Override
+            public boolean supportsMerge() {
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<String> upsert(UpsertSpec spec, java.util.List<String> values) {
+                if (values == null || values.size() != spec.insertColumns().size()) {
+                    throw new IllegalArgumentException("values must match insertColumns in length");
+                }
+                StringBuilder sb = new StringBuilder("MERGE INTO ").append(qualified(spec.target()))
+                        .append(" T USING (SELECT ");
+                for (int i = 0; i < values.size(); i++) {
+                    if (i > 0)
+                        sb.append(", ");
+                    sb.append(values.get(i)).append(" AS ").append(quoteIdentifier(spec.insertColumns().get(i)));
+                }
+                sb.append(" FROM dual) S ON (");
+                for (int i = 0; i < spec.keyColumns().size(); i++) {
+                    if (i > 0)
+                        sb.append(" AND ");
+                    sb.append("T.").append(quoteIdentifier(spec.keyColumns().get(i))).append(" = S.")
+                            .append(quoteIdentifier(spec.keyColumns().get(i)));
+                }
+                sb.append(")");
+                if (!spec.updateColumns().isEmpty()) {
+                    sb.append(" WHEN MATCHED THEN UPDATE SET ");
+                    boolean first = true;
+                    for (String c : spec.updateColumns()) {
+                        if (!first)
+                            sb.append(", ");
+                        sb.append("T.").append(quoteIdentifier(c)).append(" = S.").append(quoteIdentifier(c));
+                        first = false;
+                    }
+                }
+                sb.append(" WHEN NOT MATCHED THEN INSERT (");
+                appendQuotedCsv(sb, spec.insertColumns());
+                sb.append(") VALUES (");
+                for (int i = 0; i < spec.insertColumns().size(); i++) {
+                    if (i > 0)
+                        sb.append(", ");
+                    sb.append("S.").append(quoteIdentifier(spec.insertColumns().get(i)));
+                }
+                sb.append(")");
+                return java.util.Optional.of(sb.toString());
+            }
+        };
+        cachedMergeGenerator = local;
+        return local;
+    }
+
+    @Override
+    public org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator returningGenerator() {
+        var local = cachedReturningGenerator;
+        if (local != null)
+            return local;
+        if (!dialectVersion.isUnknownOrAtLeast(23, 0)) {
+            local = super.returningGenerator();
+            cachedReturningGenerator = local;
+            return local;
+        }
+        local = new org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator() {
+            @Override
+            public boolean supportsReturning() {
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<String> returning(java.util.List<String> columns) {
+                if (columns == null || columns.isEmpty())
+                    return java.util.Optional.empty();
+                if (columns.size() == 1 && "*".equals(columns.get(0))) {
+                    // Oracle 23c does NOT support RETURNING * — only explicit columns.
+                    return java.util.Optional.empty();
+                }
+                StringBuilder sb = new StringBuilder(" RETURNING ");
+                boolean first = true;
+                for (String c : columns) {
+                    if (!first)
+                        sb.append(", ");
+                    sb.append(quoteIdentifier(c));
+                    first = false;
+                }
+                return java.util.Optional.of(sb.toString());
+            }
+        };
+        cachedReturningGenerator = local;
+        return local;
+    }
+
+    @Override
+    public boolean supportsDropTableCascade() {
+        return false;
+    }
+
+    /** Oracle: no {@code IF NOT EXISTS} on any DDL. */
+    @Override
+    public boolean supportsCreateTableIfNotExists() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsCreateIndexIfNotExists() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsDropIndexIfExists() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsDropViewIfExists() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsDropConstraintIfExists() {
+        return false;
+    }
+
+    /** Oracle 11g+ supports {@code CREATE OR REPLACE TRIGGER}. */
+    @Override
+    public boolean supportsCreateOrReplaceTrigger() {
+        return true;
+    }
+
+    /**
+     * From Oracle 23 ({@code DROP TABLE IF EXISTS} came with 23ai); before, a drop of a missing table fails with
+     * ORA-00942. A dialect made without a connection knows no version and says no.
+     */
+    @Override
+    public boolean supportsDropTableIfExists() {
+        return dialectVersion.atLeast(23, 0);
+    }
+
+    @Override
+    public boolean allowsFromAlias() {
+        return false;
+    }
+
+    @Override
+    public StringBuilder generateInline(List<String> columnNames, List<String> columnTypes, List<String[]> valueList) {
+        return generateInlineGeneric(columnNames, columnTypes, valueList, " from dual", false);
+    }
+
+    @Override
+    public boolean supportsGroupingSets() {
+        return true;
+    }
+
+    @Override
+    public StringBuilder generateOrderByNulls(CharSequence expr, boolean ascending, boolean collateNullsLast) {
+        return generateOrderByNullsAnsi(expr, ascending, collateNullsLast);
+    }
+
+    // No allowsJoinOn override: Oracle reads ANSI JOIN ... ON since 9i. The false it returned was an inherited
+    // base-class default rather than a reason of Oracle's, and Oracle alone wrote comma joins with the join
+    // condition in WHERE (database run 19./20.10., the drill-through statements; F-10.6 5a).
+
+    @Override
+    public boolean allowsRegularExpressionInWhereClause() {
+        return true;
+    }
+
+    @Override
+    public Optional<String> generateRegularExpression(String source, String javaRegex) {
+        try {
+            Pattern.compile(javaRegex);
+        } catch (PatternSyntaxException e) {
+            // Not a valid Java regex. Too risky to continue.
+            return Optional.empty();
+        }
+        javaRegex = DialectUtil.cleanUnicodeAwareCaseFlag(javaRegex);
+        StringBuilder mappedFlags = new StringBuilder();
+        String[][] mapping = new String[][] { { "c", "c" }, { "i", "i" }, { "m", "m" } };
+        javaRegex = extractEmbeddedFlags(javaRegex, mapping, mappedFlags);
+        if (mappedFlags.toString().contains("m")) {
+            // MDX MATCHES is anchored over the WHOLE value; Oracle's POSIX
+            // regex has no \A/\z, and under the m flag ^/$ anchor per
+            // line - no correct rendering, the calc engine takes over
+            return Optional.empty();
+        }
+
+        final Matcher escapeMatcher = DialectUtil.ESCAPE_PATTERN.matcher(javaRegex);
+        while (escapeMatcher.find()) {
+            javaRegex = javaRegex.replace(escapeMatcher.group(1), escapeMatcher.group(2));
+        }
+        final StringBuilder sb = new StringBuilder();
+        sb.append(source);
+        sb.append(" IS NOT NULL AND ");
+        sb.append("REGEXP_LIKE(");
+        sb.append(source);
+        sb.append(", ");
+        // anchored like Pattern.matches; POSIX has no non-capturing group
+        quoteStringLiteral(sb, "^(" + javaRegex + ")$");
+        sb.append(", ");
+        quoteStringLiteral(sb, mappedFlags.toString());
+        sb.append(")");
+        return Optional.of(sb.toString());
+    }
+
+    /**
+     * @param metaData    Resultset metadata
+     * @param columnIndex index of the column in the result set
+     * @return For Types.NUMERIC and Types.DECIMAL, getType() will return a
+     *         Type.INT, Type.DOUBLE, or Type.OBJECT based on scale, precision, and
+     *         column name.
+     * @throws SQLException
+     */
+    @Override
+    public BestFitColumnType getType(ResultSetMetaData metaData, int columnIndex) throws SQLException {
+        final int columnType = metaData.getColumnType(columnIndex + 1);
+        final int precision = metaData.getPrecision(columnIndex + 1);
+        final int scale = metaData.getScale(columnIndex + 1);
+        final String columnName = metaData.getColumnName(columnIndex + 1);
+        BestFitColumnType type;
+
+        if (columnType == Types.NUMERIC || columnType == Types.DECIMAL) {
+            type = getNumericDecimalType(columnType, precision, scale, columnName);
+        } else {
+            type = super.getType(metaData, columnIndex);
+        }
+        logTypeInfo(metaData, columnIndex, type);
+        return type;
+    }
+
+    private BestFitColumnType getNumericDecimalType(final int columnType, final int precision, final int scale,
+            final String columnName) {
+        if (scale == -127 && precision != 0) {
+            // non zero precision w/ -127 scale means float in Oracle.
+            return BestFitColumnType.DOUBLE;
+        } else if (columnType == Types.NUMERIC && (scale == 0 || scale == -127) && precision == 0
+                && columnName.startsWith("m")) {
+            // In GROUPING SETS queries, Oracle
+            // loosens the type of columns compared to mere GROUP BY
+            // queries. We need integer GROUP BY columns to remain integers,
+            // otherwise the segments won't be found; but if we convert
+            // measure (whose column names are like "m0", "m1") to integers,
+            // data loss will occur. DOUBLE (not OBJECT) avoids the integer
+            // truncation while keeping measure values on the same double
+            // path every other dialect uses (OBJECT let Oracle BigDecimals
+            // through to the cell layer, where exact half-way decimal sums
+            // format differently than double-summed values).
+            return BestFitColumnType.DOUBLE;
+        } else if (scale == -127 && precision == 0) {
+            return BestFitColumnType.INT;
+        } else if (scale == 0 && (precision == 38 || precision == 0)) {
+            // NUMBER(38, 0) is conventionally used in
+            // Oracle for integers of unspecified precision, so let's be
+            // bold and assume that they can fit into an int.
+            return BestFitColumnType.INT;
+        } else if (scale == 0 && precision <= 9) {
+            // An int (up to 2^31 = 2.1B) can hold any NUMBER(10, 0) value
+            // (up to 10^9 = 1B).
+            return BestFitColumnType.INT;
+        } else {
+            return BestFitColumnType.DOUBLE;
+        }
+    }
+
+    @Override
+    public String name() {
+        return SUPPORTED_PRODUCT_NAME.toLowerCase();
+    }
+
+    @Override
+    protected boolean supportsNullsOrdering() {
+        return true; // Oracle supports NULLS FIRST/LAST
+    }
+
+    /**
+     * Oracle spells statement hints as an optimizer block directly after the {@code SELECT}
+     * keyword: {@code /*+ name(arg1, arg2) name2 *}{@code /} (trailing space). Hints are
+     * joined by a space; a hint without arguments is the bare name. Any {@code *}{@code /}
+     * inside a name or argument is stripped so the block cannot terminate early.
+     */
+    @Override
+    public StringBuilder selectHint(List<StatementHint> hints) {
+        if (hints.isEmpty()) {
+            return new StringBuilder();
+        }
+        StringBuilder sb = new StringBuilder("/*+ ");
+        boolean first = true;
+        for (StatementHint hint : hints) {
+            if (!first) {
+                sb.append(' ');
+            }
+            first = false;
+            sb.append(stripCommentEnd(hint.name()));
+            if (!hint.arguments().isEmpty()) {
+                sb.append('(');
+                for (int i = 0; i < hint.arguments().size(); i++) {
+                    if (i > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(stripCommentEnd(hint.arguments().get(i)));
+                }
+                sb.append(')');
+            }
+        }
+        return sb.append(" */ ");
+    }
+
+    /** Neutralizes a premature comment terminator inside a hint name/argument. */
+    private static String stripCommentEnd(String s) {
+        return s.replace("*/", "");
+    }
+
+    // Unified BitOperation methods
+
+    @Override
+    public StringBuilder generateKnownFunction(KnownFunction function, List<? extends CharSequence> arguments) {
+        return switch (function) {
+        case SUBSTRING -> {
+            if (arguments.size() < 2 || arguments.size() > 3) {
+                throw new IllegalArgumentException("SUBSTRING expects 2..3 argument(s), got " + arguments.size());
+            }
+            StringBuilder sb = new StringBuilder("SUBSTR(").append(arguments.get(0)).append(", ")
+                    .append(arguments.get(1));
+            if (arguments.size() == 3) {
+                sb.append(", ").append(arguments.get(2));
+            }
+            yield sb.append(")");
+        }
+        case INDEX_OF -> {
+            if (arguments.size() != 2) {
+                throw new IllegalArgumentException("INDEX_OF expects 2 argument(s), got " + arguments.size());
+            }
+            // Oracle INSTR takes (haystack, needle) - swapped vs INDEX_OF(needle, haystack).
+            yield new StringBuilder("INSTR(").append(arguments.get(1)).append(", ").append(arguments.get(0))
+                    .append(")");
+        }
+        case TO_TEXT -> {
+            if (arguments.size() != 1) {
+                throw new IllegalArgumentException("TO_TEXT expects 1 argument(s), got " + arguments.size());
+            }
+            // VARCHAR needs a length in Oracle; TO_CHAR writes a number or a date as text
+            yield new StringBuilder("TO_CHAR(").append(arguments.get(0)).append(")");
+        }
+        case DATE_FROM_PARTS -> {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            yield new StringBuilder("TO_DATE(").append(arguments.get(0)).append(" || '-' || ").append(arguments.get(1))
+                    .append(" || '-' || ").append(arguments.get(2)).append(", 'YYYY-MM-DD')");
+        }
+        default -> super.generateKnownFunction(function, arguments);
+        };
+    }
+
+    @Override
+    public java.util.Optional<String> generateBitAggregation(BitOperation operation, CharSequence operand) {
+        StringBuilder buf = new StringBuilder(64);
+        StringBuilder result = switch (operation) {
+        case AND -> buf.append("BIT_AND_AGG(").append(operand).append(")");
+        case OR -> buf.append("BIT_OR_AGG(").append(operand).append(")");
+        case XOR -> buf.append("BIT_XOR(").append(operand).append(")");
+        case NAND, NOR, NXOR ->
+            throw new UnsupportedOperationException("Oracle does not support " + operation + " bit aggregation");
+        };
+        return java.util.Optional.of(result.toString());
+    }
+
+    @Override
+    public boolean supportsBitAggregation(BitOperation operation) {
+        return switch (operation) {
+        case AND, OR, XOR -> true;
+        case NAND, NOR, NXOR -> false;
+        };
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileDisc(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_DISC", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public java.util.Optional<String> generatePercentileCont(double percentile, boolean desc, String tableName,
+            String columnName) {
+        return java.util.Optional
+                .of((buildPercentileFunction("PERCENTILE_CONT", percentile, desc, tableName, columnName)).toString());
+    }
+
+    @Override
+    public boolean supportsPercentileDisc() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsPercentileCont() {
+        return true;
+    }
+
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        StringBuilder buf = new StringBuilder(64);
+        buf.append("LISTAGG");
+        buf.append("( ");
+        if (distinct) {
+            buf.append("DISTINCT ");
+        }
+        if (coalesce != null) {
+            buf.append("COALESCE(").append(operand).append(", '").append(coalesce).append("')");
+        } else {
+            buf.append(operand);
+        }
+        buf.append(", '");
+        if (separator != null) {
+            buf.append(separator);
+        } else {
+            buf.append(", ");
+        }
+        buf.append("'");
+        if (onOverflowTruncate != null) {
+            buf.append(" ON OVERFLOW TRUNCATE '").append(onOverflowTruncate).append("' WITHOUT COUNT)");
+        } else {
+            buf.append(")");
+        }
+        if (columns != null && !columns.isEmpty()) {
+            buf.append(" WITHIN GROUP (ORDER BY ");
+            buf.append(buildOrderedColumnsClause(columns));
+            buf.append(")");
+        }
+        // LISTAGG(NAME, ', ') WITHIN GROUP (ORDER BY ID)
+        // LISTAGG(COALESCE(NAME, 'null'), ', ') WITHIN GROUP (ORDER BY ID)
+        // LISTAGG(ID, ', ') WITHIN GROUP (ORDER BY ID) OVER (ORDER BY ID)
+        // LISTAGG(ID, ';' ON OVERFLOW TRUNCATE 'etc' WITHOUT COUNT) WITHIN GROUP (ORDER
+        // BY ID)
+        return java.util.Optional.of((buf).toString());
+    }
+
+    /**
+     * No ordered array aggregate to pick the n-th value from; the window function NTH_VALUE runs over the groups of
+     * a grouped query, not over the rows of one group, so it is no answer either (V-82). The measure is refused.
+     */
+    @Override
+    public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
+            List<OrderedColumn> columns) {
+        return java.util.Optional.empty();
+    }
+
+    @Override
+    public boolean supportsNthValue() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsNthValueIgnoreNulls() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
+    // -------------------- Trigger procedures --------------------
+
+    @Override
+    public Optional<String> createTriggerProcedure(String procedureName, String schemaName, String body) {
+        if (body == null || body.isBlank()) {
+            throw new IllegalArgumentException("body must not be blank for Oracle trigger procedure");
+        }
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        return Optional.of("CREATE OR REPLACE PROCEDURE " + qualified + " AS " + body);
+    }
+
+    @Override
+    public String createTriggerUsingProcedure(String triggerName, String schemaName,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming timing,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent event,
+            org.eclipse.daanse.sql.model.schema.TableReference table,
+            org.eclipse.daanse.sql.model.schema.Trigger.TriggerScope scope, String whenCondition,
+            String procedureName) {
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        return createTrigger(triggerName, timing, event, table, scope, whenCondition, "BEGIN " + qualified + "; END;");
+    }
+
+    /** Oracle: {@code DROP PROCEDURE schema.procedureName}. */
+    @Override
+    public Optional<String> dropProcedure(String procedureName, String schemaName, boolean ifExists) {
+        String qualified = schemaName != null && !schemaName.isBlank()
+                ? quoteIdentifier(schemaName, procedureName).toString()
+                : quoteIdentifier(procedureName).toString();
+        // Oracle has no IF EXISTS on DROP PROCEDURE. Callers are expected to
+        // handle "doesn't exist" themselves; keep ifExists for parity.
+        return Optional.of("DROP PROCEDURE " + qualified);
+    }
+
+    /**
+     * A foreign key as Oracle takes it, both after {@code ALTER TABLE ... ADD} and in {@code CREATE TABLE}.
+     */
+    @Override
+    public String foreignKeyClause(String constraintName, java.util.List<String> fkColumns,
+            TableReference referencedTable, java.util.List<String> referencedColumns, String onDelete,
+            String onUpdate) {
+        StringBuilder sb = new StringBuilder("CONSTRAINT ").append(quoteIdentifier(constraintName));
+        sb.append(" FOREIGN KEY (");
+        appendQuotedCsv(sb, fkColumns);
+        sb.append(") REFERENCES ").append(qualified(referencedTable)).append(" (");
+        appendQuotedCsv(sb, referencedColumns);
+        sb.append(")");
+        // Oracle only knows ON DELETE CASCADE / SET NULL; NO ACTION is the implicit
+        // behavior and RESTRICT / SET DEFAULT do not exist — writing them is ORA-02000.
+        if (onDelete != null && (onDelete.equalsIgnoreCase("CASCADE") || onDelete.equalsIgnoreCase("SET NULL")))
+            sb.append(" ON DELETE ").append(onDelete.toUpperCase());
+        // Oracle: no ON UPDATE clause — silently drop {@code onUpdate}.
+        return sb.toString();
+    }
+
+    // -------------------- DDL — ALTER (Oracle: MODIFY syntax) --------------------
+
+    /**
+     * Oracle: {@code ALTER TABLE x ADD c <type> [NOT NULL] [DEFAULT …]} — no
+     * {@code COLUMN} keyword.
+     */
+    @Override
+    public String alterTableAddColumn(TableReference table,
+            org.eclipse.daanse.sql.model.schema.ColumnDefinition column) {
+        StringBuilder sb = new StringBuilder("ALTER TABLE ");
+        sb.append(qualified(table));
+        sb.append(" ADD ");
+        sb.append(quoteIdentifier(column.column().name()));
+        sb.append(' ').append(nativeType(column.columnMetaData()));
+        column.columnMetaData().columnDefault().ifPresent(d -> sb.append(" DEFAULT ").append(d));
+        if (column.columnMetaData().nullability() == ColumnMetaData.Nullability.NO_NULLS) {
+            sb.append(" NOT NULL");
+        }
+        return sb.toString();
+    }
+
+    /** Oracle: {@code ALTER TABLE x MODIFY (c <type>)}. */
+    @Override
+    public String alterColumnType(TableReference table, String columnName, ColumnMetaData newMeta) {
+        if (newMeta == null) {
+            throw new IllegalArgumentException("newMeta must not be null for ALTER COLUMN");
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY (")
+                .append(quoteIdentifier(columnName)).append(' ').append(nativeType(newMeta)).append(")").toString();
+    }
+
+    /** Oracle: {@code ALTER TABLE x MODIFY (c [NULL | NOT NULL])}. */
+    @Override
+    public String alterColumnSetNullability(TableReference table, String columnName, boolean nullable) {
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY (")
+                .append(quoteIdentifier(columnName)).append(nullable ? " NULL" : " NOT NULL").append(")").toString();
+    }
+
+    /** Oracle: {@code ALTER TABLE x MODIFY (c DEFAULT <expr>)}. */
+    @Override
+    public String alterColumnSetDefault(TableReference table, String columnName, String defaultExpression) {
+        if (defaultExpression == null || defaultExpression.isBlank()) {
+            throw new IllegalArgumentException("defaultExpression must not be blank for SET DEFAULT");
+        }
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY (")
+                .append(quoteIdentifier(columnName)).append(" DEFAULT ").append(defaultExpression).append(")")
+                .toString();
+    }
+
+    /** Oracle: {@code MODIFY (c DEFAULT NULL)} clears the default. */
+    @Override
+    public String alterColumnDropDefault(TableReference table, String columnName) {
+        return new StringBuilder("ALTER TABLE ").append(qualified(table)).append(" MODIFY (")
+                .append(quoteIdentifier(columnName)).append(" DEFAULT NULL)").toString();
+    }
+
+    // RENAME COLUMN/TABLE/INDEX/CONSTRAINT inherit the SQL-99 default.
+
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO newname}. */
+    @Override
+    public boolean supportsRenameTrigger() {
+        return true;
+    }
+
+    /** Oracle: {@code RENAME oldname TO newname} — also used for views and sequences. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
+    /** Oracle takes no FUNCTION/PROCEDURE keyword in GRANT EXECUTE. */
+    @Override
+    public String grantExecute(String schemaName, String routineName, boolean isFunction, String grantee,
+            boolean withGrantOption) {
+        StringBuilder sb = new StringBuilder("GRANT EXECUTE ON ")
+                .append(qualifiedRoutine(schemaName, routineName))
+                .append(" TO ").append(quoteIdentifier(grantee));
+        if (withGrantOption) {
+            sb.append(" WITH GRANT OPTION");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String revokeExecute(String schemaName, String routineName, boolean isFunction, String grantee) {
+        return "REVOKE EXECUTE ON " + qualifiedRoutine(schemaName, routineName) + " FROM "
+                + quoteIdentifier(grantee);
+    }
+
+    /**
+     * Oracle renames views with the standalone {@code RENAME old TO new}, which
+     * only works in the current schema — no qualification of either side.
+     */
+    @Override
+    public String renameView(TableReference view, String newName) {
+        if (!supportsRenameView()) {
+            return null;
+        }
+        return new StringBuilder("RENAME ").append(quoteIdentifier(view.name())).append(" TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code ALTER TRIGGER name RENAME TO new} — no table clause. */
+    @Override
+    public String renameTrigger(String triggerName, TableReference table, String newName) {
+        if (!supportsRenameTrigger()) {
+            return null;
+        }
+        return new StringBuilder("ALTER TRIGGER ").append(quoteIdentifier(triggerName)).append(" RENAME TO ")
+                .append(quoteIdentifier(newName)).toString();
+    }
+
+    /** Oracle: {@code RENAME old TO new} — current schema only. */
+    @Override
+    public Optional<String> renameSequence(String schemaName, String name, String newName) {
+        if (!supportsSequences() || !supportsRenameSequence()) {
+            return Optional.empty();
+        }
+        return Optional.of(new StringBuilder("RENAME ").append(quoteIdentifier(name)).append(" TO ")
+                .append(quoteIdentifier(newName)).toString());
+    }
+
+    /** Oracle has no {@code IS NULL} form — an empty string literal removes the comment. */
+    @Override
+    public Optional<String> commentOnTable(TableReference table, String comment) {
+        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + oracleLiteral(comment));
+    }
+
+    @Override
+    public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
+            ColumnMetaData currentMeta) {
+        return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
+                + oracleLiteral(comment));
+    }
+
+    private static String oracleLiteral(String comment) {
+        return "'" + (comment == null ? "" : comment.replace("'", "''")) + "'";
+    }
+
+    @Override
+    public boolean supportsSynonyms() {
+        return true;
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] [PUBLIC] SYNONYM [schema.]name FOR [schema.]object[@link]}.
+     * A public synonym has no schema. Empty for a target in another catalog — Oracle
+     * reaches other databases only through a DB link.
+     */
+    @Override
+    public Optional<String> createSynonym(SynonymDefinition synonym, boolean orReplace) {
+        if (synonym.targetCatalogName() != null) {
+            return Optional.empty();
+        }
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (orReplace)
+            sb.append("OR REPLACE ");
+        if (synonym.isPublic())
+            sb.append("PUBLIC ");
+        sb.append("SYNONYM ").append(synonymName(synonym.schemaName(), synonym.name(), synonym.isPublic()));
+        sb.append(" FOR ").append(quoteIdentifier(synonym.targetSchemaName(), synonym.targetName()));
+        if (synonym.dbLink() != null)
+            sb.append('@').append(synonym.dbLink());
+        return Optional.of(sb.toString());
+    }
+
+    /** {@code DROP [PUBLIC] SYNONYM [schema.]name}; Oracle has no {@code IF EXISTS} here. */
+    @Override
+    public Optional<String> dropSynonym(String schemaName, String name, boolean isPublic, boolean ifExists) {
+        return Optional.of((isPublic ? "DROP PUBLIC SYNONYM " : "DROP SYNONYM ")
+                + synonymName(schemaName, name, isPublic));
+    }
+
+    private String synonymName(String schemaName, String name, boolean isPublic) {
+        return isPublic ? quoteIdentifier(name) : quoteIdentifier(schemaName, name);
+    }
+}

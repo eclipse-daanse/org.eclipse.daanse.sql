@@ -15,7 +15,7 @@ package org.eclipse.daanse.sql.deparser.jsqlparser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.eclipse.daanse.jdbc.db.dialect.api.Dialect;
+import org.eclipse.daanse.sql.dialect.api.Dialect;
 import org.junit.jupiter.api.Test;
 
 import net.sf.jsqlparser.expression.DateValue;
@@ -71,6 +71,7 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
+        // Real table name (no alias scope) is quoted alongside the column name.
         assertThat(deparser.getBuilder().toString()).isEqualTo("\"tableName\".\"columnName\"");
     }
 
@@ -87,20 +88,6 @@ class BaiscDialectExpressionDeParserTest {
     }
 
     @Test
-    void testColumnWithTableAlias() {
-        Dialect dialect = MockDialectHelper.createAnsiDialect();
-        BasicDialectExpressionDeParser deparser = new BasicDialectExpressionDeParser(dialect);
-
-        Table table = new Table("tableName");
-        table.setAlias(new net.sf.jsqlparser.expression.Alias("t"));
-        Column column = new Column(table, "columnName");
-        deparser.visit(column, null);
-
-        // When table has alias, use alias name
-        assertThat(deparser.getBuilder().toString()).isEqualTo("\"t\".\"columnName\"");
-    }
-
-    @Test
     void testColumnWithSchemaAndTable() {
         Dialect dialect = MockDialectHelper.createAnsiDialect();
         BasicDialectExpressionDeParser deparser = new BasicDialectExpressionDeParser(dialect);
@@ -109,8 +96,8 @@ class BaiscDialectExpressionDeParserTest {
         Column column = new Column(table, "columnName");
         deparser.visit(column, null);
 
-        // Should use fully qualified name from table
-        assertThat(deparser.getBuilder().toString()).isEqualTo("\"schemaName.tableName\".\"columnName\"");
+        // Each FQN segment is quoted independently when the qualifier is a real name.
+        assertThat(deparser.getBuilder().toString()).isEqualTo("\"schemaName\".\"tableName\".\"columnName\"");
     }
 
     @Test

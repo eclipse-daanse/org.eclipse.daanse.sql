@@ -34,12 +34,12 @@
     <dependency>
       <groupId>com.manticore-projects.jsqlformatter</groupId>
       <artifactId>jsqlparser</artifactId>
-      <version>5.3.167</version>
+      <version>5.4.162</version>
     </dependency>
     <dependency>
       <groupId>ai.starlake.jsqltranspiler</groupId>
       <artifactId>jsqltranspiler</artifactId>
-      <version>1.8</version>
+      <version>1.16</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
@@ -49,6 +49,18 @@
     <dependency>
       <groupId>org.eclipse.daanse</groupId>
       <artifactId>org.eclipse.daanse.sql.deparser.jsqlparser</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.sql.dialect.db.h2</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.sql.dialect.db.common</artifactId>
       <version>0.0.1-SNAPSHOT</version>
       <scope>test</scope>
     </dependency>
