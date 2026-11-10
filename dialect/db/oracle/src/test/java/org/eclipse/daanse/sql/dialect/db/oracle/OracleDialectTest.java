@@ -44,6 +44,31 @@ class OracleDialectTest {
         dialect = new OracleDialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** Oracle has no VARBINARY: a binary of a length is RAW, one without a length or beyond 2000 bytes a BLOB. */
+    @Test
+    void aBinaryColumnIsRawOrABlob() {
+        assertEquals("RAW(100)", dialect.binaryTypeName(java.util.OptionalInt.of(100)));
+        assertEquals("BLOB", dialect.binaryTypeName(java.util.OptionalInt.empty()));
+        assertEquals("BLOB", dialect.binaryTypeName(java.util.OptionalInt.of(100_000)));
+    }
+
+    /** Oracle counts a VARCHAR2 in bytes by default: a text column says it counts characters. */
+    @Test
+    void aTextColumnCountsCharacters() {
+        assertEquals("VARCHAR2(400 CHAR)", dialect.nativeType(text(java.sql.JDBCType.NVARCHAR, 400)));
+        assertEquals("VARCHAR2(255 CHAR)", dialect.nativeType(text(java.sql.JDBCType.VARCHAR, -1)));
+        assertEquals("CLOB", dialect.nativeType(text(java.sql.JDBCType.VARCHAR, 8_000)));
+        assertEquals("CHAR(3 CHAR)", dialect.nativeType(text(java.sql.JDBCType.CHAR, 3)));
+    }
+
+    private static org.eclipse.daanse.sql.model.schema.ColumnMetaData text(java.sql.JDBCType type, int size) {
+        org.eclipse.daanse.sql.model.schema.ColumnMetaData meta = org.mockito.Mockito
+                .mock(org.eclipse.daanse.sql.model.schema.ColumnMetaData.class);
+        when(meta.dataType()).thenReturn(type);
+        when(meta.columnSize()).thenReturn(size < 0 ? java.util.OptionalInt.empty() : java.util.OptionalInt.of(size));
+        return meta;
+    }
+
     /** Oracle reads ANSI joins; comma joins were the inherited default, not an Oracle limit. */
     @Test
     void anInnerJoinIsWrittenWithJoinOn() {

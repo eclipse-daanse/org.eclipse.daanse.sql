@@ -76,6 +76,49 @@ public class OracleDialect extends AbstractJdbcDialect {
         return "DECIMAL(15,0)";
     }
 
+    /** Oracle's longest {@code VARCHAR2} under the standard string size, in bytes. */
+    private static final int MAX_VARCHAR2 = 4_000;
+
+    /**
+     * A text column of n characters is {@code VARCHAR2 (n CHAR)}, beyond 4000 a {@code CLOB}; a fixed one
+     * {@code CHAR (n CHAR)}.
+     *
+     * <p>
+     * Oracle counts the length of a {@code VARCHAR2} in bytes unless the column says otherwise, and a character of
+     * a text in UTF-8 takes up to four: a Thai text of 400 characters needs 536 bytes and more ({@code ORA-12899
+     * value too large for column}).
+     */
+    @Override
+    public String nativeType(ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case VARCHAR, NVARCHAR, LONGVARCHAR, LONGNVARCHAR -> {
+            int length = meta.columnSize().orElse(255);
+            yield length > MAX_VARCHAR2 ? "CLOB" : "VARCHAR2(" + length + " CHAR)";
+        }
+        case CHAR, NCHAR -> "CHAR(" + meta.columnSize().orElse(1) + " CHAR)";
+        default -> super.nativeType(meta);
+        };
+    }
+
+    /** Oracle's longest {@code RAW} under the standard string size. */
+    private static final int MAX_RAW = 2_000;
+
+    /**
+     * {@code RAW (n)} up to 2000 bytes, a {@code BLOB} without a length or beyond it.
+     *
+     * <p>
+     * Oracle has no VARBINARY: {@code ORA-00902 invalid datatype}.
+     */
+    @Override
+    public String binaryTypeName(java.util.OptionalInt size) {
+        return size.isPresent() && size.getAsInt() > 0 && size.getAsInt() <= MAX_RAW ? "RAW(" + size.getAsInt() + ")"
+                : "BLOB";
+    }
+
     private volatile org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator cachedMergeGenerator;
     private volatile org.eclipse.daanse.sql.dialect.api.generator.ReturningGenerator cachedReturningGenerator;
 

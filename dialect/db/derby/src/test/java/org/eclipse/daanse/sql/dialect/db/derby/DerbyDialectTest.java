@@ -30,8 +30,16 @@ class DerbyDialectTest {
     /** Derby casts a number to text only through CHAR. */
     @Test
     void aNumberAsTextGoesThroughChar() {
-        assertEquals("TRIM(CAST(x AS CHAR(254)))", new DerbyDialect().generateKnownFunction(
+        assertEquals("TRIM(CHAR(x))", new DerbyDialect().generateKnownFunction(
                 org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.TO_TEXT, java.util.List.of("x")).toString());
+    }
+
+    /** Derby has no RPAD: the text and spaces, cut to the length. */
+    @Test
+    void aTextIsPaddedWithSpacesAndCut() {
+        assertEquals("SUBSTR(x || '    ', 1, 4)", new DerbyDialect().generateKnownFunction(
+                org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.PAD_RIGHT, java.util.List.of("x", "4"))
+                .toString());
     }
 
     /** Derby has no VARBINARY: a binary of a length is VARCHAR FOR BIT DATA, one without a length or beyond it a BLOB. */
