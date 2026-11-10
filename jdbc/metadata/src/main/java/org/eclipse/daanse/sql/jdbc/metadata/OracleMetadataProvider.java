@@ -13,6 +13,7 @@
  */
 package org.eclipse.daanse.sql.jdbc.metadata;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.JDBCType;
 import java.sql.PreparedStatement;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
@@ -48,6 +50,8 @@ import org.eclipse.daanse.sql.jdbc.api.schema.PseudoColumn;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
+import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
@@ -72,6 +76,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PseudoColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.SynonymRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TablePrivilegeRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
@@ -147,15 +152,12 @@ public class OracleMetadataProvider implements MetadataProvider {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String name = rs.getString("SEQUENCE_NAME");
-                    long minValue = rs.getLong("MIN_VALUE");
-                    Optional<Long> oMinValue = rs.wasNull() ? Optional.empty() : Optional.of(minValue);
-                    long maxValue = rs.getLong("MAX_VALUE");
-                    Optional<Long> oMaxValue = rs.wasNull() ? Optional.empty() : Optional.of(maxValue);
+                    Optional<Long> oMinValue = longWithin(rs, "MIN_VALUE");
+                    Optional<Long> oMaxValue = longWithin(rs, "MAX_VALUE");
                     long incrementBy = rs.getLong("INCREMENT_BY");
                     String cycleFlag = rs.getString("CYCLE_FLAG");
                     boolean cycle = "Y".equalsIgnoreCase(cycleFlag);
-                    long cacheSize = rs.getLong("CACHE_SIZE");
-                    Optional<Long> oCacheSize = rs.wasNull() ? Optional.empty() : Optional.of(cacheSize);
+                    Optional<Long> oCacheSize = longWithin(rs, "CACHE_SIZE");
                     long lastNumber = rs.getLong("LAST_NUMBER");
 
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
@@ -166,6 +168,60 @@ public class OracleMetadataProvider implements MetadataProvider {
             }
         }
         return List.copyOf(sequences);
+    }
+
+
+    @Override
+    public List<Synonym> getAllSynonyms(Connection connection, String catalog, String schema) throws SQLException {
+        // Private synonyms of the schema, plus PUBLIC synonyms pointing into it — all
+        // PUBLIC synonyms would pull in thousands of SYS/dictionary aliases.
+        // The target type comes from ALL_OBJECTS; synonyms over a DB link point to a
+        // remote object, so they are not joined. Object types outside the synonym
+        // namespace (INDEX, PACKAGE BODY, partitions, ...) can share the target's name
+        // and are excluded.
+        String sql = """
+                SELECT s.OWNER, s.SYNONYM_NAME, s.TABLE_OWNER, s.TABLE_NAME, s.DB_LINK, o.OBJECT_TYPE
+                FROM ALL_SYNONYMS s
+                LEFT JOIN ALL_OBJECTS o
+                    ON s.DB_LINK IS NULL
+                    AND o.OWNER = s.TABLE_OWNER
+                    AND o.OBJECT_NAME = s.TABLE_NAME
+                    AND o.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SEQUENCE', 'SYNONYM',
+                        'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TYPE', 'JAVA CLASS')
+                WHERE s.OWNER = ? OR (s.OWNER = 'PUBLIC' AND s.TABLE_OWNER = ?)
+                ORDER BY s.OWNER, s.SYNONYM_NAME
+                """;
+        String schemaName = resolveSchema(schema, connection);
+        Map<String, SynonymRecord> synonyms = new LinkedHashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            ps.setString(2, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String owner = rs.getString("OWNER");
+                    String name = rs.getString("SYNONYM_NAME");
+                    String targetOwner = rs.getString("TABLE_OWNER");
+                    String objectType = rs.getString("OBJECT_TYPE");
+                    String key = owner + "\u0001" + name;
+                    // A materialized view is listed in ALL_OBJECTS twice — as MATERIALIZED VIEW
+                    // and as its container TABLE; keep the more specific one.
+                    SynonymRecord existing = synonyms.get(key);
+                    if (existing != null && !"MATERIALIZED VIEW".equals(objectType)) {
+                        continue;
+                    }
+                    Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), owner));
+                    Optional<SchemaReference> oTargetSchema = targetOwner == null ? Optional.empty()
+                            : Optional.of(new SchemaReference(Optional.empty(), targetOwner));
+                    synonyms.put(key, new SynonymRecord(new SynonymReference(oSchema, name), oTargetSchema,
+                            rs.getString("TABLE_NAME"), Optional.ofNullable(rs.getString("DB_LINK")),
+                            "PUBLIC".equals(owner), Optional.ofNullable(objectType)));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.debug("Could not read synonyms from ALL_SYNONYMS: {}", e.getMessage());
+            return List.of();
+        }
+        return List.copyOf(synonyms.values());
     }
 
 
@@ -366,7 +422,7 @@ public class OracleMetadataProvider implements MetadataProvider {
             throws SQLException {
         String sql = """
                 SELECT fk.CONSTRAINT_NAME AS FK_NAME, fk.TABLE_NAME AS FK_TABLE,
-                        fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE,
+                        fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE, pk.OWNER AS PK_SCHEMA, fk.OWNER AS FK_SCHEMA,
                         pk_col.COLUMN_NAME AS PK_COLUMN, fk_col.POSITION AS KEY_SEQ,
                         fk.DELETE_RULE, pk.CONSTRAINT_NAME AS PK_NAME
                 FROM ALL_CONSTRAINTS fk
@@ -383,7 +439,7 @@ public class OracleMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    importedKeys.add(readImportedKey(rs, schemaName));
+                    importedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -398,7 +454,7 @@ public class OracleMetadataProvider implements MetadataProvider {
         // is the given schema.
         String sql = """
                 SELECT fk.CONSTRAINT_NAME AS FK_NAME, fk.TABLE_NAME AS FK_TABLE,
-                        fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE,
+                        fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE, pk.OWNER AS PK_SCHEMA, fk.OWNER AS FK_SCHEMA,
                         pk_col.COLUMN_NAME AS PK_COLUMN, fk_col.POSITION AS KEY_SEQ,
                         fk.DELETE_RULE, pk.CONSTRAINT_NAME AS PK_NAME
                 FROM ALL_CONSTRAINTS fk
@@ -415,7 +471,7 @@ public class OracleMetadataProvider implements MetadataProvider {
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    exportedKeys.add(readImportedKey(rs, schemaName));
+                    exportedKeys.add(readImportedKey(rs));
                 }
             }
         }
@@ -900,7 +956,8 @@ public class OracleMetadataProvider implements MetadataProvider {
     }
 
 
-    private ImportedKey readImportedKey(ResultSet rs, String schemaName) throws SQLException {
+    /** A foreign key row; each side in its own schema, so a key across schemas points at the right table. */
+    private ImportedKey readImportedKey(ResultSet rs) throws SQLException {
         String fkName = rs.getString("FK_NAME");
         String fkTable = rs.getString("FK_TABLE");
         String fkColumn = rs.getString("FK_COLUMN");
@@ -911,12 +968,14 @@ public class OracleMetadataProvider implements MetadataProvider {
         String pkName = rs.getString("PK_NAME");
 
         // FK side
-        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> fkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("FK_SCHEMA")));
         TableReference fkTableRef = new TableReference(fkSchemaRef, fkTable);
         ColumnReference fkColRef = new ColumnReference(Optional.of(fkTableRef), fkColumn);
 
         // PK side
-        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+        Optional<SchemaReference> pkSchemaRef = Optional.of(new SchemaReference(Optional.empty(),
+                rs.getString("PK_SCHEMA")));
         TableReference pkTableRef = new TableReference(pkSchemaRef, pkTable);
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
@@ -928,6 +987,13 @@ public class OracleMetadataProvider implements MetadataProvider {
                 mapOracleDeleteRule(deleteRule), Optional.ofNullable(pkName), ImportedKey.Deferrability.NOT_DEFERRABLE);
     }
 
+
+    /**
+     * The condition Oracle keeps for a column declared {@code NOT NULL}: the quoted column name and
+     * {@code IS NOT NULL}. Such a constraint is a column's nullability, not a check; a check a user
+     * writes, named or not, keeps its own spelling and is read.
+     */
+    private static final String NOT_NULL_CONDITION = "^\\s*\"[^\"]+\"\\s+IS\\s+NOT\\s+NULL\\s*$";
 
     private List<CheckConstraint> readCheckConstraints(Connection connection, String schemaName, String tableName)
             throws SQLException {
@@ -950,16 +1016,16 @@ public class OracleMetadataProvider implements MetadataProvider {
             sql = """
                     SELECT c.CONSTRAINT_NAME, c.TABLE_NAME, c.SEARCH_CONDITION_VC
                     FROM ALL_CONSTRAINTS c WHERE c.OWNER = ? AND c.CONSTRAINT_TYPE = 'C'
-                    AND c.GENERATED != 'GENERATED NAME' AND c.TABLE_NAME = ?
+                    AND NOT REGEXP_LIKE(c.SEARCH_CONDITION_VC, '%s') AND c.TABLE_NAME = ?
                     ORDER BY c.CONSTRAINT_NAME
-                    """;
+                    """.formatted(NOT_NULL_CONDITION);
         } else {
             sql = """
                     SELECT c.CONSTRAINT_NAME, c.TABLE_NAME, c.SEARCH_CONDITION_VC
                     FROM ALL_CONSTRAINTS c WHERE c.OWNER = ? AND c.CONSTRAINT_TYPE = 'C'
-                    AND c.GENERATED != 'GENERATED NAME'
+                    AND NOT REGEXP_LIKE(c.SEARCH_CONDITION_VC, '%s')
                     ORDER BY c.TABLE_NAME, c.CONSTRAINT_NAME
-                    """;
+                    """.formatted(NOT_NULL_CONDITION);
         }
         List<CheckConstraint> constraints = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -992,14 +1058,13 @@ public class OracleMetadataProvider implements MetadataProvider {
             sql = """
                     SELECT c.CONSTRAINT_NAME, c.TABLE_NAME, c.SEARCH_CONDITION
                     FROM ALL_CONSTRAINTS c WHERE c.OWNER = ? AND c.CONSTRAINT_TYPE = 'C'
-                    AND c.GENERATED != 'GENERATED NAME' AND c.TABLE_NAME = ?
+                    AND c.TABLE_NAME = ?
                     ORDER BY c.CONSTRAINT_NAME
                     """;
         } else {
             sql = """
                     SELECT c.CONSTRAINT_NAME, c.TABLE_NAME, c.SEARCH_CONDITION
                     FROM ALL_CONSTRAINTS c WHERE c.OWNER = ? AND c.CONSTRAINT_TYPE = 'C'
-                    AND c.GENERATED != 'GENERATED NAME'
                     ORDER BY c.TABLE_NAME, c.CONSTRAINT_NAME
                     """;
         }
@@ -1019,6 +1084,9 @@ public class OracleMetadataProvider implements MetadataProvider {
                     } catch (SQLException e) {
                         LOGGER.debug("Could not read SEARCH_CONDITION for constraint {}", constraintName, e);
                         checkClause = null;
+                    }
+                    if (checkClause != null && checkClause.matches(NOT_NULL_CONDITION)) {
+                        continue;
                     }
 
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
@@ -1061,6 +1129,23 @@ public class OracleMetadataProvider implements MetadataProvider {
         return List.copyOf(result);
     }
 
+
+    /**
+     * A {@code NUMBER} column as a long; empty when it is null or beyond a long. A sequence created
+     * without a limit has the limit {@code 10^28 - 1} (descending: {@code -(10^27 - 1)}), which no
+     * long holds, and which means no limit.
+     */
+    private static Optional<Long> longWithin(ResultSet rs, String column) throws SQLException {
+        BigDecimal value = rs.getBigDecimal(column);
+        if (value == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(value.longValueExact());
+        } catch (ArithmeticException beyondLong) {
+            return Optional.empty();
+        }
+    }
 
     private String resolveSchema(String schema, Connection connection) throws SQLException {
         if (schema != null) {
@@ -1449,13 +1534,21 @@ public class OracleMetadataProvider implements MetadataProvider {
     }
 
 
+    /** The types whose length {@code CHAR_LENGTH} counts in characters. */
+    private static final Set<String> TEXT_TYPES = Set.of("CHAR", "NCHAR", "VARCHAR", "VARCHAR2", "NVARCHAR2");
+
+    /**
+     * The columns of a schema from {@code ALL_TAB_COLS}. A text column has its length in characters, as
+     * Oracle's JDBC driver reports it: {@code DATA_LENGTH} counts bytes, four for each character of a
+     * {@code VARCHAR2 (n CHAR)} in AL32UTF8.
+     */
     @Override
     public Optional<List<org.eclipse.daanse.sql.model.schema.ColumnDefinition>> getAllColumnDefinitions(
             Connection connection, String catalog, String schemaPattern, String tableNamePattern,
             String columnNamePattern) throws SQLException {
         String sql = """
-                SELECT t.OWNER, t.TABLE_NAME, t.COLUMN_NAME, t.DATA_TYPE, t.DATA_LENGTH, t.DATA_PRECISION,
-                        t.DATA_SCALE, t.NULLABLE, t.DATA_DEFAULT, t.COLUMN_ID, c.COMMENTS
+                SELECT t.OWNER, t.TABLE_NAME, t.COLUMN_NAME, t.DATA_TYPE, t.DATA_LENGTH, t.CHAR_LENGTH,
+                        t.DATA_PRECISION, t.DATA_SCALE, t.NULLABLE, t.DATA_DEFAULT, t.COLUMN_ID, c.COMMENTS
                 FROM ALL_TAB_COLS t
                 LEFT JOIN ALL_COL_COMMENTS c
                         ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND c.COLUMN_NAME = t.COLUMN_NAME
@@ -1473,6 +1566,7 @@ public class OracleMetadataProvider implements MetadataProvider {
                     String columnName = rs.getString("COLUMN_NAME");
                     String dataType = rs.getString("DATA_TYPE");
                     long dataLength = rs.getLong("DATA_LENGTH");
+                    long charLength = rs.getLong("CHAR_LENGTH");
                     long dataPrecision = rs.getLong("DATA_PRECISION");
                     boolean precNull = rs.wasNull();
                     long dataScale = rs.getLong("DATA_SCALE");
@@ -1489,8 +1583,8 @@ public class OracleMetadataProvider implements MetadataProvider {
                         if (!scaleNull && dataScale != 0)
                             scale = java.util.OptionalInt.of((int) dataScale);
                     } else {
-                        size = dataLength > 0 ? java.util.OptionalInt.of((int) dataLength)
-                                : java.util.OptionalInt.empty();
+                        long length = TEXT_TYPES.contains(dataType) ? charLength : dataLength;
+                        size = length > 0 ? java.util.OptionalInt.of((int) length) : java.util.OptionalInt.empty();
                     }
                     org.eclipse.daanse.sql.model.schema.ColumnMetaData.Nullability n = "Y".equalsIgnoreCase(nullable)
                             ? org.eclipse.daanse.sql.model.schema.ColumnMetaData.Nullability.NULLABLE

@@ -83,6 +83,14 @@ public final class Expressions {
     }
 
     /**
+     * An expression as a tree for every database, beside per-dialect texts that win where the live dialect has one
+     * ({@link SqlExpression.Portable}).
+     */
+    public static SqlExpression portable(SqlExpression tree, java.util.Map<String, String> byDialectName) {
+        return new SqlExpression.Portable(tree, byDialectName);
+    }
+
+    /**
      * A bind parameter carrying an immediate value (rendered as a placeholder,
      * bound by the executor).
      */
@@ -240,6 +248,11 @@ public final class Expressions {
      */
     public static SqlExpression substring(SqlExpression expression, SqlExpression start, SqlExpression length) {
         return new SqlExpression.KnownCall(KnownFunction.SUBSTRING, List.of(expression, start, length));
+    }
+
+    /** A whole number as the widest whole number of the database ({@code CAST(x AS BIGINT)}). */
+    public static SqlExpression toWideInteger(SqlExpression expression) {
+        return new SqlExpression.KnownCall(KnownFunction.TO_WIDE_INTEGER, List.of(expression));
     }
 
     /** Character length of a string. */

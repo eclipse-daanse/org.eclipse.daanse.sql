@@ -9,6 +9,7 @@
  */
 package org.eclipse.daanse.sql.dialect.db.common;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -39,20 +40,28 @@ final class JdbcInlineDataGenerator {
         int columnCount = columnNames.size();
         assert columnTypes.size() == columnCount;
 
+        // an inline table may carry zero rows; a single all-null row behind
+        // WHERE 1 = 0 keeps the SQL parseable and rowless
+        final boolean empty = valueList.isEmpty();
+        final List<String[]> rows = empty ? Collections.singletonList(new String[columnCount]) : valueList;
+
         Integer[] maxLengths = new Integer[columnCount];
         if (cast) {
-            fillMaxLengthsArray(maxLengths, columnTypes, valueList);
+            fillMaxLengthsArray(maxLengths, columnTypes, rows);
         }
 
-        for (int i = 0; i < valueList.size(); i++) {
+        for (int i = 0; i < rows.size(); i++) {
             if (i > 0) {
                 buf.append(" union all ");
             }
-            String[] values = valueList.get(i);
+            String[] values = rows.get(i);
             buf.append("select ");
             formSelectFieldsForInlineGeneric(buf, values, columnTypes, columnNames, maxLengths);
             if (fromClause != null) {
                 buf.append(fromClause);
+            }
+            if (empty) {
+                buf.append(" where 1 = 0");
             }
         }
         return buf;
@@ -62,12 +71,16 @@ final class JdbcInlineDataGenerator {
     StringBuilder generateInlineForAnsi(String alias, List<String> columnNames, List<String> columnTypes,
             List<String[]> valueList, boolean cast) {
         final StringBuilder buf = new StringBuilder();
+        // an inline table may carry zero rows; VALUES with no row list does
+        // not parse, so emit a single all-null row behind WHERE 1 = 0
+        final boolean empty = valueList.isEmpty();
+        final List<String[]> rows = empty ? Collections.singletonList(new String[columnNames.size()]) : valueList;
         buf.append("SELECT * FROM (VALUES ");
         String[] castTypes = null;
         if (cast) {
-            castTypes = getCastTypes(columnNames, columnTypes, valueList);
+            castTypes = getCastTypes(columnNames, columnTypes, rows);
         }
-        formSelectFieldsForInlineForAnsi(buf, valueList, columnTypes, castTypes);
+        formSelectFieldsForInlineForAnsi(buf, rows, columnTypes, castTypes);
         buf.append(") AS ");
         dialect.quoteIdentifier(alias, buf);
         buf.append(" (");
@@ -79,6 +92,9 @@ final class JdbcInlineDataGenerator {
             dialect.quoteIdentifier(columnName, buf);
         }
         buf.append(")");
+        if (empty) {
+            buf.append(" WHERE 1 = 0");
+        }
         return buf;
     }
 

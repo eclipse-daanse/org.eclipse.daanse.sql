@@ -31,11 +31,14 @@
     <module>derby</module>
     <module>duckdb</module>
     <module>h2</module>
+    <module>hive</module>
+    <module>impala</module>
     <module>mariadb</module>
     <module>mssqlserver</module>
     <module>mysql</module>
     <module>oracle</module>
     <module>postgresql</module>
     <module>sqlite</module>
+    <module>consistency-test</module>
   </modules>
 </project>

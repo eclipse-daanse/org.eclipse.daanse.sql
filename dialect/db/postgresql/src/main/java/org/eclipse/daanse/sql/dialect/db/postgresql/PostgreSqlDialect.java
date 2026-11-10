@@ -22,11 +22,13 @@
 
 package org.eclipse.daanse.sql.dialect.db.postgresql;
 
+import org.eclipse.daanse.sql.dialect.api.generator.AggregationGenerator;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -37,6 +39,8 @@ import org.eclipse.daanse.sql.model.schema.Trigger.TriggerTiming;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
 import org.eclipse.daanse.sql.model.sql.OrderedColumn;
 import org.eclipse.daanse.sql.model.type.BestFitColumnType;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PagingParam;
+import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.common.AbstractJdbcDialect;
 import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
 
@@ -45,6 +49,30 @@ import org.eclipse.daanse.sql.dialect.db.common.DialectUtil;
  * @since Nov 23, 2008
  */
 public class PostgreSqlDialect extends AbstractJdbcDialect {
+
+    /**
+     * Long text is {@code TEXT}; PostgreSQL knows no {@code CLOB} (the CWM structure of Adventure Works DW declares
+     * {@code nvarchar(max)} and {@code xml} as national large objects). A {@code BLOB} is what pgjdbc reads and writes
+     * as {@link java.sql.Blob}: a large object referenced by an {@code OID} column -- a NULL bound as BLOB is an oid, and
+     * a {@code BYTEA} column refused it ("is of type bytea but expression is of type oid"). Other binary types bind as
+     * bytes and are {@code BYTEA}; PostgreSQL knows no {@code VARBINARY}.
+     */
+    @Override
+    public String nativeType(org.eclipse.daanse.sql.model.schema.ColumnMetaData meta) {
+        java.sql.JDBCType type = meta.dataType();
+        if (type == null) {
+            return super.nativeType(meta);
+        }
+        return switch (type) {
+        case CLOB, NCLOB, LONGVARCHAR, LONGNVARCHAR -> "TEXT";
+        case BLOB -> "OID";
+        case BINARY, VARBINARY, LONGVARBINARY -> "BYTEA";
+        default -> super.nativeType(meta);
+        };
+    }
+
+
+    private static final Pattern LEADING_EMBEDDED_OPTIONS = Pattern.compile("^(?:\\(\\?[a-zA-Z-]+\\))+");
 
     // Lazy-initialized generator caches — built on first call. Stateless
     // implementations that capture the dialect's quoter / version, so safe
@@ -97,6 +125,28 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
                     sb.append(" OFFSET ").append(o);
                 });
                 return sb.toString();
+            }
+
+            @Override
+            public PreparedPaging paginatePrepared(boolean withLimit, boolean withOffset) {
+                if (withLimit && withOffset) {
+                    return new PreparedPaging(
+                        "LIMIT ? OFFSET ?",
+                        List.of(PagingParam.LIMIT, PagingParam.OFFSET)
+                    );
+                } else if (withLimit) {
+                    return new PreparedPaging(
+                        "LIMIT ?",
+                        List.of(PagingParam.LIMIT)
+                    );
+                } else if (withOffset) {
+                    return new PreparedPaging(
+                        "OFFSET ?",
+                        List.of(PagingParam.OFFSET)
+                    );
+                } else {
+                    return new PreparedPaging("", List.of());
+                }
             }
         };
         cachedPaginationGenerator = local;
@@ -242,6 +292,21 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return java.util.List.of(sb.toString());
     }
 
+    /**
+     * PostgreSQL: {@code ALTER TRIGGER name ON table RENAME TO newname} — unlike
+     * most objects, a trigger rename needs the owning table.
+     */
+    @Override
+    public boolean supportsRenameTrigger() {
+        return true;
+    }
+
+    /** PostgreSQL: {@code ALTER SEQUENCE name RENAME TO newname}. */
+    @Override
+    public boolean supportsRenameSequence() {
+        return true;
+    }
+
     @Override
     public StringBuilder generateOrderByNulls(CharSequence expr, boolean ascending, boolean collateNullsLast) {
         // Support for "ORDER BY ... NULLS LAST" was introduced in Postgres 8.3.
@@ -275,7 +340,17 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         sb.append("cast(");
         sb.append(source);
         sb.append(" as text) ~ ");
-        quoteStringLiteral(sb, javaRegex);
+        // anchored like Pattern.matches; \A/\Z stay string anchors even
+        // under newline-sensitive matching ((?m) maps to Postgres' n mode).
+        // Postgres allows embedded options only at the very start of an ARE,
+        // so a leading (?i)-style block goes in front of the anchor.
+        String options = "";
+        final Matcher optionsMatcher = LEADING_EMBEDDED_OPTIONS.matcher(javaRegex);
+        if (optionsMatcher.find()) {
+            options = optionsMatcher.group();
+            javaRegex = javaRegex.substring(optionsMatcher.end());
+        }
+        quoteStringLiteral(sb, options + "\\A(?:" + javaRegex + ")\\Z");
         return Optional.of(sb.toString());
     }
 
@@ -341,6 +416,43 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return productVersion != null && productVersion.compareTo("8.3") >= 0;
     }
 
+    /**
+     * PostgreSQL divides integers to an integer. MDX divides with a fraction, and a native condition over a quotient has to as well: the dividend is read as
+     * double precision (F-10.9, a native Filter over Units Shipped / Units Ordered, database run 20.10.).
+     */
+    @Override
+    public CharSequence quotientDividend(CharSequence dividend) {
+        return "CAST(" + dividend + " AS double precision)";
+    }
+
+    /**
+     * {@code STRING_AGG(CAST(operand AS TEXT), 'separator' ORDER BY ...)}. PostgreSQL had no list aggregation here, and
+     * every text aggregation failed in the SQL builder and in the recorder alike (the writeback tutorials on
+     * PostgreSQL, database run 20.10.). The operand is cast, because STRING_AGG takes text only. DISTINCT with an ORDER BY
+     * over other columns is an error in PostgreSQL (the ORDER BY must name the arguments); DISTINCT is then left out, as
+     * DuckDB does, so that both write the same list.
+     */
+    @Override
+    public java.util.Optional<String> generateListAgg(CharSequence operand, boolean distinct, String separator,
+            String coalesce, String onOverflowTruncate, List<OrderedColumn> columns) {
+        boolean ordered = columns != null && !columns.isEmpty();
+        StringBuilder buf = new StringBuilder(64).append("STRING_AGG(");
+        if (distinct && !ordered) {
+            buf.append("DISTINCT ");
+        }
+        buf.append("CAST(").append(operand).append(" AS TEXT), '")
+                .append((separator != null ? separator : ",").replace("'", "''")).append('\'');
+        if (ordered) {
+            buf.append(" ORDER BY ").append(buildOrderedColumnsClause(columns));
+        }
+        return java.util.Optional.of(buf.append(')').toString());
+    }
+
+    @Override
+    public boolean supportsListAgg() {
+        return true;
+    }
+
     // Unified BitOperation methods
 
     @Override
@@ -350,9 +462,12 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         case AND -> buf.append("bit_and(").append(operand).append(")");
         case OR -> buf.append("bit_or(").append(operand).append(")");
         case XOR -> buf.append("bit_xor(").append(operand).append(")");
-        case NAND -> buf.append("NOT(bit_and(").append(operand).append("))");
-        case NOR -> buf.append("NOT(bit_or(").append(operand).append("))");
-        case NXOR -> buf.append("NOT(bit_xor(").append(operand).append("))");
+        // NOT is logical in PostgreSQL and takes a boolean, so NOT(bit_and(x)) failed on every integer column
+        // (tutorial oracle, database run 20.10.); the bitwise complement is ~, as DuckDB writes it and the provider
+        // computes it (the NAND of 1 is -2)
+        case NAND -> buf.append("~(bit_and(").append(operand).append("))");
+        case NOR -> buf.append("~(bit_or(").append(operand).append("))");
+        case NXOR -> buf.append("~(bit_xor(").append(operand).append("))");
         };
         return java.util.Optional.of(result.toString());
     }
@@ -376,11 +491,12 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
                 .of((buildPercentileFunction("PERCENTILE_CONT", percentile, desc, tableName, columnName)).toString());
     }
 
+    /** The n-th value of the group's rows in their order: an ordered array, its n-th element (V-82). */
     @Override
     public java.util.Optional<String> generateNthValueAgg(CharSequence operand, boolean ignoreNulls, Integer n,
             List<OrderedColumn> columns) {
-        return java.util.Optional
-                .of((buildNthValueFunction("NTH_VALUE", operand, ignoreNulls, n, columns, false)).toString());
+        return java.util.Optional.of(buildNthValueOfArray("ARRAY_AGG", operand, ignoreNulls, columns, "(",
+                ")[" + AggregationGenerator.nthIndex(n) + "]").toString());
     }
 
     @Override
@@ -398,4 +514,19 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return true;
     }
 
+
+    @Override
+    public StringBuilder generateKnownFunction(org.eclipse.daanse.sql.dialect.api.generator.KnownFunction function,
+            java.util.List<? extends CharSequence> arguments) {
+        if (function == org.eclipse.daanse.sql.dialect.api.generator.KnownFunction.DATE_FROM_PARTS) {
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("DATE_FROM_PARTS expects 3 argument(s), got " + arguments.size());
+            }
+            // make_date takes integers: a smallint or a numeric part is cast
+            return new StringBuilder("make_date(CAST(").append(arguments.get(0)).append(" AS INTEGER), CAST(")
+                    .append(arguments.get(1)).append(" AS INTEGER), CAST(").append(arguments.get(2))
+                    .append(" AS INTEGER))");
+        }
+        return super.generateKnownFunction(function, arguments);
+    }
 }

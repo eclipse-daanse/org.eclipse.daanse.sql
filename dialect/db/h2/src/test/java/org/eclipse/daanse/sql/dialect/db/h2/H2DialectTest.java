@@ -48,9 +48,51 @@ class H2DialectTest {
         dialect = new H2Dialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /** H2 divides integers to an integer; the dividend is read as DOUBLE. */
+    @Test
+    void aQuotientReadsItsDividendAsDouble() {
+        org.junit.jupiter.api.Assertions.assertEquals("CAST(x AS DOUBLE)",
+                dialect.functionGenerator().quotientDividend("x").toString());
+    }
+
     @Test
     void testGetDialectName() {
         assertEquals("h2", dialect.name());
+    }
+
+    @Nested
+    @DisplayName("Regular Expression Tests")
+    class RegularExpressionTests {
+
+        @Test
+        void testAllowsRegularExpressionInWhereClause() {
+            assertTrue(dialect.allowsRegularExpressionInWhereClause());
+        }
+
+        @Test
+        void testGenerateRegularExpression_InvalidRegex() {
+            assertTrue(dialect.regexGenerator().generateRegularExpression("table.column", "(a").isEmpty(),
+                    "Invalid regex should be ignored");
+        }
+
+        @Test
+        void testGenerateRegularExpression_CaseInsensitive() {
+            String sql = dialect.regexGenerator()
+                    .generateRegularExpression("table.column", "(?i)|(?u).*a.*").orElseThrow();
+            // pattern anchored: MDX MATCHES is Pattern.matches, H2 REGEXP_LIKE finds
+            assertEquals(
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z', 'i')",
+                    sql);
+        }
+
+        @Test
+        void testGenerateRegularExpression_CaseSensitive() {
+            String sql = dialect.regexGenerator()
+                    .generateRegularExpression("table.column", ".*a.*").orElseThrow();
+            assertEquals(
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z')",
+                    sql);
+        }
     }
 
     @Nested

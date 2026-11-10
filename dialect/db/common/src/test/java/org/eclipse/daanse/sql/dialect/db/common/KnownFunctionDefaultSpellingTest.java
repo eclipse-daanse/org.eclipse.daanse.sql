@@ -62,7 +62,18 @@ class KnownFunctionDefaultSpellingTest {
                 Arguments.of(KnownFunction.MOD, List.of("a", "b"), "MOD(a, b)"),
                 Arguments.of(KnownFunction.POWER, List.of("a", "b"), "POWER(a, b)"),
                 Arguments.of(KnownFunction.SQRT, List.of("x"), "SQRT(x)"),
-                Arguments.of(KnownFunction.NOW, List.of(), "CURRENT_TIMESTAMP"));
+                Arguments.of(KnownFunction.NOW, List.of(), "CURRENT_TIMESTAMP"),
+                Arguments.of(KnownFunction.MONTH_NAME, List.of("x"),
+                        "CASE EXTRACT(MONTH FROM x) WHEN 1 THEN 'January' WHEN 2 THEN 'February' WHEN 3 THEN 'March'"
+                                + " WHEN 4 THEN 'April' WHEN 5 THEN 'May' WHEN 6 THEN 'June' WHEN 7 THEN 'July'"
+                                + " WHEN 8 THEN 'August' WHEN 9 THEN 'September' WHEN 10 THEN 'October'"
+                                + " WHEN 11 THEN 'November' WHEN 12 THEN 'December' END"),
+                Arguments.of(KnownFunction.TO_TEXT, List.of("x"), "CAST(x AS VARCHAR(4000))"),
+                Arguments.of(KnownFunction.TO_WIDE_INTEGER, List.of("x"), "CAST(x AS BIGINT)"),
+                Arguments.of(KnownFunction.PAD_RIGHT, List.of("x", "2"), "RPAD(x, 2, ' ')"),
+                Arguments.of(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d"),
+                        "CAST((CAST(y AS VARCHAR(4)) || '-' || LPAD(CAST(m AS VARCHAR(2)), 2, '0') || '-'"
+                                + " || LPAD(CAST(d AS VARCHAR(2)), 2, '0')) AS DATE)"));
     }
 
     @ParameterizedTest
@@ -82,7 +93,8 @@ class KnownFunctionDefaultSpellingTest {
                 Arguments.of(KnownFunction.YEAR, List.of("x", "y")),
                 Arguments.of(KnownFunction.ROUND, List.of("x", "2", "3")),
                 Arguments.of(KnownFunction.MOD, List.of("a")),
-                Arguments.of(KnownFunction.NOW, List.of("x")));
+                Arguments.of(KnownFunction.NOW, List.of("x")),
+                Arguments.of(KnownFunction.DATE_FROM_PARTS, List.of("y", "m")));
     }
 
     @ParameterizedTest

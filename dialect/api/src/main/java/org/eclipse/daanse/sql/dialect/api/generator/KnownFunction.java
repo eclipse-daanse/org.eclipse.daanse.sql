@@ -96,5 +96,34 @@ public enum KnownFunction {
     SQRT,
 
     /** Current date and time; no arguments. */
-    NOW
+    NOW,
+
+    /** The English name of the month of a date/time value ({@code January} ... {@code December}); 1 argument. */
+    MONTH_NAME,
+
+    /**
+     * A value as text, the way the database writes it ({@code 2003}, {@code 2.24}); 1 argument. Transact-SQL writes
+     * {@code CONVERT(varchar, x)}.
+     */
+    TO_TEXT,
+
+    /**
+     * A text padded with spaces on the right to a length, or cut to it: {@code PAD_RIGHT(text, length)} with a literal
+     * length; 2 arguments. Transact-SQL's {@code CONVERT(CHAR(n), x)} of a text is this (week 1 as {@code "1 "}).
+     */
+    PAD_RIGHT,
+
+    /**
+     * The date of a year, a month and a day, each a number: {@code DATE_FROM_PARTS(year, month, day)}; 3 arguments.
+     * Transact-SQL writes {@code DATEFROMPARTS}; a database without such a function reads the ISO text
+     * {@code yyyy-mm-dd} as a date.
+     */
+    DATE_FROM_PARTS,
+
+    /**
+     * A whole number as the widest whole number the database has: {@code CAST(x AS BIGINT)}; 1 argument. The operand
+     * of a sum over an INTEGER column where the sum keeps its operand's type (SQL Server, Derby) and would overflow
+     * past 2 147 483 647 ({@link org.eclipse.daanse.sql.dialect.api.capability.DialectCapabilitiesProvider#sumKeepsTheTypeOfItsOperand()}).
+     */
+    TO_WIDE_INTEGER
 }

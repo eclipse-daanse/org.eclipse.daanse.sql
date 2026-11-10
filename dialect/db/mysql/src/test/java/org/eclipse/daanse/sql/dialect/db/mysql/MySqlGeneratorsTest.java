@@ -15,6 +15,10 @@ import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport;
+import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
+import java.util.OptionalInt;
+import java.sql.JDBCType;
 import java.util.List;
 import java.util.OptionalLong;
 
@@ -28,10 +32,46 @@ class MySqlGeneratorsTest {
 
     private final MySqlDialect d = new MySqlDialect();
 
+    /**
+     * AVG over an INTEGER column is a DECIMAL of four places on MySQL and MariaDB (11.6667 for 35 / 3, database run
+     * 30.10.2026); the operand is read as a double, the way every measure value travels.
+     */
+    @Test
+    void avg_reads_its_operand_as_double() {
+        assertThat(d.aggregationGenerator().averageOperand("x")).hasToString("CAST(x AS DOUBLE)");
+    }
+
+    /**
+     * A negated bit aggregate is the signed bitwise complement: MySQL's NOT is logical (NOT(BIT_AND(1)) is 0), and ~ on
+     * the unsigned 64-bit BIT_AND result is 18446744073709551614 where the other arts answer -2.
+     */
+    @Test
+    void a_negated_bit_aggregate_is_the_signed_bitwise_complement() {
+        var g = d.aggregationGenerator();
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NAND, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_AND(x) AS SIGNED)");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NOR, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_OR(x) AS SIGNED)");
+        assertThat(g.generateBitAggregation(org.eclipse.daanse.sql.model.sql.BitOperation.NXOR, "x").orElseThrow())
+                .isEqualTo("CAST(~BIT_XOR(x) AS SIGNED)");
+    }
+
     @Test
     void pagination_offset_limit() {
         assertThat(d.paginationGenerator().paginate(OptionalLong.of(20), OptionalLong.of(40)))
                 .isEqualTo(" LIMIT 40, 20");
+    }
+
+    @Test
+    void pagination_offset_limit_placeholders() {
+        assertThat(d.paginationGenerator().paginatePrepared(false, false).clause())
+                .isEqualTo("");
+        assertThat(d.paginationGenerator().paginatePrepared(true, true).clause())
+        .isEqualTo("LIMIT ? OFFSET ?");
+        assertThat(d.paginationGenerator().paginatePrepared(true, false).clause())
+        .isEqualTo("LIMIT ?");
+        assertThat(d.paginationGenerator().paginatePrepared(false, true).clause())
+        .isEqualTo("OFFSET ?");
     }
 
     @Test
@@ -116,5 +156,39 @@ class MySqlGeneratorsTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("CONCAT");
         assertThatThrownBy(() -> d.functionGenerator().generateKnownFunction(KnownFunction.INDEX_OF, List.of("n")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("INDEX_OF");
+    }
+
+    @Test
+    void comment_on_table_uses_alter_table() {
+        assertThat(d.commentOnTable(table("app", "users"), "it's").orElseThrow())
+                .isEqualTo("ALTER TABLE `app`.`users` COMMENT = 'it''s'");
+        assertThat(d.commentOnTable(table("app", "users"), null).orElseThrow()).endsWith("COMMENT = ''");
+    }
+
+    @Test
+    void comment_on_column_restates_the_column() {
+        String sql = d.commentOnColumn(table("app", "users"), "name", "full\\name",
+                GeneratorTestSupport.columnMeta(JDBCType.VARCHAR, OptionalInt.of(50),
+                        ColumnMetaData.Nullability.NO_NULLS)).orElseThrow();
+        assertThat(sql).startsWith("ALTER TABLE `app`.`users` MODIFY COLUMN `name` VARCHAR(50) NOT NULL")
+                .endsWith(" COMMENT 'full\\\\name'");
+    }
+
+    @Test
+    void comment_on_column_requires_meta() {
+        assertThatThrownBy(() -> d.commentOnColumn(table("app", "users"), "name", "x", null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void known_functions_of_a_data_source_view() {
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.MONTH_NAME, List.of("x")))
+                .hasToString("MONTHNAME(x)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.DATE_FROM_PARTS, List.of("y", "m", "d")))
+                .hasToString("STR_TO_DATE(CONCAT_WS('-', y, m, d), '%Y-%c-%e')");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.TO_TEXT, List.of("x")))
+                .hasToString("CAST(x AS CHAR)");
+        assertThat(d.functionGenerator().generateKnownFunction(KnownFunction.PAD_RIGHT, List.of("x", "2")))
+                .hasToString("RPAD(x, 2, ' ')");
     }
 }
