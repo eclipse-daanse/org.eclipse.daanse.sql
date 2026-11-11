@@ -212,6 +212,21 @@ public abstract class AbstractJdbcDialect implements Dialect, SqlGenerator, DdlG
         return false;
     }
 
+    /**
+     * A nullable expression is ordered with NULLS FIRST/LAST where the database has it, else with a CASE that ranks
+     * the NULLs. The CASE repeats the expression inside another one, which H2 does not recognise as the grouped
+     * expression when the expression itself is computed: it then reads the column below it as ungrouped and fails as
+     * soon as a group holds two values.
+     */
+    @Override
+    public StringBuilder generateOrderItem(CharSequence expr, boolean nullable, boolean ascending,
+            boolean collateNullsLast) {
+        if (nullable && supportsNullsOrdering()) {
+            return generateOrderByNullsAnsi(expr, ascending, collateNullsLast);
+        }
+        return OrderByGenerator.super.generateOrderItem(expr, nullable, ascending, collateNullsLast);
+    }
+
     @Override
     public String quoteIdentifier(final CharSequence val) {
         return identQuoter.quote(val);

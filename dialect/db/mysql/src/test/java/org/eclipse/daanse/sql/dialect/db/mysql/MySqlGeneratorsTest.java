@@ -33,6 +33,16 @@ class MySqlGeneratorsTest {
     private final MySqlDialect d = new MySqlDialect();
 
     /**
+     * MySQL has no NULLS FIRST/LAST: a nullable item keeps its own order of NULLs (they count as the smallest value),
+     * with ISNULL in front where the NULLs go last in an ascending order.
+     */
+    @Test
+    void a_nullable_order_item_orders_its_nulls_without_a_nulls_clause() {
+        assertThat(d.generateOrderItem("x", true, true, true)).hasToString("ISNULL(x) ASC, x ASC");
+        assertThat(d.generateOrderItem("x", true, false, true)).hasToString("x DESC");
+    }
+
+    /**
      * AVG over an INTEGER column is a DECIMAL of four places on MySQL and MariaDB (11.6667 for 35 / 3, database run
      * 30.10.2026); the operand is read as a double, the way every measure value travels.
      */
