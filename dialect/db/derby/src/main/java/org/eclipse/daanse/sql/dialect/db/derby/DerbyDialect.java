@@ -375,4 +375,10 @@ public class DerbyDialect extends AbstractJdbcDialect {
             org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
         return java.util.Optional.empty();
     }
+
+    /** Derby keeps the order of each column of an index. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }

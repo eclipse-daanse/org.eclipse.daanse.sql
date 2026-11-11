@@ -446,7 +446,7 @@ public class H2MetadataProvider implements MetadataProvider {
         throws SQLException {
         String sql = """
             SELECT i.TABLE_NAME, i.INDEX_NAME, i.INDEX_TYPE_NAME, i.IS_GENERATED,
-                    ic.COLUMN_NAME, ic.ORDINAL_POSITION, ic.IS_UNIQUE,
+                    ic.COLUMN_NAME, ic.ORDINAL_POSITION, ic.IS_UNIQUE, ic.ORDERING_SPECIFICATION,
                     i.TABLE_SCHEMA, i.TABLE_CATALOG
             FROM INFORMATION_SCHEMA.INDEXES i
             JOIN INFORMATION_SCHEMA.INDEX_COLUMNS ic
@@ -472,6 +472,7 @@ public class H2MetadataProvider implements MetadataProvider {
                     int ordinalPosition = rs.getInt("ORDINAL_POSITION");
                     boolean isUnique = rs.getBoolean("IS_UNIQUE");
                     boolean isGenerated = rs.getBoolean("IS_GENERATED");
+                    String ordering = rs.getString("ORDERING_SPECIFICATION");
 
                     TableReference tableRef = tableRefs.computeIfAbsent(tableName, k -> {
                         Optional<SchemaReference> oSchema = Optional
@@ -485,8 +486,7 @@ public class H2MetadataProvider implements MetadataProvider {
                     IndexInfoItem.IndexType indexType = mapH2IndexType(indexTypeName);
 
                     IndexInfoItem item = new IndexInfoItemRecord(Optional.ofNullable(indexName), indexType, colRef,
-                        ordinalPosition, Optional.empty(), // H2 doesn't expose ASC/DESC in
-                        // INFORMATION_SCHEMA.INDEXES
+                        ordinalPosition, Optional.ofNullable(ordering).map(o -> !"DESC".equalsIgnoreCase(o)),
                         0L, // cardinality not available here
                         0L, // pages not available here
                         Optional.empty(), // filter condition

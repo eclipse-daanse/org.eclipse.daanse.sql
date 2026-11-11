@@ -515,11 +515,14 @@ public class OracleMetadataProvider implements MetadataProvider {
     @Override
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
             throws SQLException {
+        // COLUMN_EXPRESSION is a LONG: it comes last and is read last
         String sql = """
                 SELECT i.INDEX_NAME, i.INDEX_TYPE, i.TABLE_NAME, i.UNIQUENESS,
-                        ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND
+                        ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND, ie.COLUMN_EXPRESSION
                 FROM ALL_INDEXES i
                 JOIN ALL_IND_COLUMNS ic ON i.OWNER = ic.INDEX_OWNER AND i.INDEX_NAME = ic.INDEX_NAME
+                LEFT JOIN ALL_IND_EXPRESSIONS ie ON ie.INDEX_OWNER = ic.INDEX_OWNER
+                        AND ie.INDEX_NAME = ic.INDEX_NAME AND ie.COLUMN_POSITION = ic.COLUMN_POSITION
                 WHERE i.TABLE_OWNER = ? ORDER BY i.TABLE_NAME, i.INDEX_NAME, ic.COLUMN_POSITION
                 """;
         String schemaName = resolveSchema(schema, connection);
@@ -536,6 +539,10 @@ public class OracleMetadataProvider implements MetadataProvider {
                     String columnName = rs.getString("COLUMN_NAME");
                     int columnPosition = rs.getInt("COLUMN_POSITION");
                     String descend = rs.getString("DESCEND");
+                    String expression = rs.getString("COLUMN_EXPRESSION");
+                    if ("DESC".equalsIgnoreCase(descend)) {
+                        columnName = descendingColumn(columnName, expression);
+                    }
 
                     IndexInfoItem.IndexType mappedType = mapOracleIndexType(indexType);
                     boolean isUnique = "UNIQUE".equalsIgnoreCase(uniqueness);
@@ -563,6 +570,22 @@ public class OracleMetadataProvider implements MetadataProvider {
             result.add(new IndexInfoRecord(tableRefs.get(entry.getKey()), List.copyOf(entry.getValue())));
         }
         return Optional.of(List.copyOf(result));
+    }
+
+
+    /**
+     * The column of a descending index column. Oracle keeps it as a function-based column with a
+     * system name ({@code SYS_NC00005$}) and the column as its expression, quoted ({@code "QTY"});
+     * an expression that is no plain column leaves the system name.
+     */
+    static String descendingColumn(String systemName, String expression) {
+        if (expression != null) {
+            String e = expression.strip();
+            if (e.length() > 2 && e.startsWith("\"") && e.endsWith("\"") && e.indexOf('"', 1) == e.length() - 1) {
+                return e.substring(1, e.length() - 1);
+            }
+        }
+        return systemName;
     }
 
 

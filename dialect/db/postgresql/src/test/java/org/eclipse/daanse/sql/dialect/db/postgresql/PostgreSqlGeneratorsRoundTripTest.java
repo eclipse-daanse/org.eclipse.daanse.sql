@@ -31,6 +31,7 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
@@ -173,5 +174,12 @@ class PostgreSqlGeneratorsRoundTripTest {
             s.execute(dialect.ddlGenerator().dropIndex("ux_users_big", USERS, false));
             s.execute("DELETE FROM \"public\".\"users\" WHERE name = 'same'");
         }
+    }
+
+    /** An index the dialect writes with a descending column is read back with the order of each column. */
+    @Test
+    void descending_index_column_is_created_and_read_back() throws SQLException {
+        IndexRoundTrip.assertDescendingIndexRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(), USERS,
+                "ix_users_desc", "name", "id");
     }
 }

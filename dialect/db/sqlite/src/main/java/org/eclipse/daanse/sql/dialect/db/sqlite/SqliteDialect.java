@@ -330,4 +330,10 @@ public class SqliteDialect extends AbstractJdbcDialect {
     public boolean supportsFilteredIndexes() {
         return dialectVersion.isUnknownOrAtLeast(3, 8);
     }
+
+    /** SQLite keeps the order of each column of an index. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }

@@ -29,6 +29,8 @@ import java.util.OptionalLong;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.IndexColumn;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.IndexDefinition;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.junit.jupiter.api.AfterAll;
@@ -124,6 +126,26 @@ class SqliteGeneratorsRoundTripTest {
             }
             s.execute("DROP INDEX \"ux_users_big\"");
             s.execute("DELETE FROM \"users\" WHERE name = 'same'");
+        }
+    }
+
+    /** An index the dialect writes with a descending column keeps the order of each column. */
+    @Test
+    void descending_index_column_is_created() throws SQLException {
+        TableReference table = new TableReference(Optional.empty(), "users", TableReference.TYPE_TABLE);
+        IndexDefinition index = new IndexDefinition("ix_users_desc", table,
+                List.of(IndexColumn.descending("name"), IndexColumn.ascending("id")), false, null);
+        try (Statement s = conn.createStatement()) {
+            s.execute(dialect.ddlGenerator().createIndex(index, false).orElseThrow());
+            List<String> columns = new java.util.ArrayList<>();
+            try (ResultSet rs = s.executeQuery(
+                    "SELECT name, \"desc\" FROM pragma_index_xinfo('ix_users_desc') WHERE \"key\" = 1 ORDER BY seqno")) {
+                while (rs.next()) {
+                    columns.add(rs.getString(1) + (rs.getInt(2) == 1 ? " DESC" : " ASC"));
+                }
+            }
+            assertThat(columns).containsExactly("name DESC", "id ASC");
+            s.execute("DROP INDEX \"ix_users_desc\"");
         }
     }
 }

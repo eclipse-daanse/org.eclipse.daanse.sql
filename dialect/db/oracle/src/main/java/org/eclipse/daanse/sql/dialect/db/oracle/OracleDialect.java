@@ -897,4 +897,10 @@ public class OracleDialect extends AbstractJdbcDialect {
     public Optional<String> dropMaterializedView(TableReference view, boolean ifExists) {
         return super.dropMaterializedView(view, ifExists && dialectVersion.atLeast(23, 0));
     }
+
+    /** Oracle keeps a descending column as a function-based index column. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }
