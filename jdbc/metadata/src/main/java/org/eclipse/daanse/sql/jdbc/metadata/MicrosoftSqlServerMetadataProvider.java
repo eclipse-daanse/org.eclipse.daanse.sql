@@ -540,13 +540,14 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
     }
 
 
+    /** The indexes of a schema; a filtered index with its condition as SQL Server keeps it. */
     @Override
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
             throws SQLException {
         String sql = """
                 SELECT i.name AS index_name, i.type_desc AS index_type, i.is_unique,
                         OBJECT_NAME(i.object_id) AS table_name, c.name AS column_name,
-                        ic.key_ordinal, ic.is_descending_key
+                        ic.key_ordinal, ic.is_descending_key, i.filter_definition
                 FROM sys.indexes i
                 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
                 JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
@@ -568,6 +569,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     String columnName = rs.getString("column_name");
                     int ordinalPosition = rs.getInt("key_ordinal");
                     boolean isDescending = rs.getBoolean("is_descending_key");
+                    String filterDefinition = rs.getString("filter_definition");
 
                     IndexInfoItem.IndexType mappedType = mapMssqlIndexType(indexType);
 
@@ -581,7 +583,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                             .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
 
                     IndexInfoItem item = new IndexInfoItemRecord(Optional.ofNullable(indexName), mappedType, colRef,
-                            ordinalPosition, Optional.of(!isDescending), 0L, 0L, Optional.empty(), isUnique);
+                            ordinalPosition, Optional.of(!isDescending), 0L, 0L, Optional.ofNullable(filterDefinition),
+                            isUnique);
 
                     tableIndexes.computeIfAbsent(tableName, k -> new ArrayList<>()).add(item);
                 }

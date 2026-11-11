@@ -10,6 +10,7 @@
 package org.eclipse.daanse.sql.dialect.db.postgresql;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertExecuteUpdateAffected;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstIntEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
@@ -31,6 +32,7 @@ import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.metadata.PostgreSqlMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
@@ -148,6 +150,28 @@ class PostgreSqlGeneratorsRoundTripTest {
             s.execute(dialect.ddlGenerator().dropMaterializedView(view, true).orElseThrow());
             assertThat(provider.getAllMaterializedViews(conn, null, "public"))
                     .noneMatch(mv -> mv.view().name().equals("mv_users"));
+        }
+    }
+
+    /**
+     * A unique index over the rows of a condition holds among those rows only, and the metadata
+     * provider reads its condition back.
+     */
+    @Test
+    void filtered_index_is_created_and_read_back() throws SQLException {
+        String create = dialect.ddlGenerator().createIndex("ux_users_big", USERS, List.of("name"), true, "id > 100",
+                false).orElseThrow();
+        try (Statement s = conn.createStatement()) {
+            s.execute(create);
+            s.execute("INSERT INTO \"public\".\"users\" VALUES (31, 'same'), (32, 'same'), (301, 'same')");
+            assertThatThrownBy(() -> s.execute("INSERT INTO \"public\".\"users\" VALUES (302, 'same')"))
+                    .isInstanceOf(SQLException.class);
+            assertThat(new PostgreSqlMetadataProvider().getAllIndexInfo(conn, null, "public").orElseThrow())
+                    .flatExtracting(IndexInfo::indexInfoItems)
+                    .filteredOn(item -> item.indexName().filter("ux_users_big"::equals).isPresent()).singleElement()
+                    .satisfies(item -> assertThat(item.filterCondition().orElseThrow()).contains("id > 100"));
+            s.execute(dialect.ddlGenerator().dropIndex("ux_users_big", USERS, false));
+            s.execute("DELETE FROM \"public\".\"users\" WHERE name = 'same'");
         }
     }
 }

@@ -32,6 +32,11 @@ class MsSqlMetadataContractTest extends MetadataProviderContract {
     }
 
     @Override
+    protected List<String> createFilteredIndex() {
+        return List.of("CREATE INDEX ix_orders_large ON sales.orders (qty) WHERE qty > 10");
+    }
+
+    @Override
     protected MetadataProvider provider() {
         return new MicrosoftSqlServerMetadataProvider();
     }

@@ -10,6 +10,7 @@
 package org.eclipse.daanse.sql.dialect.db.mssqlserver;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertExecuteUpdateAffected;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstIntEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
@@ -33,6 +34,7 @@ import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -165,5 +167,27 @@ class MicrosoftSqlServerGeneratorsRoundTripTest {
     void user_is_created_given_a_role_and_dropped() throws SQLException {
         UserRoundTrip.assertUserRoundTrip(conn, dialect.ddlGenerator(), new MicrosoftSqlServerMetadataProvider(),
                 DatabasePrincipal.KIND_USER, users, "rt_user", "rt_role");
+    }
+
+    /**
+     * A unique index over the rows of a condition holds among those rows only, and the metadata
+     * provider reads its condition back.
+     */
+    @Test
+    void filtered_index_is_created_and_read_back() throws SQLException {
+        String create = dialect.ddlGenerator().createIndex("ux_users_big", users, List.of("name"), true, "id > 100",
+                false).orElseThrow();
+        try (Statement s = conn.createStatement()) {
+            s.execute(create);
+            s.execute("INSERT INTO [dbo].[users] VALUES (31, 'same'), (32, 'same'), (301, 'same')");
+            assertThatThrownBy(() -> s.execute("INSERT INTO [dbo].[users] VALUES (302, 'same')"))
+                    .isInstanceOf(SQLException.class);
+            assertThat(new MicrosoftSqlServerMetadataProvider().getAllIndexInfo(conn, null, "dbo").orElseThrow())
+                    .flatExtracting(IndexInfo::indexInfoItems)
+                    .filteredOn(item -> item.indexName().filter("ux_users_big"::equals).isPresent()).singleElement()
+                    .satisfies(item -> assertThat(item.filterCondition().orElseThrow()).contains("[id]>(100)"));
+            s.execute(dialect.ddlGenerator().dropIndex("ux_users_big", users, false));
+            s.execute("DELETE FROM [dbo].[users] WHERE name = 'same'");
+        }
     }
 }

@@ -562,4 +562,10 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     public boolean supportsMaterializedViews() {
         return true;
     }
+
+    /** PostgreSQL: a partial index, {@code CREATE INDEX … WHERE condition}. */
+    @Override
+    public boolean supportsFilteredIndexes() {
+        return true;
+    }
 }

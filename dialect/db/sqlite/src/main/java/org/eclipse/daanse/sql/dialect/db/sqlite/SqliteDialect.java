@@ -321,4 +321,13 @@ public class SqliteDialect extends AbstractJdbcDialect {
             org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
         return java.util.Optional.empty();
     }
+
+    /**
+     * SQLite: a partial index, {@code CREATE INDEX … WHERE condition}, from 3.8.0; a dialect made
+     * without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsFilteredIndexes() {
+        return dialectVersion.isUnknownOrAtLeast(3, 8);
+    }
 }

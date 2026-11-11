@@ -58,7 +58,8 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  * sales.orders       PK (id), FK fk_orders_product (product_id) → stock.product,
  *                    CHECK ck_orders_id (id &gt; 0), CHECK without a name (qty &gt; 0), id and qty NOT NULL,
  *                    INDEX ix_orders_ordered_on (ordered_on),
- *                    UNIQUE INDEX ux_orders_product_day (product_id, ordered_on)
+ *                    UNIQUE INDEX ux_orders_product_day (product_id, ordered_on),
+ *                    INDEX ix_orders_large (qty) WHERE qty &gt; 10, where the database has partial indexes
  * sales.order_line   PK (order_id, line_no), FK fk_order_line_orders (order_id) → sales.orders
  * sales.child_bare   PK (id), FK fk_child_bare (orders_id) → sales.orders, no index of its own
  * sales.child_indexed
@@ -174,6 +175,15 @@ abstract class MetadataProviderContract {
         return List.of();
     }
 
+    /**
+     * The statements that create the partial index {@code ix_orders_large} on the column {@code qty}
+     * of the orders, over the rows where {@code qty > 10}; none where the database has no partial
+     * indexes.
+     */
+    protected List<String> createFilteredIndex() {
+        return List.of();
+    }
+
     /** Whether the database makes an index of its own for a foreign key whose columns have none. */
     protected boolean makesForeignKeyIndexes() {
         return false;
@@ -283,6 +293,7 @@ abstract class MetadataProviderContract {
                 + ".orders (product_id, ordered_on)");
         sql.add("CREATE VIEW " + sales + ".v_orders AS SELECT id, qty FROM " + sales + ".orders");
         sql.addAll(createMaterializedView());
+        sql.addAll(createFilteredIndex());
         sql.addAll(createChildren());
         if (sequences()) {
             sql.add(createSequence(sales + ".seq_unlimited", false));
@@ -418,6 +429,19 @@ abstract class MetadataProviderContract {
             assertThat(item.indexName()).hasValueSatisfying(n -> assertThat(n).isEqualToIgnoringCase("ix_child_indexed"));
             assertThat(item.createdForConstraint()).as("made for a constraint").isFalse();
         });
+    }
+
+    /** A partial index is reported with the condition on its rows, where the database has them. */
+    @Test
+    void anIndexWithTheConditionOnItsRows() throws SQLException {
+        assumeFalse(createFilteredIndex().isEmpty(), "the database has no partial indexes");
+
+        List<IndexInfo> indexes = provider.getAllIndexInfo(connection, null, sales()).orElseThrow();
+        List<IndexInfoItem> items = indexes.stream().filter(index -> is(index.tableReference(), sales(), "orders"))
+                .flatMap(index -> index.indexInfoItems().stream()).toList();
+
+        assertThat(index(items, "ix_orders_large")).allSatisfy(item -> assertThat(item.filterCondition())
+                .hasValueSatisfying(condition -> assertThat(condition).containsIgnoringCase("qty").contains("10")));
     }
 
     @Test
