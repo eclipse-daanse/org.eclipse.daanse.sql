@@ -59,7 +59,8 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  *                    CHECK ck_orders_id (id &gt; 0), CHECK without a name (qty &gt; 0), id and qty NOT NULL,
  *                    INDEX ix_orders_ordered_on (ordered_on),
  *                    UNIQUE INDEX ux_orders_product_day (product_id, ordered_on),
- *                    INDEX ix_orders_large (qty) WHERE qty &gt; 10, where the database has partial indexes
+ *                    INDEX ix_orders_large (qty) WHERE qty &gt; 10, where the database has partial indexes,
+ *                    INDEX ix_orders_qty_desc (qty DESC, id)
  * sales.order_line   PK (order_id, line_no), FK fk_order_line_orders (order_id) → sales.orders
  * sales.child_bare   PK (id), FK fk_child_bare (orders_id) → sales.orders, no index of its own
  * sales.child_indexed
@@ -184,6 +185,11 @@ abstract class MetadataProviderContract {
         return List.of();
     }
 
+    /** Whether the database keeps the order of an index column that sorts descending. */
+    protected boolean keepsDescendingIndexColumns() {
+        return true;
+    }
+
     /** Whether the database makes an index of its own for a foreign key whose columns have none. */
     protected boolean makesForeignKeyIndexes() {
         return false;
@@ -294,6 +300,7 @@ abstract class MetadataProviderContract {
         sql.add("CREATE VIEW " + sales + ".v_orders AS SELECT id, qty FROM " + sales + ".orders");
         sql.addAll(createMaterializedView());
         sql.addAll(createFilteredIndex());
+        sql.add("CREATE INDEX " + indexName(sales, "ix_orders_qty_desc") + " ON " + sales + ".orders (qty DESC, id)");
         sql.addAll(createChildren());
         if (sequences()) {
             sql.add(createSequence(sales + ".seq_unlimited", false));
@@ -442,6 +449,21 @@ abstract class MetadataProviderContract {
 
         assertThat(index(items, "ix_orders_large")).allSatisfy(item -> assertThat(item.filterCondition())
                 .hasValueSatisfying(condition -> assertThat(condition).containsIgnoringCase("qty").contains("10")));
+    }
+
+    /** An index with a descending column is reported with the order of each of its columns. */
+    @Test
+    void anIndexWithTheOrderOfItsColumns() throws SQLException {
+        assumeTrue(keepsDescendingIndexColumns(), "the database keeps no order in an index");
+
+        List<IndexInfoItem> items = provider.getAllIndexInfo(connection, null, sales()).orElseThrow().stream()
+                .filter(index -> is(index.tableReference(), sales(), "orders"))
+                .flatMap(index -> index.indexInfoItems().stream()).toList();
+
+        assertThat(index(items, "ix_orders_qty_desc"))
+                .extracting(item -> name(item.column().orElseThrow()) + " "
+                        + item.ascending().map(ascending -> ascending ? "ASC" : "DESC").orElse("?"))
+                .containsExactly("qty DESC", "id ASC");
     }
 
     @Test

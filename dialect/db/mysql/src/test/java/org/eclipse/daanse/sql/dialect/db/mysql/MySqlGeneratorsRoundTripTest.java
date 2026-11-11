@@ -27,6 +27,7 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.metadata.MySqlMetadataProvider;
@@ -132,5 +133,12 @@ class MySqlGeneratorsRoundTripTest {
             UserRoundTrip.assertUserRoundTrip(root, dialect.ddlGenerator(), new MySqlMetadataProvider(),
                     DatabasePrincipal.KIND_UNKNOWN, users, "rt_user", "rt_role");
         }
+    }
+
+    /** An index the dialect writes with a descending column is read back with the order of each column. */
+    @Test
+    void descending_index_column_is_created_and_read_back() throws SQLException {
+        IndexRoundTrip.assertDescendingIndexRoundTrip(conn, dialect.ddlGenerator(), new MySqlMetadataProvider(), users,
+                "ix_users_desc", "name", "id");
     }
 }

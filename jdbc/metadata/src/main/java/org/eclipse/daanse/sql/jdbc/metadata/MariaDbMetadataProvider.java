@@ -457,7 +457,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
             throws SQLException {
         String sql = """
-                SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE, INDEX_TYPE, CARDINALITY
+                SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, NON_UNIQUE, INDEX_TYPE, CARDINALITY,
+                        COLLATION
                 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ?
                 ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
                 """;
@@ -473,7 +474,8 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                     String tableName = rs.getString("TABLE_NAME");
                     String indexName = rs.getString("INDEX_NAME");
                     IndexRow row = new IndexRow(rs.getString("COLUMN_NAME"), rs.getInt("SEQ_IN_INDEX"),
-                            rs.getBoolean("NON_UNIQUE"), rs.getString("INDEX_TYPE"), rs.getLong("CARDINALITY"));
+                            rs.getBoolean("NON_UNIQUE"), rs.getString("INDEX_TYPE"), rs.getLong("CARDINALITY"),
+                            rs.getString("COLLATION"));
                     tableRefs.computeIfAbsent(tableName, k -> new TableReference(
                             Optional.of(new SchemaReference(Optional.empty(), schemaName)), k));
                     tableIndexMap.computeIfAbsent(tableName, k -> new LinkedHashMap<>())
@@ -494,9 +496,9 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 for (IndexRow row : rows) {
                     Optional<ColumnReference> colRef = Optional.ofNullable(row.column())
                             .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
-                    // STATISTICS has no ASC/DESC, no pages and no filter condition
+                    // STATISTICS has no pages and no filter condition
                     allItems.add(new IndexInfoItemRecord(Optional.ofNullable(indexName),
-                            mapIndexType(row.indexType()), colRef, row.seqInIndex(), Optional.empty(),
+                            mapIndexType(row.indexType()), colRef, row.seqInIndex(), row.ascending(),
                             row.cardinality(), 0L, Optional.empty(), !row.nonUnique(), madeForForeignKey));
                 }
             }
@@ -505,8 +507,17 @@ public class MariaDbMetadataProvider implements MetadataProvider {
         return Optional.of(List.copyOf(result));
     }
 
-    /** One row of {@code information_schema.STATISTICS}: a column of an index. */
-    private record IndexRow(String column, int seqInIndex, boolean nonUnique, String indexType, long cardinality) {
+    /**
+     * One row of {@code information_schema.STATISTICS}: a column of an index. Its collation is
+     * {@code A} for ascending, {@code D} for descending (MySQL 8, MariaDB 10.8) and none where the
+     * index keeps no order.
+     */
+    private record IndexRow(String column, int seqInIndex, boolean nonUnique, String indexType, long cardinality,
+            String collation) {
+
+        Optional<Boolean> ascending() {
+            return Optional.ofNullable(collation).map(c -> !"D".equalsIgnoreCase(c));
+        }
     }
 
     /** The columns of each foreign key of a schema, in order, by the key's table and name. */

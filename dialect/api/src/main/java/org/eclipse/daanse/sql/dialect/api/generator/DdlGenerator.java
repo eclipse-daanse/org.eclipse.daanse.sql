@@ -405,6 +405,82 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         if (columnNames == null || columnNames.isEmpty()) {
             throw new IllegalArgumentException("columnNames must not be empty for CREATE INDEX");
         }
+        return indexStatement(indexName, table, columnNames.stream().map(IndexColumn::ascending).toList(), unique,
+                ifNotExists);
+    }
+
+    /** A column of an index and the order the index sorts it in. */
+    record IndexColumn(String name, boolean descending) {
+
+        public IndexColumn {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("index column name must not be blank");
+            }
+        }
+
+        /** A column the index sorts ascending, the default order. */
+        public static IndexColumn ascending(String name) {
+            return new IndexColumn(name, false);
+        }
+
+        /** A column the index sorts descending. */
+        public static IndexColumn descending(String name) {
+            return new IndexColumn(name, true);
+        }
+    }
+
+    /**
+     * An index: its name, its table, its columns in order with the order each sorts in, whether it
+     * is unique, and the condition on its rows for a partial index, or {@code null}.
+     */
+    record IndexDefinition(String name, TableReference table, List<IndexColumn> columns, boolean unique,
+            String condition) {
+
+        public IndexDefinition {
+            if (columns == null || columns.isEmpty()) {
+                throw new IllegalArgumentException("columns must not be empty for CREATE INDEX");
+            }
+            columns = List.copyOf(columns);
+        }
+    }
+
+    /**
+     * {@code CREATE [UNIQUE] INDEX [IF NOT EXISTS] idx ON schema.table (col1 DESC, col2, …) [WHERE condition]}:
+     * an index whose columns each sort ascending or descending. An ascending column is written
+     * without an order, as SQL sorts by default.
+     *
+     * @return empty for a descending column where the database keeps no order in an index
+     *         ({@link #supportsDescendingIndexColumns()} is false), and for a condition where it has
+     *         no partial indexes ({@link #supportsFilteredIndexes()} is false)
+     */
+    default Optional<String> createIndex(IndexDefinition index, boolean ifNotExists) {
+        if (index.columns().stream().noneMatch(IndexColumn::descending)) {
+            return createIndex(index.name(), index.table(),
+                    index.columns().stream().map(IndexColumn::name).toList(), index.unique(), index.condition(),
+                    ifNotExists);
+        }
+        if (!supportsDescendingIndexColumns()) {
+            return Optional.empty();
+        }
+        String statement = indexStatement(index.name(), index.table(), index.columns(), index.unique(),
+                ifNotExists);
+        if (index.condition() == null || index.condition().isBlank()) {
+            return Optional.of(statement);
+        }
+        return supportsFilteredIndexes() ? Optional.of(statement + " WHERE " + index.condition()) : Optional.empty();
+    }
+
+    /**
+     * @return true if an index keeps the order of a column it sorts descending
+     *         ({@code CREATE INDEX … (col DESC)}); false where the database has no index DDL or takes
+     *         {@code DESC} and ignores it
+     */
+    default boolean supportsDescendingIndexColumns() {
+        return false;
+    }
+
+    private String indexStatement(String indexName, TableReference table, List<IndexColumn> columns, boolean unique,
+            boolean ifNotExists) {
         StringBuilder sb = new StringBuilder("CREATE ");
         if (unique)
             sb.append("UNIQUE ");
@@ -415,10 +491,12 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         sb.append(quoteIdentifier(indexName));
         sb.append(" ON ").append(qualified(table));
         sb.append(" (");
-        for (int i = 0; i < columnNames.size(); i++) {
+        for (int i = 0; i < columns.size(); i++) {
             if (i > 0)
                 sb.append(", ");
-            sb.append(quoteIdentifier(columnNames.get(i)));
+            sb.append(quoteIdentifier(columns.get(i).name()));
+            if (columns.get(i).descending())
+                sb.append(" DESC");
         }
         sb.append(")");
         return sb.toString();

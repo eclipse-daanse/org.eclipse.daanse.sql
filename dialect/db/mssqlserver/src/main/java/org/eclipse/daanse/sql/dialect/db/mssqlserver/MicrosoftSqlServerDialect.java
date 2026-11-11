@@ -937,4 +937,10 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     public boolean supportsFilteredIndexes() {
         return true;
     }
+
+    /** SQL Server keeps the order of each key column of an index. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }

@@ -317,4 +317,10 @@ public class H2Dialect extends AbstractJdbcDialect {
         return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
                 + " SALT X'' HASH X''");
     }
+
+    /** H2 keeps the order of each column of an index. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }

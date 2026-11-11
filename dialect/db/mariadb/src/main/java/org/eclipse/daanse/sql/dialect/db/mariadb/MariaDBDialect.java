@@ -181,4 +181,13 @@ public class MariaDBDialect extends MySqlDialect {
         return org.eclipse.daanse.sql.dialect.api.DialectVersion.UNKNOWN.equals(dialectVersion)
                 || dialectVersion.atLeast(new org.eclipse.daanse.sql.dialect.api.DialectVersion(10, 4, 2));
     }
+
+    /**
+     * MariaDB keeps a descending index column from 10.8; before, it took {@code DESC} and ignored it.
+     * A dialect made without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return dialectVersion.isUnknownOrAtLeast(10, 8);
+    }
 }

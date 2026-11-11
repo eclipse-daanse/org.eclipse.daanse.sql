@@ -878,4 +878,13 @@ public class MySqlDialect extends AbstractJdbcDialect {
         return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
                 + " ACCOUNT LOCK");
     }
+
+    /**
+     * MySQL keeps a descending index column from 8.0; before, it took {@code DESC} and ignored it. A
+     * dialect made without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return dialectVersion.isUnknownOrAtLeast(8, 0);
+    }
 }

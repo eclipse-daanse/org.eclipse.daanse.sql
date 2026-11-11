@@ -60,6 +60,12 @@ class DuckDbMetadataContractTest extends MetadataProviderContract {
         return false;
     }
 
+    /** DuckDB takes {@code DESC} in an index and drops it. */
+    @Override
+    protected boolean keepsDescendingIndexColumns() {
+        return false;
+    }
+
     @Override
     protected boolean keepsConstraintNames() {
         return false;

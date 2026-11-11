@@ -568,4 +568,10 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     public boolean supportsFilteredIndexes() {
         return true;
     }
+
+    /** PostgreSQL keeps the order of each column of a B-tree index. */
+    @Override
+    public boolean supportsDescendingIndexColumns() {
+        return true;
+    }
 }
