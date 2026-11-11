@@ -424,6 +424,32 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return sb.toString();
     }
 
+    /**
+     * {@code CREATE [UNIQUE] INDEX [IF NOT EXISTS] idx ON schema.table (cols) WHERE condition}: a
+     * partial index, over the rows the condition holds for only; a unique one is unique among those
+     * rows. The condition is written as given. Without a condition this is the index
+     * {@link #createIndex(String, TableReference, List, boolean, boolean)} writes.
+     *
+     * @return empty for a condition where the database has no partial indexes
+     *         ({@link #supportsFilteredIndexes()} is false)
+     */
+    default Optional<String> createIndex(String indexName, TableReference table, List<String> columnNames,
+            boolean unique, String condition, boolean ifNotExists) {
+        String index = createIndex(indexName, table, columnNames, unique, ifNotExists);
+        if (condition == null || condition.isBlank()) {
+            return Optional.of(index);
+        }
+        if (!supportsFilteredIndexes()) {
+            return Optional.empty();
+        }
+        return Optional.of(index + " WHERE " + condition);
+    }
+
+    /** @return true if an index may have a condition on its rows ({@code CREATE INDEX … WHERE}) */
+    default boolean supportsFilteredIndexes() {
+        return false;
+    }
+
     /** {@code DROP INDEX [IF EXISTS] idx}. SQL-99 form (no {@code ON table}). */
     default String dropIndex(String indexName, boolean ifExists) {
         StringBuilder sb = new StringBuilder("DROP INDEX ");

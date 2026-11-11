@@ -10,6 +10,7 @@
 package org.eclipse.daanse.sql.dialect.db.sqlite;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertExecuteUpdateAffected;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstIntEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
@@ -18,6 +19,7 @@ import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
@@ -99,5 +101,29 @@ class SqliteGeneratorsRoundTripTest {
     void returning_clause_returns_inserted_id() throws SQLException {
         String returning = dialect.returningGenerator().returning(List.of("id")).orElseThrow();
         assertFirstIntEquals(conn, "INSERT INTO \"users\" (id, name) VALUES (99, 'returned')" + returning, 99);
+    }
+
+    /**
+     * A unique index over the rows of a condition holds among those rows only; SQLite keeps it as a
+     * partial index. SQLite takes no schema before the table of an index.
+     */
+    @Test
+    void filtered_index_is_created() throws SQLException {
+        TableReference table = new TableReference(Optional.empty(), "users", TableReference.TYPE_TABLE);
+        String create = dialect.ddlGenerator().createIndex("ux_users_big", table, List.of("name"), true, "id > 100",
+                false).orElseThrow();
+        try (Statement s = conn.createStatement()) {
+            s.execute(create);
+            s.execute("INSERT INTO \"users\" VALUES (31, 'same'), (32, 'same'), (301, 'same')");
+            assertThatThrownBy(() -> s.execute("INSERT INTO \"users\" VALUES (302, 'same')"))
+                    .isInstanceOf(SQLException.class);
+            try (ResultSet rs = s.executeQuery("SELECT \"partial\" FROM pragma_index_list('users')"
+                    + " WHERE name = 'ux_users_big'")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).as("partial").isEqualTo(1);
+            }
+            s.execute("DROP INDEX \"ux_users_big\"");
+            s.execute("DELETE FROM \"users\" WHERE name = 'same'");
+        }
     }
 }

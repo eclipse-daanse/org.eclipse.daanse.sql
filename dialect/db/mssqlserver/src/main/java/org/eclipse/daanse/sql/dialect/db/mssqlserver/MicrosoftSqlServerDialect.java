@@ -928,4 +928,13 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     private static String principalNamed(String name) {
         return "SELECT 1 FROM sys.database_principals WHERE name = " + nLiteral(name);
     }
+
+    /**
+     * SQL Server: a filtered index, {@code CREATE INDEX … WHERE condition}; the condition compares
+     * columns with constants only.
+     */
+    @Override
+    public boolean supportsFilteredIndexes() {
+        return true;
+    }
 }
