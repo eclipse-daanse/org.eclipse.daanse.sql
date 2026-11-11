@@ -96,6 +96,39 @@ public class OracleMetadataProvider implements MetadataProvider {
     private static final Logger LOGGER = LoggerFactory.getLogger(OracleMetadataProvider.class);
 
 
+    /**
+     * The tables and views as the JDBC driver reports them, each with its comment from
+     * {@code ALL_TAB_COMMENTS}, read for the schemas in one query: the driver reports a table's
+     * comment only where the connection asks for it ({@code remarksReporting}).
+     */
+    @Override
+    public Optional<List<org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition>> getAllTableDefinitions(
+            Connection connection, String catalog, String schemaPattern, String tableNamePattern, String[] types)
+            throws SQLException {
+        String sql = """
+                SELECT OWNER, TABLE_NAME, COMMENTS FROM ALL_TAB_COMMENTS
+                WHERE COMMENTS IS NOT NULL AND (? IS NULL OR OWNER LIKE ? ESCAPE '/')
+                """;
+        Map<TableKey, String> comments = new java.util.HashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaPattern);
+            ps.setString(2, schemaPattern);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    comments.put(new TableKey(rs.getString("OWNER"), rs.getString("TABLE_NAME")),
+                            rs.getString("COMMENTS"));
+                }
+            }
+        }
+        return Optional.of(DriverMetadata.tables(connection, catalog, schemaPattern, tableNamePattern, types,
+                (schema, table, column) -> comments.get(new TableKey(schema, table))));
+    }
+
+    /** A table or view by its owner, the schema, and its name. */
+    private record TableKey(String owner, String table) {
+    }
+
+
     @Override
     public List<Trigger> getAllTriggers(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """

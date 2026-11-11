@@ -92,6 +92,14 @@ class OracleMetadataContractTest extends MetadataProviderContract {
         return schema + "." + name;
     }
 
+    /** Oracle has no {@code COMMENT ON VIEW}; a view takes {@code COMMENT ON TABLE}. */
+    @Override
+    protected List<String> comments() {
+        return List.of("COMMENT ON TABLE STOCK.product IS '" + PRODUCT_COMMENT + "'",
+                "COMMENT ON COLUMN STOCK.product.code IS '" + CODE_COMMENT + "'",
+                "COMMENT ON TABLE " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'");
+    }
+
     @Override
     protected List<String> afterStock() {
         return List.of("GRANT REFERENCES ON STOCK.product TO " + sales());

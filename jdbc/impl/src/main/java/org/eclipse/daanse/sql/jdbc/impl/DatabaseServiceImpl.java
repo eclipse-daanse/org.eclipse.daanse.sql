@@ -177,6 +177,13 @@ public class DatabaseServiceImpl implements DatabaseService {
         // schema the tables lie in, and for the current schema, and the snapshot holds the keys,
         // constraints, indexes, … of all its tables, as the per-table JDBC fallbacks do.
         List<String> tableSchemas = schemaNames(tables, connection);
+        // BULK: Tables — a provider that reads the tables itself gives them, schema by schema, as it
+        // gives the columns: SQL Server's driver reports no comments, Oracle's only on request.
+        Optional<List<TableDefinition>> providerTables = eachSchemaIfSupported(tableSchemas,
+                s -> provider.getAllTableDefinitions(connection, null, s, null, null));
+        if (providerTables.isPresent()) {
+            tables = providerTables.get();
+        }
         // BULK: Columns — dialect-optimized when supported (Oracle's ALL_TAB_COLS
         // avoids the COLUMN_DEF LONG quirk that breaks DatabaseMetaData.getColumns).
         List<ColumnDefinition> columns;

@@ -10,16 +10,19 @@
 package org.eclipse.daanse.sql.dialect.db.mssqlserver;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport.schema;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport.table;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.GeneratorTestSupport.upsertSpec;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.dialect.api.generator.KnownFunction;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.StatementHint;
+import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.junit.jupiter.api.Test;
 
 /** Smoke tests for SQL Server's engine-specific overrides of new generators. */
@@ -178,6 +181,25 @@ class MicrosoftSqlServerGeneratorsTest {
         assertThat(column).contains("COLUMNPROPERTY(").contains("@level2type = N'COLUMN', @level2name = N'NAME'");
         assertThat(d.commentOnTable(table("dbo", "USERS"), null).orElseThrow())
                 .contains("sp_dropextendedproperty").doesNotContain("@value");
+    }
+
+    /**
+     * The comment is the {@code MS_Description} of the object or column itself (class 1); one of an
+     * index, whose index_id may equal a column's column_id, is another.
+     */
+    @Test
+    void comment_is_looked_up_among_the_properties_of_objects_and_columns() {
+        assertThat(d.commentOnColumn(table("dbo", "USERS"), "NAME", "x", null).orElseThrow())
+                .contains("FROM sys.extended_properties WHERE class = 1 AND major_id = ");
+    }
+
+    @Test
+    void comment_on_a_view_names_it_a_view() {
+        TableReference view = new TableReference(Optional.of(schema("dbo")), "V_USERS", TableReference.TYPE_VIEW);
+        assertThat(d.commentOnTable(view, "x").orElseThrow())
+                .contains("@level1type = N'VIEW', @level1name = N'V_USERS'").doesNotContain("N'TABLE'");
+        assertThat(d.commentOnColumn(view, "NAME", "x", null).orElseThrow())
+                .contains("@level1type = N'VIEW', @level1name = N'V_USERS', @level2type = N'COLUMN'");
     }
 
     @Test
