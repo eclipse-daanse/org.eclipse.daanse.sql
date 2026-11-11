@@ -556,4 +556,10 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return Optional.of("DO " + quote + " BEGIN " + create + "; EXCEPTION WHEN duplicate_object THEN NULL; END "
                 + quote);
     }
+
+    /** PostgreSQL keeps a materialized view's rows from its creation on, until it is refreshed. */
+    @Override
+    public boolean supportsMaterializedViews() {
+        return true;
+    }
 }

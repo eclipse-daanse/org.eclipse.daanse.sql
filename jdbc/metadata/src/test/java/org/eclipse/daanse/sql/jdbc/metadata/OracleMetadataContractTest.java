@@ -52,6 +52,13 @@ class OracleMetadataContractTest extends MetadataProviderContract {
         return system;
     }
 
+    /** SYSTEM creates it; its owner needs the rights to own one. */
+    @Override
+    protected List<String> createMaterializedView() {
+        return List.of("GRANT CREATE MATERIALIZED VIEW, CREATE TABLE TO " + sales(),
+                "CREATE MATERIALIZED VIEW " + sales() + ".mv_orders AS SELECT id, qty FROM " + sales() + ".orders");
+    }
+
     @Override
     protected MetadataProvider provider() {
         return new OracleMetadataProvider();

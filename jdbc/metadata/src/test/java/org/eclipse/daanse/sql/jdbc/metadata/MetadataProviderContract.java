@@ -64,6 +64,7 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  * sales.child_indexed
  *                    PK (id), INDEX ix_child_indexed (orders_id), then FK fk_child_indexed (orders_id)
  * sales.v_orders     a view on orders
+ * sales.mv_orders    a materialized view on orders, where the database has them
  * sales.seq_unlimited, sales.seq_limited (1 to 999)
  * sales.f_total      two overloads, where a schema may hold several routines of a name
  * sales.f_answer     a function without parameters, with a comment, where the provider reads it
@@ -163,6 +164,14 @@ abstract class MetadataProviderContract {
     /** Whether the database keeps the names given to constraints. */
     protected boolean keepsConstraintNames() {
         return true;
+    }
+
+    /**
+     * The statements that create the materialized view {@code mv_orders} on the orders in their
+     * schema; none where the database has no materialized views.
+     */
+    protected List<String> createMaterializedView() {
+        return List.of();
     }
 
     /** Whether the database makes an index of its own for a foreign key whose columns have none. */
@@ -273,6 +282,7 @@ abstract class MetadataProviderContract {
         sql.add("CREATE UNIQUE INDEX " + indexName(sales, "ux_orders_product_day") + " ON " + sales
                 + ".orders (product_id, ordered_on)");
         sql.add("CREATE VIEW " + sales + ".v_orders AS SELECT id, qty FROM " + sales + ".orders");
+        sql.addAll(createMaterializedView());
         sql.addAll(createChildren());
         if (sequences()) {
             sql.add(createSequence(sales + ".seq_unlimited", false));
@@ -416,6 +426,17 @@ abstract class MetadataProviderContract {
 
         assertThat(views).filteredOn(view -> is(view.view(), sales(), "v_orders")).singleElement()
                 .satisfies(view -> assertThat(view.viewBody().or(view::fullDefinition).orElseThrow())
+                        .containsIgnoringCase("orders"));
+    }
+
+    /** A materialized view is reported as one, with its query, where the database has them. */
+    @Test
+    void materializedViewWithItsQuery() throws SQLException {
+        assumeFalse(createMaterializedView().isEmpty(), "the database has no materialized views");
+
+        assertThat(provider.getAllMaterializedViews(connection, null, sales()))
+                .filteredOn(mv -> is(mv.view(), sales(), "mv_orders")).singleElement()
+                .satisfies(mv -> assertThat(mv.viewBody().or(mv::fullDefinition).orElseThrow())
                         .containsIgnoringCase("orders"));
     }
 

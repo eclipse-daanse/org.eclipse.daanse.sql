@@ -877,4 +877,24 @@ public class OracleDialect extends AbstractJdbcDialect {
         return Optional.of("DROP USER " + (ifExists && dialectVersion.atLeast(23, 0) ? "IF EXISTS " : "")
                 + quoteIdentifier(userName));
     }
+
+    /**
+     * Oracle builds a materialized view's rows when it is created and refreshes them on demand, its
+     * defaults. {@code IF [NOT] EXISTS} from Oracle 23; before, and for an unknown version, it is left
+     * out.
+     */
+    @Override
+    public boolean supportsMaterializedViews() {
+        return true;
+    }
+
+    @Override
+    public Optional<String> createMaterializedView(TableReference view, String selectSql, boolean ifNotExists) {
+        return super.createMaterializedView(view, selectSql, ifNotExists && dialectVersion.atLeast(23, 0));
+    }
+
+    @Override
+    public Optional<String> dropMaterializedView(TableReference view, boolean ifExists) {
+        return super.dropMaterializedView(view, ifExists && dialectVersion.atLeast(23, 0));
+    }
 }

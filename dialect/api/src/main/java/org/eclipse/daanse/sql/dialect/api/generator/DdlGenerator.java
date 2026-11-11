@@ -473,6 +473,52 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return sb.toString();
     }
 
+    // -------------------- DDL — materialized views --------------------
+
+    /**
+     * {@code CREATE MATERIALIZED VIEW [IF NOT EXISTS] schema.view AS select}: a view whose rows the
+     * database computes when the view is created and keeps until it is refreshed. With
+     * {@code ifNotExists} an existing view is no error where the dialect can say so; elsewhere the
+     * statement fails on it.
+     *
+     * @return empty where the database has no materialized views
+     *         ({@link #supportsMaterializedViews()} is false)
+     */
+    default Optional<String> createMaterializedView(TableReference view, String selectSql, boolean ifNotExists) {
+        if (!supportsMaterializedViews()) {
+            return Optional.empty();
+        }
+        if (selectSql == null || selectSql.isBlank()) {
+            throw new IllegalArgumentException("selectSql must not be blank for CREATE MATERIALIZED VIEW");
+        }
+        return Optional.of("CREATE MATERIALIZED VIEW " + (ifNotExists ? "IF NOT EXISTS " : "") + qualified(view)
+                + " AS " + selectSql);
+    }
+
+    /**
+     * {@code DROP MATERIALIZED VIEW [IF EXISTS] schema.view}. With {@code ifExists} a missing view is
+     * no error where the dialect can say so; elsewhere the statement fails on it.
+     *
+     * @return empty where the database has no materialized views
+     *         ({@link #supportsMaterializedViews()} is false)
+     */
+    default Optional<String> dropMaterializedView(TableReference view, boolean ifExists) {
+        if (!supportsMaterializedViews()) {
+            return Optional.empty();
+        }
+        return Optional.of("DROP MATERIALIZED VIEW " + (ifExists ? "IF EXISTS " : "") + qualified(view));
+    }
+
+    /**
+     * @return true if {@code createMaterializedView} / {@code dropMaterializedView} render
+     *         statements. An indexed view (SQL Server) is a view with an index, and a ClickHouse
+     *         materialized view feeds a table from the rows inserted into another; neither keeps the
+     *         result of its query, so neither is one.
+     */
+    default boolean supportsMaterializedViews() {
+        return false;
+    }
+
     // -------------------- DDL — sequences --------------------
 
     record SequenceDefinition(String schemaName, String name, Long startWith, Long incrementBy, Long minValue,

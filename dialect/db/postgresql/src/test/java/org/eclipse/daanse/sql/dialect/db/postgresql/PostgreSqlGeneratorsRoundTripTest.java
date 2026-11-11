@@ -125,4 +125,29 @@ class PostgreSqlGeneratorsRoundTripTest {
         UserRoundTrip.assertUserRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(),
                 DatabasePrincipal.KIND_USER, USERS, "rt_user", "rt_role");
     }
+
+    /**
+     * A materialized view the dialect writes holds the rows of its query and is read back as a
+     * materialized view with its query; dropped, it is gone.
+     */
+    @Test
+    void materialized_view_is_created_read_back_and_dropped() throws SQLException {
+        TableReference view = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "public")),
+                "mv_users", TableReference.TYPE_VIEW);
+        String query = "SELECT id, name FROM \"public\".\"users\" WHERE id <= 5";
+        PostgreSqlMetadataProvider provider = new PostgreSqlMetadataProvider();
+        try (Statement s = conn.createStatement()) {
+            s.execute(dialect.ddlGenerator().createMaterializedView(view, query, false).orElseThrow());
+            s.execute(dialect.ddlGenerator().createMaterializedView(view, query, true).orElseThrow());
+            assertFirstIntEquals(conn, "SELECT COUNT(*) FROM \"public\".\"mv_users\"", 5);
+            assertThat(provider.getAllMaterializedViews(conn, null, "public"))
+                    .filteredOn(mv -> mv.view().name().equals("mv_users")).singleElement()
+                    .satisfies(mv -> assertThat(mv.viewBody().orElseThrow()).containsIgnoringCase("users"));
+
+            s.execute(dialect.ddlGenerator().dropMaterializedView(view, false).orElseThrow());
+            s.execute(dialect.ddlGenerator().dropMaterializedView(view, true).orElseThrow());
+            assertThat(provider.getAllMaterializedViews(conn, null, "public"))
+                    .noneMatch(mv -> mv.view().name().equals("mv_users"));
+        }
+    }
 }

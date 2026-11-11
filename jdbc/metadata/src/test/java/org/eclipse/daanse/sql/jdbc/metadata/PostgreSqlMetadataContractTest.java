@@ -31,6 +31,11 @@ class PostgreSqlMetadataContractTest extends MetadataProviderContract {
     }
 
     @Override
+    protected List<String> createMaterializedView() {
+        return List.of("CREATE MATERIALIZED VIEW sales.mv_orders AS SELECT id, qty FROM sales.orders");
+    }
+
+    @Override
     protected MetadataProvider provider() {
         return new PostgreSqlMetadataProvider();
     }
