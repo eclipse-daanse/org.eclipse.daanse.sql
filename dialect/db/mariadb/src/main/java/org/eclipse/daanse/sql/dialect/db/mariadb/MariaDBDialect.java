@@ -171,4 +171,14 @@ public class MariaDBDialect extends MySqlDialect {
     public org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding caseFolding() {
         return org.eclipse.daanse.sql.dialect.api.IdentifierCaseFolding.PRESERVE;
     }
+
+    /**
+     * MariaDB writes a user as MySQL does, locked; {@code ACCOUNT LOCK} came with MariaDB 10.4.2. A
+     * dialect made without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return org.eclipse.daanse.sql.dialect.api.DialectVersion.UNKNOWN.equals(dialectVersion)
+                || dialectVersion.atLeast(new org.eclipse.daanse.sql.dialect.api.DialectVersion(10, 4, 2));
+    }
 }

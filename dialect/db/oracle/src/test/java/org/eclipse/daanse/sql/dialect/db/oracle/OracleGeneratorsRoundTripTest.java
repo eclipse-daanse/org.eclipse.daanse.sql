@@ -28,6 +28,9 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.metadata.OracleMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -117,5 +120,19 @@ class OracleGeneratorsRoundTripTest {
         // Oracle XE 21 reports major < 23 → generator falls through to empty default.
         // (PG-style RETURNING was introduced in 23c, Aug 2023.)
         assertThat(dialect.returningGenerator().returning(List.of("id"))).isEmpty();
+    }
+
+    /**
+     * A user created without credentials takes a role and a privilege, is read back as a user
+     * next to the role, and is dropped again.
+     */
+    @Test
+    void user_is_created_given_a_role_and_dropped() throws SQLException {
+        // SYSTEM may create users and roles and read DBA_USERS; the container's user may not
+        try (Connection system = DriverManager.getConnection(CONTAINER.getJdbcUrl(), "system",
+                CONTAINER.getPassword())) {
+            UserRoundTrip.assertUserRoundTrip(system, dialect.ddlGenerator(), new OracleMetadataProvider(),
+                    DatabasePrincipal.KIND_USER, users, "rt_user", "rt_role");
+        }
     }
 }

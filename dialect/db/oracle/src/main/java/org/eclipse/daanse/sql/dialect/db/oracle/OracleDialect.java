@@ -847,4 +847,34 @@ public class OracleDialect extends AbstractJdbcDialect {
     private String synonymName(String schemaName, String name, boolean isPublic) {
         return isPublic ? quoteIdentifier(name) : quoteIdentifier(schemaName, name);
     }
+
+    /**
+     * From Oracle 18 a user can be created without credentials, {@code NO AUTHENTICATION}: a
+     * schema-only account, which logs in once it is altered to have a password. A dialect made
+     * without a connection knows no version and takes a version from 18 on.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return dialectVersion.isUnknownOrAtLeast(18, 0);
+    }
+
+    /** {@code IF NOT EXISTS} from Oracle 23; before, and for an unknown version, it is left out. */
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        if (!supportsUsers()) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE USER " + (ifNotExists && dialectVersion.atLeast(23, 0) ? "IF NOT EXISTS " : "")
+                + quoteIdentifier(userName) + " NO AUTHENTICATION");
+    }
+
+    /** {@code IF EXISTS} from Oracle 23; before, and for an unknown version, it is left out. */
+    @Override
+    public Optional<String> dropUser(String userName, boolean ifExists) {
+        if (!supportsUsers()) {
+            return Optional.empty();
+        }
+        return Optional.of("DROP USER " + (ifExists && dialectVersion.atLeast(23, 0) ? "IF EXISTS " : "")
+                + quoteIdentifier(userName));
+    }
 }

@@ -149,4 +149,12 @@ class ImpalaDialectTest {
     void testSupportsDdl() {
         assertTrue(dialect.supportsDdl());
     }
+
+    /** Impala has no users of its own: they come from the cluster's authentication. */
+    @Test
+    void has_no_users() {
+        assertFalse(dialect.supportsUsers());
+        assertEquals(java.util.Optional.empty(), dialect.createUser("u", false));
+        assertEquals(java.util.Optional.empty(), dialect.dropUser("u", true));
+    }
 }

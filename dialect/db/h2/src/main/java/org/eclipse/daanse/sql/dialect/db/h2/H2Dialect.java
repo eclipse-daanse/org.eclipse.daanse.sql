@@ -301,4 +301,20 @@ public class H2Dialect extends AbstractJdbcDialect {
     public boolean supportsSynonyms() {
         return true;
     }
+
+    /**
+     * H2 creates a user only with a password or with a salt and a password hash. A user is created
+     * with an empty salt and an empty hash, which no password hashes to, {@code SALT X'' HASH X''}:
+     * it receives grants and logs in once it is given a password ({@code ALTER USER … SET PASSWORD}).
+     */
+    @Override
+    public boolean supportsUsers() {
+        return true;
+    }
+
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
+                + " SALT X'' HASH X''");
+    }
 }

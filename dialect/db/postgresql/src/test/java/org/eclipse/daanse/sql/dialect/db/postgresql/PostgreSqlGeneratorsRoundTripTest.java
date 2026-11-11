@@ -30,6 +30,9 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.metadata.PostgreSqlMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -111,5 +114,15 @@ class PostgreSqlGeneratorsRoundTripTest {
         String returning = dialect.returningGenerator().returning(List.of("id")).orElseThrow();
         assertFirstIntEquals(conn, "INSERT INTO \"public\".\"users\" (id, name) VALUES (99, 'returned')" + returning,
                 99);
+    }
+
+    /**
+     * A user created without credentials takes a role and a privilege, is read back as a user
+     * next to the role, and is dropped again.
+     */
+    @Test
+    void user_is_created_given_a_role_and_dropped() throws SQLException {
+        UserRoundTrip.assertUserRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(),
+                DatabasePrincipal.KIND_USER, USERS, "rt_user", "rt_role");
     }
 }

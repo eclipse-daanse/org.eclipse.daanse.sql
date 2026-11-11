@@ -32,6 +32,8 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -153,5 +155,15 @@ class MicrosoftSqlServerGeneratorsRoundTripTest {
                 .satisfies(c -> assertThat(c.columnMetaData().remarks()).contains("the number, again"));
         assertThat(columns).filteredOn(c -> c.column().name().equals("label")).singleElement()
                 .satisfies(c -> assertThat(c.columnMetaData().remarks()).isEmpty());
+    }
+
+    /**
+     * A user created without credentials takes a role and a privilege, is read back as a user
+     * next to the role, and is dropped again.
+     */
+    @Test
+    void user_is_created_given_a_role_and_dropped() throws SQLException {
+        UserRoundTrip.assertUserRoundTrip(conn, dialect.ddlGenerator(), new MicrosoftSqlServerMetadataProvider(),
+                DatabasePrincipal.KIND_USER, users, "rt_user", "rt_role");
     }
 }

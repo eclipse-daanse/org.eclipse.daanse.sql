@@ -138,4 +138,12 @@ class HiveDialectTest {
         assertTrue(sql.endsWith(") x limit 1"));
         assertFalse(sql.contains("dual")); // no built-in dual table in Hive — verified against Hive 4
     }
+
+    /** Hive has no users of its own: they come from the cluster's authentication. */
+    @Test
+    void has_no_users() {
+        assertFalse(dialect.supportsUsers());
+        assertEquals(java.util.Optional.empty(), dialect.createUser("u", false));
+        assertEquals(java.util.Optional.empty(), dialect.dropUser("u", true));
+    }
 }

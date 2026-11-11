@@ -901,4 +901,31 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
         return Optional.of("CREATE SYNONYM " + quoteIdentifier(synonym.schemaName(), synonym.name()) + " FOR "
                 + target);
     }
+
+    /**
+     * SQL Server: a user of the database without a server login to come in by,
+     * {@code CREATE USER [x] WITHOUT LOGIN}; it logs in once it is mapped to a login.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return true;
+    }
+
+    /** With {@code ifNotExists}, guarded by the database's principals, as SQL Server has no clause for it. */
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        String create = "CREATE USER " + quoteIdentifier(userName) + " WITHOUT LOGIN";
+        return Optional.of(ifNotExists ? "IF NOT EXISTS (" + principalNamed(userName) + ") " + create : create);
+    }
+
+    /** With {@code ifExists}, guarded by the database's principals, as for {@code createUser}. */
+    @Override
+    public Optional<String> dropUser(String userName, boolean ifExists) {
+        String drop = "DROP USER " + quoteIdentifier(userName);
+        return Optional.of(ifExists ? "IF EXISTS (" + principalNamed(userName) + ") " + drop : drop);
+    }
+
+    private static String principalNamed(String name) {
+        return "SELECT 1 FROM sys.database_principals WHERE name = " + nLiteral(name);
+    }
 }
