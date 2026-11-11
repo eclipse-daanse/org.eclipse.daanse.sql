@@ -34,6 +34,17 @@ public interface ObjectPrivilege {
     /** The object's name. */
     String objectName();
 
+    /**
+     * The name that tells the object from others of its name, as
+     * {@link FunctionReference#specificName()} and {@link ProcedureReference#specificName()} give it:
+     * where a schema holds several routines of one name (overloads), a privilege on a routine is on
+     * one of them, and this is that one's specific name. Where a name is unique, it is the
+     * {@link #objectName()}.
+     */
+    default String specificName() {
+        return objectName();
+    }
+
     /** Principal that granted the privilege (or empty if unknown). */
     Optional<String> grantor();
 
