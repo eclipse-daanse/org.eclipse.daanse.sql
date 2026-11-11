@@ -24,6 +24,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
+import org.eclipse.daanse.sql.jdbc.metadata.MicrosoftSqlServerMetadataProvider;
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
@@ -110,5 +113,45 @@ class MicrosoftSqlServerGeneratorsRoundTripTest {
         assertThat(returning).contains("OUTPUT INSERTED");
         // OUTPUT goes between the table and VALUES, not at the end.
         assertFirstIntEquals(conn, "INSERT INTO [dbo].[users] (id, name)" + returning + " VALUES (99, 'returned')", 99);
+    }
+
+    /**
+     * The comments the dialect writes on a table, a column and a view are those the metadata
+     * provider reads back. A comment on the primary key's index, an extended property whose
+     * minor_id is the index_id 1 as the first column's column_id is 1, is no comment on that column.
+     */
+    @Test
+    void comments_written_are_read_back() throws SQLException {
+        TableReference noted = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "dbo")),
+                "noted", TableReference.TYPE_TABLE);
+        TableReference view = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "dbo")),
+                "v_noted", TableReference.TYPE_VIEW);
+        try (Statement s = conn.createStatement()) {
+            s.execute("CREATE TABLE [dbo].[noted] (id INT CONSTRAINT pk_noted PRIMARY KEY, label VARCHAR(20))");
+            s.execute("CREATE VIEW [dbo].[v_noted] AS SELECT id, label FROM [dbo].[noted]");
+            s.execute("EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'the key',"
+                    + " @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE',"
+                    + " @level1name = N'noted', @level2type = N'INDEX', @level2name = N'pk_noted'");
+            s.execute(dialect.commentOnTable(noted, "it's noted").orElseThrow());
+            s.execute(dialect.commentOnColumn(noted, "id", "the number", null).orElseThrow());
+            s.execute(dialect.commentOnColumn(noted, "id", "the number, again", null).orElseThrow());
+            s.execute(dialect.commentOnColumn(noted, "label", "to be removed", null).orElseThrow());
+            s.execute(dialect.commentOnColumn(noted, "label", null, null).orElseThrow());
+            s.execute(dialect.commentOnTable(view, "noted, as a view").orElseThrow());
+        }
+
+        MicrosoftSqlServerMetadataProvider provider = new MicrosoftSqlServerMetadataProvider();
+        List<TableDefinition> tables = provider.getAllTableDefinitions(conn, null, "dbo", null, null).orElseThrow();
+        List<ColumnDefinition> columns = provider.getAllColumnDefinitions(conn, null, "dbo", "noted", null)
+                .orElseThrow();
+
+        assertThat(tables).filteredOn(t -> t.table().name().equals("noted")).singleElement()
+                .satisfies(t -> assertThat(t.tableMetaData().remarks()).contains("it's noted"));
+        assertThat(tables).filteredOn(t -> t.table().name().equals("v_noted")).singleElement()
+                .satisfies(t -> assertThat(t.tableMetaData().remarks()).contains("noted, as a view"));
+        assertThat(columns).filteredOn(c -> c.column().name().equals("id")).singleElement()
+                .satisfies(c -> assertThat(c.columnMetaData().remarks()).contains("the number, again"));
+        assertThat(columns).filteredOn(c -> c.column().name().equals("label")).singleElement()
+                .satisfies(c -> assertThat(c.columnMetaData().remarks()).isEmpty());
     }
 }

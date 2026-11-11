@@ -41,6 +41,12 @@ class PostgreSqlMetadataContractTest extends MetadataProviderContract {
     }
 
     @Override
+    protected List<String> createCommentedFunction() {
+        return List.of("CREATE FUNCTION sales.f_answer() RETURNS INT LANGUAGE SQL AS 'SELECT 42'",
+                "COMMENT ON FUNCTION sales.f_answer() IS '" + FUNCTION_COMMENT + "'");
+    }
+
+    @Override
     protected List<String> createOverloads() {
         return List.of("CREATE FUNCTION sales.f_total(qty INT) RETURNS INT LANGUAGE SQL AS 'SELECT qty'",
                 "CREATE FUNCTION sales.f_total(qty INT, INOUT price DECIMAL(10, 2), OUT total DECIMAL(10, 2))"

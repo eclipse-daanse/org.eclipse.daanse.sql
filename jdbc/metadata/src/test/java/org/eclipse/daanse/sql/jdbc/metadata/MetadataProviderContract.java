@@ -37,6 +37,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.FunctionColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
+import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
 import org.eclipse.daanse.sql.model.schema.ColumnReference;
@@ -62,13 +63,28 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  * sales.v_orders     a view on orders
  * sales.seq_unlimited, sales.seq_limited (1 to 999)
  * sales.f_total      two overloads, where a schema may hold several routines of a name
+ * sales.f_answer     a function without parameters, with a comment, where the provider reads it
  * </pre>
+ *
+ * The product table, its column {@code code} and the view carry a comment each.
  *
  * A subclass opens the database and says how it differs: how it names its schemas, how it creates
  * one, and what it lacks. Names are compared without regard to case, as databases fold them.
  */
 @TestInstance(Lifecycle.PER_CLASS)
 abstract class MetadataProviderContract {
+
+    /** The comment on {@code stock.product}. */
+    protected static final String PRODUCT_COMMENT = "What the shop sells";
+
+    /** The comment on the column {@code code} of {@code stock.product}. */
+    protected static final String CODE_COMMENT = "The code on the label";
+
+    /** The comment on the view {@code sales.v_orders}. */
+    protected static final String VIEW_COMMENT = "The orders in short";
+
+    /** The comment on the function {@code sales.f_answer}. */
+    protected static final String FUNCTION_COMMENT = "The answer to everything";
 
     private Connection connection;
     private MetadataProvider provider;
@@ -147,6 +163,31 @@ abstract class MetadataProviderContract {
     }
 
     /**
+     * The statements that put the comments above on {@code stock.product}, its column {@code code}
+     * and, where {@link #viewComments()}, the view {@code sales.v_orders}; by default
+     * {@code COMMENT ON}.
+     */
+    protected List<String> comments() {
+        return List.of("COMMENT ON TABLE " + stock() + ".product IS '" + PRODUCT_COMMENT + "'",
+                "COMMENT ON COLUMN " + stock() + ".product.code IS '" + CODE_COMMENT + "'",
+                "COMMENT ON VIEW " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'");
+    }
+
+    /** Whether the database keeps a comment on a view. */
+    protected boolean viewComments() {
+        return true;
+    }
+
+    /**
+     * The statements that create the function {@code f_answer} without parameters in the orders'
+     * schema, with the comment {@link #FUNCTION_COMMENT}; none where the database keeps no comment on
+     * a function or the provider reads no functions.
+     */
+    protected List<String> createCommentedFunction() {
+        return List.of();
+    }
+
+    /**
      * The statements that create two overloads of the function {@code f_total} in the orders' schema
      * and grant {@code EXECUTE} on the first of them to {@code PUBLIC}:
      *
@@ -210,7 +251,9 @@ abstract class MetadataProviderContract {
             sql.add(createSequence(sales + ".seq_unlimited", false));
             sql.add(createSequence(sales + ".seq_limited", true));
         }
+        sql.addAll(comments());
         sql.addAll(createOverloads());
+        sql.addAll(createCommentedFunction());
         return sql;
     }
 
@@ -231,7 +274,7 @@ abstract class MetadataProviderContract {
      */
     @Test
     void columnsWithTheirLengthPrecisionAndScale() throws SQLException {
-        Map<String, ColumnSize> columns = columns(stock(), "product");
+        Map<String, Column> columns = columns(stock(), "product");
 
         if (keepsTextLength()) {
             assertThat(columns.get("code").size()).as("length of code").hasValue(20);
@@ -344,6 +387,30 @@ abstract class MetadataProviderContract {
     }
 
     /**
+     * The comments on a table, on one of its columns and on a view, as the snapshot reads them: from
+     * the provider's tables and columns where it reads them itself, otherwise from the JDBC driver.
+     */
+    @Test
+    void commentsOnATableItsColumnAndAView() throws SQLException {
+        assertThat(tableRemarks(stock(), "product")).as("comment on the table").contains(PRODUCT_COMMENT);
+        assertThat(columns(stock(), "product").get("code").remarks()).as("comment on the column")
+                .contains(CODE_COMMENT);
+        if (viewComments()) {
+            assertThat(tableRemarks(sales(), "v_orders")).as("comment on the view").contains(VIEW_COMMENT);
+        }
+    }
+
+    @Test
+    void aFunctionWithItsComment() throws SQLException {
+        assumeFalse(createCommentedFunction().isEmpty(),
+                "the database keeps no comment on a function, or the provider reads none");
+
+        assertThat(provider.getAllFunctions(connection, null, sales()))
+                .filteredOn(f -> f.reference().name().equalsIgnoreCase("f_answer")).singleElement()
+                .satisfies(f -> assertThat(f.remarks()).contains(FUNCTION_COMMENT));
+    }
+
+    /**
      * Two functions of one name with different parameters are two routines, each with its own
      * parameters in order and a specific name that tells it from the other. A privilege on one of them
      * names that one by its specific name.
@@ -373,43 +440,79 @@ abstract class MetadataProviderContract {
         return connection;
     }
 
-    private record ColumnSize(OptionalInt size, OptionalInt digits) {
+    /** What the contract reads of a column. */
+    private record Column(OptionalInt size, OptionalInt digits, Optional<String> remarks) {
     }
 
-    private Map<String, ColumnSize> columns(String schema, String table) throws SQLException {
+    private Map<String, Column> columns(String schema, String table) throws SQLException {
         Optional<List<ColumnDefinition>> own = provider.getAllColumnDefinitions(connection, null, schema, null,
                 null);
         if (own.isPresent()) {
-            Map<String, ColumnSize> columns = new HashMap<>();
+            Map<String, Column> columns = new HashMap<>();
             for (ColumnDefinition column : own.get()) {
                 if (column.column().table().filter(t -> is(t, schema, table)).isPresent()) {
                     ColumnMetaData meta = column.columnMetaData();
-                    columns.put(name(column.column()), new ColumnSize(meta.columnSize(), meta.decimalDigits()));
+                    columns.put(name(column.column()),
+                            new Column(meta.columnSize(), meta.decimalDigits(), meta.remarks()));
                 }
             }
             return columns;
         }
         DatabaseMetaData meta = connection.getMetaData();
-        Map<String, ColumnSize> columns = jdbcColumns(meta.getColumns(null, schema, null, null), schema, table);
+        Map<String, Column> columns = jdbcColumns(meta.getColumns(null, schema, null, null), schema, table);
         // MySQL and MariaDB report a schema as a catalog
         return columns.isEmpty() ? jdbcColumns(meta.getColumns(schema, null, null, null), schema, table) : columns;
     }
 
-    private static Map<String, ColumnSize> jdbcColumns(ResultSet rs, String schema, String table)
-            throws SQLException {
-        Map<String, ColumnSize> columns = new HashMap<>();
+    private static Map<String, Column> jdbcColumns(ResultSet rs, String schema, String table) throws SQLException {
+        Map<String, Column> columns = new HashMap<>();
         try (rs) {
             while (rs.next()) {
-                boolean inSchema = schema.equalsIgnoreCase(rs.getString("TABLE_CAT"))
-                        || schema.equalsIgnoreCase(rs.getString("TABLE_SCHEM"));
-                if (inSchema && table.equalsIgnoreCase(rs.getString("TABLE_NAME"))) {
+                if (inSchema(rs, schema) && table.equalsIgnoreCase(rs.getString("TABLE_NAME"))) {
                     String name = rs.getString("COLUMN_NAME").toLowerCase(Locale.ROOT);
-                    columns.put(name,
-                            new ColumnSize(optionalInt(rs, "COLUMN_SIZE"), optionalInt(rs, "DECIMAL_DIGITS")));
+                    columns.put(name, new Column(optionalInt(rs, "COLUMN_SIZE"), optionalInt(rs, "DECIMAL_DIGITS"),
+                            Optional.ofNullable(rs.getString("REMARKS"))));
                 }
             }
         }
         return columns;
+    }
+
+    /** The remarks of a table or view, as the provider or else the JDBC driver reads them. */
+    private Optional<String> tableRemarks(String schema, String table) throws SQLException {
+        Optional<List<TableDefinition>> own = provider.getAllTableDefinitions(connection, null, schema, null, null);
+        if (own.isPresent()) {
+            return own.get().stream().filter(t -> is(t.table(), schema, table)).findFirst()
+                    .orElseThrow(() -> new AssertionError("no table " + schema + "." + table))
+                    .tableMetaData().remarks();
+        }
+        DatabaseMetaData meta = connection.getMetaData();
+        Optional<Optional<String>> remarks = jdbcTableRemarks(meta.getTables(null, schema, null, null), schema, table);
+        // MySQL and MariaDB report a schema as a catalog
+        return remarks.or(() -> {
+            try {
+                return jdbcTableRemarks(meta.getTables(schema, null, null, null), schema, table);
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
+        }).orElseThrow(() -> new AssertionError("no table " + schema + "." + table));
+    }
+
+    private static Optional<Optional<String>> jdbcTableRemarks(ResultSet rs, String schema, String table)
+            throws SQLException {
+        try (rs) {
+            while (rs.next()) {
+                if (inSchema(rs, schema) && table.equalsIgnoreCase(rs.getString("TABLE_NAME"))) {
+                    return Optional.of(Optional.ofNullable(rs.getString("REMARKS")));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean inSchema(ResultSet rs, String schema) throws SQLException {
+        return schema.equalsIgnoreCase(rs.getString("TABLE_CAT"))
+                || schema.equalsIgnoreCase(rs.getString("TABLE_SCHEM"));
     }
 
     private static OptionalInt optionalInt(ResultSet rs, String column) throws SQLException {

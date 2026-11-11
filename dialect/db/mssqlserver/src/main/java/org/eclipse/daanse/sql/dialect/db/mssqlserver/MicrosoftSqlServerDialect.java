@@ -830,7 +830,12 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     /**
      * SQL Server has no COMMENT ON — comments are the {@code MS_Description}
      * extended property. Update when present, add otherwise; {@code null}
-     * drops it. The schema defaults to {@code dbo}.
+     * drops it. The schema defaults to {@code dbo}; a view is named a view
+     * ({@code @level1type = N'VIEW'}), as the procedures take no table for one.
+     * Whether the comment is present is asked of the properties of objects and
+     * columns ({@code class = 1}), where the metadata provider reads it: an
+     * index's property has the same object and an index_id that may equal the
+     * column's column_id.
      */
     @Override
     public Optional<String> commentOnTable(TableReference table, String comment) {
@@ -845,13 +850,14 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
 
     private String msDescription(TableReference table, String columnName, String comment) {
         String schema = table.schema().map(s -> s.name()).orElse("dbo");
+        String type = TableReference.TYPE_VIEW.equals(table.type()) ? "VIEW" : "TABLE";
         String levels = "@level0type = N'SCHEMA', @level0name = " + nLiteral(schema)
-                + ", @level1type = N'TABLE', @level1name = " + nLiteral(table.name())
+                + ", @level1type = N'" + type + "', @level1name = " + nLiteral(table.name())
                 + (columnName == null ? "" : ", @level2type = N'COLUMN', @level2name = " + nLiteral(columnName));
         String object = "OBJECT_ID(" + nLiteral(quoteIdentifier(schema, table.name()).toString()) + ")";
         String minor = columnName == null ? "0"
                 : "COLUMNPROPERTY(" + object + ", " + nLiteral(columnName) + ", 'ColumnId')";
-        String exists = "EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = " + object
+        String exists = "EXISTS (SELECT 1 FROM sys.extended_properties WHERE class = 1 AND major_id = " + object
                 + " AND minor_id = " + minor + " AND name = N'MS_Description')";
         if (comment == null) {
             return "IF " + exists + " EXEC sys.sp_dropextendedproperty @name = N'MS_Description', " + levels;

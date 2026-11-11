@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
 import org.eclipse.daanse.sql.jdbc.api.schema.CheckConstraint;
 import org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege;
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.model.schema.ColumnReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Function;
 import org.eclipse.daanse.sql.jdbc.api.schema.FunctionColumn;
@@ -49,6 +51,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.jdbc.api.schema.SequenceReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Synonym;
 import org.eclipse.daanse.sql.jdbc.api.schema.SynonymReference;
+import org.eclipse.daanse.sql.jdbc.api.schema.TableDefinition;
 import org.eclipse.daanse.sql.jdbc.api.schema.TablePrivilege;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger.TriggerEvent;
@@ -83,8 +86,69 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ViewDefinitionRecord;
  * The MicrosoftSqlServer system-catalog/{@code information_schema} reader — the
  * {@link MetadataProvider} overrides extracted 1:1 from the SQL dialect (reading only,
  * no spelling).
+ *
+ * <p>
+ * SQL Server keeps a comment as the extended property {@code MS_Description} of the object, and
+ * its JDBC driver reports no {@code REMARKS}. The provider reads the comments of tables, views,
+ * their columns, routines, their parameters and user-defined types from
+ * {@code sys.extended_properties}, in one query with the objects or one for a schema, and reports
+ * them as their remarks. Tables and columns are those the driver reports, with the comments
+ * added.
+ * </p>
  */
 public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
+
+    /** The comments of the tables, views and their columns in the schemas a pattern matches. */
+    private static final String OBJECT_COMMENTS_SQL = """
+            SELECT s.name AS schema_name, o.name AS object_name, c.name AS column_name,
+                    CAST(ep.value AS nvarchar(max)) AS comment
+            FROM sys.extended_properties ep
+            JOIN sys.all_objects o ON o.object_id = ep.major_id
+            JOIN sys.schemas s ON s.schema_id = o.schema_id
+            LEFT JOIN sys.all_columns c ON c.object_id = ep.major_id AND c.column_id = ep.minor_id
+            WHERE ep.class = 1 AND ep.name = N'MS_Description' AND (? IS NULL OR s.name LIKE ? ESCAPE '\\')
+            """;
+
+    /** The tables and views as the JDBC driver reports them, each with its comment. */
+    @Override
+    public Optional<List<TableDefinition>> getAllTableDefinitions(Connection connection, String catalog,
+            String schemaPattern, String tableNamePattern, String[] types) throws SQLException {
+        return Optional.of(DriverMetadata.tables(connection, catalog, schemaPattern, tableNamePattern, types,
+                objectComments(connection, schemaPattern)));
+    }
+
+    /** The columns as the JDBC driver reports them, each with its comment. */
+    @Override
+    public Optional<List<ColumnDefinition>> getAllColumnDefinitions(Connection connection, String catalog,
+            String schemaPattern, String tableNamePattern, String columnNamePattern) throws SQLException {
+        return Optional.of(DriverMetadata.columns(connection, catalog, schemaPattern, tableNamePattern,
+                columnNamePattern, objectComments(connection, schemaPattern)));
+    }
+
+    /**
+     * The comments ({@code MS_Description}) of the tables, views and their columns in the schemas
+     * {@code schemaPattern} matches, all schemas for {@code null}; a table's own comment has no
+     * column.
+     */
+    private static DriverMetadata.Comments objectComments(Connection connection, String schemaPattern)
+            throws SQLException {
+        Map<CommentKey, String> comments = new HashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(OBJECT_COMMENTS_SQL)) {
+            ps.setString(1, schemaPattern);
+            ps.setString(2, schemaPattern);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    comments.put(new CommentKey(rs.getString("schema_name"), rs.getString("object_name"),
+                            rs.getString("column_name")), rs.getString("comment"));
+                }
+            }
+        }
+        return (schema, table, column) -> comments.get(new CommentKey(schema, table, column));
+    }
+
+    /** A commented table, view or column: its schema, the object's name and the column's, or none. */
+    private record CommentKey(String schema, String object, String column) {
+    }
 
 
     @Override
@@ -567,9 +631,11 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
 
         String sql = """
                 SELECT p.name AS routine_name, OBJECT_SCHEMA_NAME(p.object_id) AS schema_name,
-                        m.definition AS body, p.modify_date
+                        m.definition AS body, p.modify_date, CAST(ep.value AS nvarchar(max)) AS remarks
                 FROM sys.procedures p
                 LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
+                LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = p.object_id
+                        AND ep.minor_id = 0 AND ep.name = N'MS_Description'
                 WHERE OBJECT_SCHEMA_NAME(p.object_id) = ?
                 ORDER BY p.name
                 """;
@@ -581,6 +647,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     String routineName = rs.getString("routine_name");
                     String body = rs.getString("body");
                     Timestamp modifyDate = rs.getTimestamp("modify_date");
+                    String remarks = rs.getString("remarks");
 
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
                     List<ProcedureColumn> cols = paramMap.getOrDefault(routineName, List.of());
@@ -591,7 +658,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     Optional<Instant> lastMod = modifyDate == null ? Optional.empty()
                             : Optional.of(modifyDate.toInstant());
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName),
-                            Procedure.ProcedureType.NO_RESULT, Optional.empty(), cols, bodyOpt, bodyOpt, lastMod));
+                            Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols, bodyOpt, bodyOpt,
+                            lastMod));
                 }
             }
         }
@@ -605,9 +673,12 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         Map<String, List<FunctionColumn>> paramMap = loadMssqlFunctionColumns(connection, schemaName);
 
         String sql = """
-                SELECT o.name AS routine_name, o.type_desc, m.definition AS body, o.modify_date
+                SELECT o.name AS routine_name, o.type_desc, m.definition AS body, o.modify_date,
+                        CAST(ep.value AS nvarchar(max)) AS remarks
                 FROM sys.objects o
                 LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id
+                LEFT JOIN sys.extended_properties ep ON ep.class = 1 AND ep.major_id = o.object_id
+                        AND ep.minor_id = 0 AND ep.name = N'MS_Description'
                 WHERE o.type IN ('FN', 'IF', 'TF') AND OBJECT_SCHEMA_NAME(o.object_id) = ?
                 ORDER BY o.name
                 """;
@@ -620,6 +691,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     String typeDesc = rs.getString("type_desc");
                     String body = rs.getString("body");
                     Timestamp modifyDate = rs.getTimestamp("modify_date");
+                    String remarks = rs.getString("remarks");
 
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
                     List<FunctionColumn> cols = paramMap.getOrDefault(routineName, List.of());
@@ -633,7 +705,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     Optional<Instant> lastMod = modifyDate == null ? Optional.empty()
                             : Optional.of(modifyDate.toInstant());
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName), funcType,
-                            Optional.empty(), cols, bodyOpt, bodyOpt, lastMod));
+                            Optional.ofNullable(remarks), cols, bodyOpt, bodyOpt, lastMod));
                 }
             }
         }
@@ -646,9 +718,11 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT OBJECT_NAME(p.object_id) AS routine_name, p.name AS param_name,
                         p.is_output, TYPE_NAME(p.system_type_id) AS data_type,
-                        p.parameter_id, p.precision, p.scale
+                        p.parameter_id, p.precision, p.scale, CAST(ep.value AS nvarchar(max)) AS remarks
                 FROM sys.parameters p
                 JOIN sys.procedures pr ON pr.object_id = p.object_id
+                LEFT JOIN sys.extended_properties ep ON ep.class = 2 AND ep.major_id = p.object_id
+                        AND ep.minor_id = p.parameter_id AND ep.name = N'MS_Description'
                 WHERE OBJECT_SCHEMA_NAME(p.object_id) = ? AND p.parameter_id > 0
                 ORDER BY OBJECT_NAME(p.object_id), p.parameter_id
                 """;
@@ -679,7 +753,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                             dataType != null ? dataType : "",
                             precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
                             scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
-                            ProcedureColumn.Nullability.UNKNOWN, Optional.empty(), Optional.empty(), paramId);
+                            ProcedureColumn.Nullability.UNKNOWN, Optional.ofNullable(rs.getString("remarks")),
+                            Optional.empty(), paramId);
 
                     result.computeIfAbsent(routineName, k -> new ArrayList<>()).add(col);
                 }
@@ -694,9 +769,11 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT OBJECT_NAME(p.object_id) AS routine_name, p.name AS param_name,
                         p.is_output, TYPE_NAME(p.system_type_id) AS data_type,
-                        p.parameter_id, p.precision, p.scale
+                        p.parameter_id, p.precision, p.scale, CAST(ep.value AS nvarchar(max)) AS remarks
                 FROM sys.parameters p
                 JOIN sys.objects o ON o.object_id = p.object_id
+                LEFT JOIN sys.extended_properties ep ON ep.class = 2 AND ep.major_id = p.object_id
+                        AND ep.minor_id = p.parameter_id AND ep.name = N'MS_Description'
                 WHERE o.type IN ('FN', 'IF', 'TF') AND OBJECT_SCHEMA_NAME(p.object_id) = ?
                         AND p.parameter_id > 0
                 ORDER BY OBJECT_NAME(p.object_id), p.parameter_id
@@ -727,7 +804,8 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                             dataType != null ? dataType : "",
                             precisionNull ? OptionalInt.empty() : OptionalInt.of(precision),
                             scaleNull ? OptionalInt.empty() : OptionalInt.of(scale), OptionalInt.of(10),
-                            FunctionColumn.Nullability.UNKNOWN, Optional.empty(), OptionalInt.empty(), paramId);
+                            FunctionColumn.Nullability.UNKNOWN, Optional.ofNullable(rs.getString("remarks")),
+                            OptionalInt.empty(), paramId);
 
                     result.computeIfAbsent(routineName, k -> new ArrayList<>()).add(col);
                 }
@@ -883,8 +961,10 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
         String sql = """
                 SELECT t.name AS type_name, SCHEMA_NAME(t.schema_id) AS schema_name,
                         TYPE_NAME(t.system_type_id) AS base_type_name,
-                        t.is_table_type
+                        t.is_table_type, CAST(ep.value AS nvarchar(max)) AS remarks
                 FROM sys.types t
+                LEFT JOIN sys.extended_properties ep ON ep.class = 6 AND ep.major_id = t.user_type_id
+                        AND ep.minor_id = 0 AND ep.name = N'MS_Description'
                 WHERE t.is_user_defined = 1 AND SCHEMA_NAME(t.schema_id) = ?
                 ORDER BY t.name
                 """;
@@ -903,7 +983,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     JDBCType baseType = isTableType ? JDBCType.STRUCT : mapMssqlJdbcType(baseTypeName);
 
                     types.add(new UserDefinedTypeRecord(new UserDefinedTypeReference(oSchema, typeName), className,
-                            baseType, Optional.empty()));
+                            baseType, Optional.ofNullable(rs.getString("remarks"))));
                 }
             }
         }

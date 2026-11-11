@@ -53,6 +53,27 @@ class MySqlMetadataContractTest extends MetadataProviderContract {
         return List.of("CREATE DATABASE " + name);
     }
 
+    /**
+     * A table's comment is set by {@code ALTER TABLE}, a column's by restating the column; a view
+     * keeps none.
+     */
+    @Override
+    protected List<String> comments() {
+        return List.of("ALTER TABLE stock.product COMMENT = '" + PRODUCT_COMMENT + "'",
+                "ALTER TABLE stock.product MODIFY code VARCHAR(20) NOT NULL COMMENT '" + CODE_COMMENT + "'");
+    }
+
+    @Override
+    protected boolean viewComments() {
+        return false;
+    }
+
+    @Override
+    protected List<String> createCommentedFunction() {
+        return List.of("CREATE FUNCTION sales.f_answer() RETURNS INT DETERMINISTIC NO SQL COMMENT '"
+                + FUNCTION_COMMENT + "' RETURN 42");
+    }
+
     @Override
     protected boolean sequences() {
         return false;

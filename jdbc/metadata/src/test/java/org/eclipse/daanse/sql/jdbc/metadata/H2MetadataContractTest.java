@@ -11,6 +11,7 @@ package org.eclipse.daanse.sql.jdbc.metadata;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.List;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 
@@ -33,6 +34,13 @@ class H2MetadataContractTest extends MetadataProviderContract {
                 var s = c.createStatement()) {
             s.execute("DROP ALL OBJECTS");
         }
+    }
+
+    /** A function is a Java method under an alias. */
+    @Override
+    protected List<String> createCommentedFunction() {
+        return List.of("CREATE ALIAS SALES.F_ANSWER FOR 'java.lang.System.currentTimeMillis'",
+                "COMMENT ON ALIAS SALES.F_ANSWER IS '" + FUNCTION_COMMENT + "'");
     }
 
     @Override
