@@ -529,4 +529,31 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         }
         return super.generateKnownFunction(function, arguments);
     }
+
+    /**
+     * PostgreSQL: a user is a role that may log in, {@code CREATE USER "x"}, here without a password;
+     * {@code pg_hba.conf} decides whether such a role gets in at all.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return true;
+    }
+
+    /**
+     * PostgreSQL has no {@code CREATE USER IF NOT EXISTS}: with {@code ifNotExists} the statement is a
+     * {@code DO} block that takes an existing role of the name as done.
+     */
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        String create = "CREATE USER " + quoteIdentifier(userName);
+        if (!ifNotExists) {
+            return Optional.of(create);
+        }
+        String quote = "$$";
+        for (int i = 1; create.contains(quote); i++) {
+            quote = "$u" + i + "$";
+        }
+        return Optional.of("DO " + quote + " BEGIN " + create + "; EXCEPTION WHEN duplicate_object THEN NULL; END "
+                + quote);
+    }
 }

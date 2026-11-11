@@ -856,4 +856,26 @@ public class MySqlDialect extends AbstractJdbcDialect {
             return org.eclipse.daanse.sql.dialect.api.DialectInitData.ansiDefaults();
         }
     }
+
+    /**
+     * MySQL lets an account without a password in, so a user is created locked,
+     * {@code CREATE USER `x` ACCOUNT LOCK}, and logs in once it is altered to have a password and
+     * unlocked. Its host is {@code %}, as for {@code GRANT … TO `x`}. From MySQL 5.7.8, which has
+     * {@code ACCOUNT LOCK} and {@code IF [NOT] EXISTS}; a dialect made without a connection takes such a
+     * version.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return org.eclipse.daanse.sql.dialect.api.DialectVersion.UNKNOWN.equals(dialectVersion)
+                || dialectVersion.atLeast(new org.eclipse.daanse.sql.dialect.api.DialectVersion(5, 7, 8));
+    }
+
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        if (!supportsUsers()) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
+                + " ACCOUNT LOCK");
+    }
 }

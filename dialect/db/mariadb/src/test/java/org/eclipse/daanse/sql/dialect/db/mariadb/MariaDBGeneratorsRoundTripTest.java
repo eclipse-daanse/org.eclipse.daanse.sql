@@ -29,6 +29,9 @@ import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
+import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.metadata.MariaDbMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -109,5 +112,18 @@ class MariaDBGeneratorsRoundTripTest {
         // MariaDB matches MySQL's "row count = 2 for update" semantics.
         assertExecuteUpdateAffected(conn, sql2, 2, "upsert: update path");
         assertFirstStringEquals(conn, "SELECT name FROM `rt`.`users` WHERE id = 10", "second");
+    }
+
+    /**
+     * A user created without credentials takes a role and a privilege, is read back as a user
+     * next to the role, and is dropped again.
+     */
+    @Test
+    void user_is_created_given_a_role_and_dropped() throws SQLException {
+        // root may create users and read mysql.user; the container's user may not
+        try (Connection root = DriverManager.getConnection(CONTAINER.getJdbcUrl(), "root", CONTAINER.getPassword())) {
+            UserRoundTrip.assertUserRoundTrip(root, dialect.ddlGenerator(), new MariaDbMetadataProvider(),
+                    DatabasePrincipal.KIND_USER, users, "rt_user", "rt_role");
+        }
     }
 }

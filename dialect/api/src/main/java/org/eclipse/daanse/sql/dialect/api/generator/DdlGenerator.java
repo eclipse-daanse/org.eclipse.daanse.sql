@@ -1057,7 +1057,7 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     // The grantor of a privilege is never rendered — it is implied by the
     // session executing the statement.
 
-    /** {@code CREATE ROLE "x"}; users are not creatable (no credentials). */
+    /** {@code CREATE ROLE "x"}; a user is created by {@link #createUser(String, boolean)}. */
     default String createRole(String roleName) {
         return "CREATE ROLE " + quoteIdentifier(roleName);
     }
@@ -1065,6 +1065,37 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     /** {@code DROP ROLE "x"}. */
     default String dropRole(String roleName) {
         return "DROP ROLE " + quoteIdentifier(roleName);
+    }
+
+    /**
+     * {@code CREATE USER [IF NOT EXISTS] "x"}: a principal that may log in and receives privileges
+     * and roles as a role does. The user is created without credentials, as the API takes none: it
+     * exists and holds what is granted to it, and logs in once an administrator gives it a password
+     * or another way in. A dialect writes the user so that it cannot log in before; where the
+     * database would let a user without a password in, it locks the account or allows it no host.
+     * With {@code ifNotExists} an existing user is no error where the dialect can say so; elsewhere
+     * the statement fails on an existing user.
+     *
+     * @return empty when the dialect has no users ({@link #supportsUsers()} is false)
+     */
+    default Optional<String> createUser(String userName, boolean ifNotExists) {
+        if (!supportsUsers()) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName));
+    }
+
+    /**
+     * {@code DROP USER [IF EXISTS] "x"}. With {@code ifExists} a missing user is no error where the
+     * dialect can say so; elsewhere the statement fails on a missing user.
+     *
+     * @return empty when the dialect has no users ({@link #supportsUsers()} is false)
+     */
+    default Optional<String> dropUser(String userName, boolean ifExists) {
+        if (!supportsUsers()) {
+            return Optional.empty();
+        }
+        return Optional.of("DROP USER " + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(userName));
     }
 
     /** {@code GRANT <action> ON "s"."t" TO "g" [WITH GRANT OPTION]}. */
@@ -1211,6 +1242,15 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
 
     /** @return true if {@code createSynonym} / {@code dropSynonym} render statements */
     default boolean supportsSynonyms() {
+        return false;
+    }
+
+    /**
+     * @return true if {@code createUser} / {@code dropUser} render statements: the database has
+     *         users it can create without credentials. The SQL standard has no {@code CREATE USER},
+     *         so a dialect says so itself.
+     */
+    default boolean supportsUsers() {
         return false;
     }
 

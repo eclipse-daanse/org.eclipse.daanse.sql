@@ -19,6 +19,7 @@
 package org.eclipse.daanse.sql.dialect.db.clickhouse;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.sql.BitOperation;
@@ -322,5 +323,21 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsNamedPrimaryKey() {
         return false;
+    }
+
+    /**
+     * ClickHouse lets a user without a password in from any host, so a user is created with no host
+     * to come from, {@code CREATE USER "x" HOST NONE}, and logs in once it is altered to have a
+     * password and hosts.
+     */
+    @Override
+    public boolean supportsUsers() {
+        return true;
+    }
+
+    @Override
+    public Optional<String> createUser(String userName, boolean ifNotExists) {
+        return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
+                + " HOST NONE");
     }
 }
