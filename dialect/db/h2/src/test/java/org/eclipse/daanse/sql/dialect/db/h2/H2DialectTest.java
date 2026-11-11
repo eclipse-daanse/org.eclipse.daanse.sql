@@ -48,6 +48,17 @@ class H2DialectTest {
         dialect = new H2Dialect(org.eclipse.daanse.sql.dialect.api.DialectInitData.fromConnection(connection));
     }
 
+    /**
+     * H2 orders NULLs itself: a nullable item takes NULLS FIRST or NULLS LAST, not a CASE that repeats the expression,
+     * which H2 does not take for the grouped expression; an item that cannot be NULL takes no NULLS clause.
+     */
+    @Test
+    void aNullableOrderItemTakesTheDatabasesOwnNullsOrder() {
+        assertEquals("x ASC NULLS LAST", dialect.generateOrderItem("x", true, true, true).toString());
+        assertEquals("x DESC NULLS FIRST", dialect.generateOrderItem("x", true, false, false).toString());
+        assertEquals("x ASC", dialect.generateOrderItem("x", false, true, true).toString());
+    }
+
     /** H2 divides integers to an integer; the dividend is read as DOUBLE. */
     @Test
     void aQuotientReadsItsDividendAsDouble() {
