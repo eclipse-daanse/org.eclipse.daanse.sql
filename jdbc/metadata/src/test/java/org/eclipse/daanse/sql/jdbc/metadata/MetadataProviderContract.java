@@ -60,6 +60,9 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  *                    INDEX ix_orders_ordered_on (ordered_on),
  *                    UNIQUE INDEX ux_orders_product_day (product_id, ordered_on)
  * sales.order_line   PK (order_id, line_no), FK fk_order_line_orders (order_id) → sales.orders
+ * sales.child_bare   PK (id), FK fk_child_bare (orders_id) → sales.orders, no index of its own
+ * sales.child_indexed
+ *                    PK (id), INDEX ix_child_indexed (orders_id), then FK fk_child_indexed (orders_id)
  * sales.v_orders     a view on orders
  * sales.seq_unlimited, sales.seq_limited (1 to 999)
  * sales.f_total      two overloads, where a schema may hold several routines of a name
@@ -162,6 +165,29 @@ abstract class MetadataProviderContract {
         return true;
     }
 
+    /** Whether the database makes an index of its own for a foreign key whose columns have none. */
+    protected boolean makesForeignKeyIndexes() {
+        return false;
+    }
+
+    /**
+     * The statements that create the children of the orders: {@code sales.child_bare} with the
+     * foreign key {@code fk_child_bare (orders_id)} and no index of its own, and
+     * {@code sales.child_indexed}, whose index {@code ix_child_indexed (orders_id)} is declared
+     * before its foreign key {@code fk_child_indexed (orders_id)} is added.
+     */
+    protected List<String> createChildren() {
+        String sales = sales();
+        return List.of("CREATE TABLE " + sales + ".child_bare (id INT NOT NULL, orders_id INT,"
+                + " CONSTRAINT pk_child_bare PRIMARY KEY (id),"
+                + " CONSTRAINT fk_child_bare FOREIGN KEY (orders_id) REFERENCES " + sales + ".orders (id))",
+                "CREATE TABLE " + sales + ".child_indexed (id INT NOT NULL, orders_id INT,"
+                        + " CONSTRAINT pk_child_indexed PRIMARY KEY (id))",
+                "CREATE INDEX " + indexName(sales, "ix_child_indexed") + " ON " + sales + ".child_indexed (orders_id)",
+                "ALTER TABLE " + sales + ".child_indexed ADD CONSTRAINT fk_child_indexed FOREIGN KEY (orders_id)"
+                        + " REFERENCES " + sales + ".orders (id)");
+    }
+
     /**
      * The statements that put the comments above on {@code stock.product}, its column {@code code}
      * and, where {@link #viewComments()}, the view {@code sales.v_orders}; by default
@@ -247,6 +273,7 @@ abstract class MetadataProviderContract {
         sql.add("CREATE UNIQUE INDEX " + indexName(sales, "ux_orders_product_day") + " ON " + sales
                 + ".orders (product_id, ordered_on)");
         sql.add("CREATE VIEW " + sales + ".v_orders AS SELECT id, qty FROM " + sales + ".orders");
+        sql.addAll(createChildren());
         if (sequences()) {
             sql.add(createSequence(sales + ".seq_unlimited", false));
             sql.add(createSequence(sales + ".seq_limited", true));
@@ -358,6 +385,29 @@ abstract class MetadataProviderContract {
         assertThat(index(items, "ux_orders_product_day")).extracting(item -> name(item.column().orElseThrow()))
                 .containsExactly("product_id", "ordered_on");
         assertThat(index(items, "ux_orders_product_day")).allMatch(IndexInfoItem::unique);
+    }
+
+    /**
+     * An index the database made for a foreign key is marked as made for a constraint; one declared
+     * before the foreign key and used by it is not. A database that makes no such index has no index
+     * on the foreign key's column.
+     */
+    @Test
+    void anIndexTheDatabaseMadeForAForeignKeyIsMarked() throws SQLException {
+        List<IndexInfo> indexes = provider.getAllIndexInfo(connection, null, sales()).orElseThrow();
+        List<IndexInfoItem> bare = itemsOn(indexes, "child_bare", "orders_id");
+        List<IndexInfoItem> indexed = itemsOn(indexes, "child_indexed", "orders_id");
+
+        if (makesForeignKeyIndexes()) {
+            assertThat(bare).as("the index made for fk_child_bare").singleElement()
+                    .satisfies(item -> assertThat(item.createdForConstraint()).as("made for a constraint").isTrue());
+        } else {
+            assertThat(bare).as("an index on the column of fk_child_bare").isEmpty();
+        }
+        assertThat(indexed).as("the index declared before fk_child_indexed").singleElement().satisfies(item -> {
+            assertThat(item.indexName()).hasValueSatisfying(n -> assertThat(n).isEqualToIgnoringCase("ix_child_indexed"));
+            assertThat(item.createdForConstraint()).as("made for a constraint").isFalse();
+        });
     }
 
     @Test
@@ -526,6 +576,13 @@ abstract class MetadataProviderContract {
                 .map(c -> c.ordinalPosition() + " " + c.columnType() + " " + c.name().toLowerCase(Locale.ROOT) + " "
                         + (c.dataType() == JDBCType.NUMERIC ? JDBCType.DECIMAL : c.dataType()))
                 .toList();
+    }
+
+    /** The items of all indexes of a table of the orders' schema that cover a column. */
+    private List<IndexInfoItem> itemsOn(List<IndexInfo> indexes, String table, String column) {
+        return indexes.stream().filter(index -> is(index.tableReference(), sales(), table))
+                .flatMap(index -> index.indexInfoItems().stream())
+                .filter(item -> item.column().filter(c -> c.name().equalsIgnoreCase(column)).isPresent()).toList();
     }
 
     private static List<IndexInfoItem> index(List<IndexInfoItem> items, String name) {

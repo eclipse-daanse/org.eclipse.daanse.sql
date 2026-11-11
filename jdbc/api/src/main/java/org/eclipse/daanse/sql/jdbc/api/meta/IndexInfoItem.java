@@ -39,6 +39,30 @@ public interface IndexInfoItem {
 
     boolean unique();
 
+    /**
+     * Whether the database created the index itself for a constraint, rather than someone declaring
+     * it. A reader that writes the indexes out again leaves such an index to the database.
+     * <ul>
+     * <li>H2 says so for each index ({@code INFORMATION_SCHEMA.INDEXES.IS_GENERATED}): the index it
+     * makes for a foreign key whose columns have no usable index, and those behind a primary key and
+     * a unique constraint. An index declared before the constraint and used by it is not.</li>
+     * <li>MySQL and MariaDB say it nowhere. For a foreign key whose columns have no usable index
+     * (one that starts with them, also a wider one) they make a non-unique index with the name of the
+     * constraint over exactly its columns, in order; such an index of a table with that foreign key is
+     * taken for the database's own. The rule goes by the name: an index declared by hand under the
+     * name of the foreign key is taken for the database's own too. The index stays when the foreign
+     * key is dropped; it is then an ordinary index and no longer taken for one.</li>
+     * <li>PostgreSQL, Oracle, SQL Server, DuckDB and the others make no index for a foreign key, and
+     * their providers report none as created for a constraint, not even one behind a primary key or
+     * a unique constraint.</li>
+     * </ul>
+     *
+     * @return true if the database created the index for a constraint
+     */
+    default boolean createdForConstraint() {
+        return false;
+    }
+
     enum IndexType {
         TABLE_INDEX_STATISTIC(DatabaseMetaData.tableIndexStatistic),
         TABLE_INDEX_CLUSTERED(DatabaseMetaData.tableIndexClustered),

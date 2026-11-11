@@ -437,11 +437,15 @@ public class H2MetadataProvider implements MetadataProvider {
     }
 
 
+    /**
+     * The indexes of a schema; one H2 made itself for a constraint ({@code IS_GENERATED}), for a
+     * foreign key, a primary key or a unique constraint, is marked as such.
+     */
     @Override
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
         throws SQLException {
         String sql = """
-            SELECT i.TABLE_NAME, i.INDEX_NAME, i.INDEX_TYPE_NAME,
+            SELECT i.TABLE_NAME, i.INDEX_NAME, i.INDEX_TYPE_NAME, i.IS_GENERATED,
                     ic.COLUMN_NAME, ic.ORDINAL_POSITION, ic.IS_UNIQUE,
                     i.TABLE_SCHEMA, i.TABLE_CATALOG
             FROM INFORMATION_SCHEMA.INDEXES i
@@ -467,6 +471,7 @@ public class H2MetadataProvider implements MetadataProvider {
                     String columnName = rs.getString("COLUMN_NAME");
                     int ordinalPosition = rs.getInt("ORDINAL_POSITION");
                     boolean isUnique = rs.getBoolean("IS_UNIQUE");
+                    boolean isGenerated = rs.getBoolean("IS_GENERATED");
 
                     TableReference tableRef = tableRefs.computeIfAbsent(tableName, k -> {
                         Optional<SchemaReference> oSchema = Optional
@@ -485,7 +490,7 @@ public class H2MetadataProvider implements MetadataProvider {
                         0L, // cardinality not available here
                         0L, // pages not available here
                         Optional.empty(), // filter condition
-                        isUnique);
+                        isUnique, isGenerated);
 
                     tableIndexes.computeIfAbsent(tableName, k -> new ArrayList<>()).add(item);
                 }

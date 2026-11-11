@@ -27,6 +27,14 @@ public record IndexInfoItemRecord(
         long cardinality,
         long pages,
         Optional<String> filterCondition,
-        boolean unique) implements IndexInfoItem {
+        boolean unique,
+        boolean createdForConstraint) implements IndexInfoItem {
 
+    /** An item of an index someone declared. */
+    public IndexInfoItemRecord(Optional<String> indexName, IndexType type, Optional<ColumnReference> column,
+            int ordinalPosition, Optional<Boolean> ascending, long cardinality, long pages,
+            Optional<String> filterCondition, boolean unique) {
+        this(indexName, type, column, ordinalPosition, ascending, cardinality, pages, filterCondition, unique,
+                false);
+    }
 }

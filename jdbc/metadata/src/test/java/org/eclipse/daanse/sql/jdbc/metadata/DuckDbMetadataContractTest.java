@@ -15,6 +15,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
@@ -34,6 +35,18 @@ class DuckDbMetadataContractTest extends MetadataProviderContract {
     @Override
     protected MetadataProvider provider() {
         return new DuckDbMetadataProvider();
+    }
+
+    /** DuckDB adds no foreign key to an existing table: the index comes after the table with its key. */
+    @Override
+    protected List<String> createChildren() {
+        return List.of("CREATE TABLE sales.child_bare (id INT NOT NULL, orders_id INT,"
+                + " CONSTRAINT pk_child_bare PRIMARY KEY (id),"
+                + " CONSTRAINT fk_child_bare FOREIGN KEY (orders_id) REFERENCES sales.orders (id))",
+                "CREATE TABLE sales.child_indexed (id INT NOT NULL, orders_id INT,"
+                        + " CONSTRAINT pk_child_indexed PRIMARY KEY (id),"
+                        + " CONSTRAINT fk_child_indexed FOREIGN KEY (orders_id) REFERENCES sales.orders (id))",
+                "CREATE INDEX ix_child_indexed ON sales.child_indexed (orders_id)");
     }
 
     @Override
