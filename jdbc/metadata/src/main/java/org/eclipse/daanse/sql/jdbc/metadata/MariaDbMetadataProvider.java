@@ -448,6 +448,11 @@ public class MariaDbMetadataProvider implements MetadataProvider {
     }
 
 
+    /**
+     * The indexes of a schema. MariaDB makes an index for a foreign key whose columns have no usable
+     * index and says so nowhere: a non-unique index with the name of a foreign key of its table,
+     * over exactly that key's columns in order, is marked as made for a constraint.
+     */
     @Override
     public Optional<List<IndexInfo>> getAllIndexInfo(Connection connection, String catalog, String schema)
             throws SQLException {
@@ -457,7 +462,9 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
                 """;
         String schemaName = resolveSchema(schema, connection);
-        Map<String, List<IndexInfoItem>> tableIndexes = new LinkedHashMap<>();
+        Map<List<String>, List<String>> foreignKeys = foreignKeyColumns(connection, schemaName);
+        // the rows of each index of each table, in order
+        Map<String, Map<String, List<IndexRow>>> tableIndexMap = new LinkedHashMap<>();
         Map<String, TableReference> tableRefs = new LinkedHashMap<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, schemaName);
@@ -465,38 +472,63 @@ public class MariaDbMetadataProvider implements MetadataProvider {
                 while (rs.next()) {
                     String tableName = rs.getString("TABLE_NAME");
                     String indexName = rs.getString("INDEX_NAME");
-                    String columnName = rs.getString("COLUMN_NAME");
-                    int seqInIndex = rs.getInt("SEQ_IN_INDEX");
-                    boolean nonUnique = rs.getBoolean("NON_UNIQUE");
-                    String indexType = rs.getString("INDEX_TYPE");
-                    long cardinality = rs.getLong("CARDINALITY");
-
-                    IndexInfoItem.IndexType mappedType = mapIndexType(indexType);
-
-                    TableReference tableRef = tableRefs.computeIfAbsent(tableName, k -> {
-                        Optional<SchemaReference> oSchema = Optional
-                                .of(new SchemaReference(Optional.empty(), schemaName));
-                        return new TableReference(oSchema, k);
-                    });
-
-                    Optional<ColumnReference> colRef = Optional.ofNullable(columnName)
-                            .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
-
-                    IndexInfoItem item = new IndexInfoItemRecord(Optional.ofNullable(indexName), mappedType, colRef,
-                            seqInIndex, Optional.empty(), // MariaDB STATISTICS doesn't expose ASC/DESC
-                            cardinality, 0L, // pages not available
-                            Optional.empty(), // filter condition
-                            !nonUnique);
-
-                    tableIndexes.computeIfAbsent(tableName, k -> new ArrayList<>()).add(item);
+                    IndexRow row = new IndexRow(rs.getString("COLUMN_NAME"), rs.getInt("SEQ_IN_INDEX"),
+                            rs.getBoolean("NON_UNIQUE"), rs.getString("INDEX_TYPE"), rs.getLong("CARDINALITY"));
+                    tableRefs.computeIfAbsent(tableName, k -> new TableReference(
+                            Optional.of(new SchemaReference(Optional.empty(), schemaName)), k));
+                    tableIndexMap.computeIfAbsent(tableName, k -> new LinkedHashMap<>())
+                            .computeIfAbsent(indexName, k -> new ArrayList<>()).add(row);
                 }
             }
         }
         List<IndexInfo> result = new ArrayList<>();
-        for (Map.Entry<String, List<IndexInfoItem>> entry : tableIndexes.entrySet()) {
-            result.add(new IndexInfoRecord(tableRefs.get(entry.getKey()), List.copyOf(entry.getValue())));
+        for (Map.Entry<String, Map<String, List<IndexRow>>> tableEntry : tableIndexMap.entrySet()) {
+            TableReference tableRef = tableRefs.get(tableEntry.getKey());
+            List<IndexInfoItem> allItems = new ArrayList<>();
+            for (Map.Entry<String, List<IndexRow>> indexEntry : tableEntry.getValue().entrySet()) {
+                String indexName = indexEntry.getKey();
+                List<IndexRow> rows = indexEntry.getValue();
+                List<String> keyColumns = foreignKeys.get(List.of(tableEntry.getKey(), indexName));
+                boolean madeForForeignKey = keyColumns != null && rows.stream().allMatch(IndexRow::nonUnique)
+                        && keyColumns.equals(rows.stream().map(IndexRow::column).toList());
+                for (IndexRow row : rows) {
+                    Optional<ColumnReference> colRef = Optional.ofNullable(row.column())
+                            .map(cn -> new ColumnReference(Optional.of(tableRef), cn));
+                    // STATISTICS has no ASC/DESC, no pages and no filter condition
+                    allItems.add(new IndexInfoItemRecord(Optional.ofNullable(indexName),
+                            mapIndexType(row.indexType()), colRef, row.seqInIndex(), Optional.empty(),
+                            row.cardinality(), 0L, Optional.empty(), !row.nonUnique(), madeForForeignKey));
+                }
+            }
+            result.add(new IndexInfoRecord(tableRef, List.copyOf(allItems)));
         }
         return Optional.of(List.copyOf(result));
+    }
+
+    /** One row of {@code information_schema.STATISTICS}: a column of an index. */
+    private record IndexRow(String column, int seqInIndex, boolean nonUnique, String indexType, long cardinality) {
+    }
+
+    /** The columns of each foreign key of a schema, in order, by the key's table and name. */
+    private static Map<List<String>, List<String>> foreignKeyColumns(Connection connection, String schemaName)
+            throws SQLException {
+        String sql = """
+                SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+                ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
+                """;
+        Map<List<String>, List<String>> result = new LinkedHashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.computeIfAbsent(List.of(rs.getString("TABLE_NAME"), rs.getString("CONSTRAINT_NAME")),
+                            k -> new ArrayList<>()).add(rs.getString("COLUMN_NAME"));
+                }
+            }
+        }
+        return result;
     }
 
 

@@ -39,6 +39,11 @@ class MySqlMetadataContractTest extends MetadataProviderContract {
     }
 
     @Override
+    protected boolean makesForeignKeyIndexes() {
+        return true;
+    }
+
+    @Override
     protected MetadataProvider provider() {
         return new MySqlMetadataProvider();
     }
