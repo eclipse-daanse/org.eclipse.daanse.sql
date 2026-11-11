@@ -11,6 +11,7 @@ package org.eclipse.daanse.sql.dialect.db.oracle;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertExecuteUpdateAffected;
+import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstIntEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertFirstStringEquals;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirst;
 import static org.eclipse.daanse.sql.dialect.db.testsupport.RoundTripAssertions.assertSelectIdRowCountAndFirstWithParams;
@@ -133,6 +134,41 @@ class OracleGeneratorsRoundTripTest {
                 CONTAINER.getPassword())) {
             UserRoundTrip.assertUserRoundTrip(system, dialect.ddlGenerator(), new OracleMetadataProvider(),
                     DatabasePrincipal.KIND_USER, users, "rt_user", "rt_role");
+        }
+    }
+
+    /**
+     * A materialized view the dialect writes holds the rows of its query and is read back as a
+     * materialized view with its query; dropped, it is gone. Before Oracle 23 the dialect has no
+     * {@code IF [NOT] EXISTS}, and the statements with and without it are alike.
+     */
+    @Test
+    void materialized_view_is_created_read_back_and_dropped() throws SQLException {
+        String schema = CONTAINER.getUsername().toUpperCase();
+        TableReference view = new TableReference(Optional.of(new SchemaReference(Optional.empty(), schema)),
+                "MV_USERS", TableReference.TYPE_VIEW);
+        String query = "SELECT id, name FROM \"" + schema + "\".\"USERS\" WHERE id <= 5";
+        OracleMetadataProvider provider = new OracleMetadataProvider();
+        String create = dialect.ddlGenerator().createMaterializedView(view, query, false).orElseThrow();
+        String createIfNotExists = dialect.ddlGenerator().createMaterializedView(view, query, true).orElseThrow();
+        String drop = dialect.ddlGenerator().dropMaterializedView(view, false).orElseThrow();
+        String dropIfExists = dialect.ddlGenerator().dropMaterializedView(view, true).orElseThrow();
+        try (Statement s = conn.createStatement()) {
+            s.execute(create);
+            if (!createIfNotExists.equals(create)) {
+                s.execute(createIfNotExists);
+            }
+            assertFirstIntEquals(conn, "SELECT COUNT(*) FROM \"" + schema + "\".\"MV_USERS\"", 5);
+            assertThat(provider.getAllMaterializedViews(conn, null, schema))
+                    .filteredOn(mv -> mv.view().name().equals("MV_USERS")).singleElement()
+                    .satisfies(mv -> assertThat(mv.viewBody().orElseThrow()).containsIgnoringCase("users"));
+
+            s.execute(drop);
+            if (!dropIfExists.equals(drop)) {
+                s.execute(dropIfExists);
+            }
+            assertThat(provider.getAllMaterializedViews(conn, null, schema))
+                    .noneMatch(mv -> mv.view().name().equals("MV_USERS"));
         }
     }
 }
