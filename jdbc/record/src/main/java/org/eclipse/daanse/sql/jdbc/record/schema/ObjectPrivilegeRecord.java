@@ -25,5 +25,13 @@ public record ObjectPrivilegeRecord(
         Optional<String> grantor,
         String grantee,
         String privilege,
-        Optional<String> isGrantable) implements ObjectPrivilege {
+        Optional<String> isGrantable,
+        String specificName) implements ObjectPrivilege {
+
+    /** A privilege on an object whose name is unique: its specific name is its name. */
+    public ObjectPrivilegeRecord(String objectKind, Optional<String> catalogName, Optional<String> schemaName,
+            String objectName, Optional<String> grantor, String grantee, String privilege,
+            Optional<String> isGrantable) {
+        this(objectKind, catalogName, schemaName, objectName, grantor, grantee, privilege, isGrantable, objectName);
+    }
 }

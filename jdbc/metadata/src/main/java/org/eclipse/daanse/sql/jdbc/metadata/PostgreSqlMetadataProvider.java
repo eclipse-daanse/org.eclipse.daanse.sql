@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
@@ -30,6 +31,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.CheckConstraint;
 import org.eclipse.daanse.sql.jdbc.api.schema.ColumnPrivilege;
 import org.eclipse.daanse.sql.model.schema.ColumnReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Function;
+import org.eclipse.daanse.sql.jdbc.api.schema.FunctionColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.FunctionReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.MaterializedView;
@@ -37,6 +39,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.Partition;
 import org.eclipse.daanse.sql.jdbc.api.schema.PartitionMethod;
 import org.eclipse.daanse.sql.model.schema.PrimaryKey;
 import org.eclipse.daanse.sql.jdbc.api.schema.Procedure;
+import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.ProcedureReference;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
@@ -53,6 +56,7 @@ import org.eclipse.daanse.sql.jdbc.api.schema.UserDefinedTypeReference;
 import org.eclipse.daanse.sql.jdbc.api.schema.ViewDefinition;
 import org.eclipse.daanse.sql.jdbc.record.schema.CheckConstraintRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ColumnPrivilegeRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.FunctionColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.FunctionRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ImportedKeyRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.IndexInfoItemRecord;
@@ -60,6 +64,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.IndexInfoRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.MaterializedViewRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PartitionRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.PrimaryKeyRecord;
+import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureColumnRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TablePrivilegeRecord;
@@ -599,10 +604,15 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     }
 
 
+    /**
+     * The procedures of a schema with their parameters. The specific name is the one
+     * {@code information_schema.routines} and the JDBC driver give, the name and the routine's oid
+     * ({@code f_total_16384}): it tells overloads apart.
+     */
     @Override
     public List<Procedure> getAllProcedures(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
-                SELECT p.proname AS routine_name, p.oid::text AS specific_name,
+                SELECT p.proname AS routine_name, p.proname || '_' || p.oid AS specific_name,
                         d.description AS remarks, p.prosrc AS body,
                         pg_get_functiondef(p.oid) AS full_def
                 FROM pg_proc p
@@ -614,6 +624,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String schemaName = resolveSchema(schema, connection);
         List<Procedure> procedures = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            Map<String, List<PgParameter>> parameters = loadParameters(connection, schemaName, "p");
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -624,9 +635,11 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                     String fullDef = rs.getString("full_def");
 
                     Optional<SchemaReference> oSchema = Optional.of(new SchemaReference(Optional.empty(), schemaName));
+                    List<ProcedureColumn> columns = parameters.getOrDefault(specificName, List.of()).stream()
+                            .map(PgParameter::procedureColumn).toList();
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName, specificName),
-                            Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), List.of(),
+                            Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), columns,
                             Optional.ofNullable(body), Optional.ofNullable(fullDef), Optional.empty()));
                 }
             }
@@ -641,10 +654,16 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     }
 
 
+    /**
+     * The functions of a schema with their parameters; the columns of a {@code RETURNS TABLE} are
+     * {@link FunctionColumn.ColumnType#RESULT}. The specific name is the one
+     * {@code information_schema.routines} and the JDBC driver give, the name and the routine's oid
+     * ({@code f_total_16384}): it tells overloads apart.
+     */
     @Override
     public List<Function> getAllFunctions(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
-                SELECT p.proname AS routine_name, p.oid::text AS specific_name,
+                SELECT p.proname AS routine_name, p.proname || '_' || p.oid AS specific_name,
                         d.description AS remarks, p.prosrc AS body,
                         pg_get_functiondef(p.oid) AS full_def,
                         CASE WHEN p.proretset THEN 'TABLE' ELSE 'SCALAR' END AS return_type
@@ -657,6 +676,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         String schemaName = resolveSchema(schema, connection);
         List<Function> functions = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            Map<String, List<PgParameter>> parameters = loadParameters(connection, schemaName, "f");
             ps.setString(1, schemaName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -672,8 +692,11 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                     Function.FunctionType funcType = "TABLE".equals(returnType) ? Function.FunctionType.RETURNS_TABLE
                             : Function.FunctionType.NO_TABLE;
 
+                    List<FunctionColumn> columns = parameters.getOrDefault(specificName, List.of()).stream()
+                            .map(PgParameter::functionColumn).toList();
+
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName, specificName),
-                            funcType, Optional.ofNullable(remarks), List.of(), Optional.ofNullable(body),
+                            funcType, Optional.ofNullable(remarks), columns, Optional.ofNullable(body),
                             Optional.ofNullable(fullDef), Optional.empty()));
                 }
             }
@@ -685,6 +708,110 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
             throw e;
         }
         return List.copyOf(functions);
+    }
+
+
+    /**
+     * The parameters of the routines of one kind ({@code f} function, {@code p} procedure) in a
+     * schema, by specific name, in their order: one row for each type of
+     * {@code proallargtypes}, which also holds the {@code OUT} parameters and the columns of a
+     * {@code RETURNS TABLE}, or of {@code proargtypes} where all are {@code IN}. A parameter
+     * without a name has the empty one.
+     */
+    private static Map<String, List<PgParameter>> loadParameters(Connection connection, String schemaName,
+            String kind) throws SQLException {
+        String sql = """
+                SELECT p.proname || '_' || p.oid AS specific_name, a.ord,
+                        p.proargnames[a.ord] AS parameter_name, p.proargmodes[a.ord] AS parameter_mode,
+                        t.typname, t.typcategory
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                CROSS JOIN LATERAL unnest(COALESCE(p.proallargtypes, p.proargtypes::oid[]))
+                        WITH ORDINALITY AS a(type_oid, ord)
+                JOIN pg_type t ON t.oid = a.type_oid
+                WHERE n.nspname = ? AND p.prokind = ?
+                ORDER BY p.oid, a.ord
+                """;
+        Map<String, List<PgParameter>> result = new LinkedHashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            ps.setString(2, kind);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString("parameter_name");
+                    result.computeIfAbsent(rs.getString("specific_name"), k -> new ArrayList<>())
+                            .add(new PgParameter(name == null ? "" : name, rs.getString("parameter_mode"),
+                                    rs.getString("typname"), mapPgJdbcType(rs.getString("typname"),
+                                            rs.getString("typcategory")),
+                                    rs.getInt("ord")));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * A routine's parameter as {@code pg_proc} keeps it. The mode is {@code i} (or none) for
+     * {@code IN}, {@code o} {@code OUT}, {@code b} {@code INOUT}, {@code v} {@code VARIADIC}, an
+     * {@code IN} parameter taking any number of values, and {@code t} a column of a
+     * {@code RETURNS TABLE}. A routine keeps no precision or scale of its parameters' types.
+     */
+    private record PgParameter(String name, String mode, String typeName, JDBCType dataType, int position) {
+
+        FunctionColumn functionColumn() {
+            FunctionColumn.ColumnType type = switch (mode == null ? "i" : mode) {
+            case "o" -> FunctionColumn.ColumnType.OUT;
+            case "b" -> FunctionColumn.ColumnType.INOUT;
+            case "t" -> FunctionColumn.ColumnType.RESULT;
+            default -> FunctionColumn.ColumnType.IN;
+            };
+            return new FunctionColumnRecord(name, type, dataType, typeName, OptionalInt.empty(), OptionalInt.empty(),
+                    OptionalInt.of(10), FunctionColumn.Nullability.UNKNOWN, Optional.empty(), OptionalInt.empty(),
+                    position);
+        }
+
+        ProcedureColumn procedureColumn() {
+            ProcedureColumn.ColumnType type = switch (mode == null ? "i" : mode) {
+            case "o" -> ProcedureColumn.ColumnType.OUT;
+            case "b" -> ProcedureColumn.ColumnType.INOUT;
+            case "t" -> ProcedureColumn.ColumnType.RESULT;
+            default -> ProcedureColumn.ColumnType.IN;
+            };
+            return new ProcedureColumnRecord(name, type, dataType, typeName, OptionalInt.empty(),
+                    OptionalInt.empty(), OptionalInt.of(10), ProcedureColumn.Nullability.UNKNOWN, Optional.empty(),
+                    Optional.empty(), position);
+        }
+    }
+
+    /**
+     * The JDBC type of a PostgreSQL type, by its name in {@code pg_type}, as the JDBC driver reports
+     * it for a column: {@code bool} is {@code BIT}, a time or timestamp with time zone is a plain
+     * {@code TIME} or {@code TIMESTAMP}, an array is an {@code ARRAY}.
+     */
+    private static JDBCType mapPgJdbcType(String typname, String typcategory) {
+        if ("A".equals(typcategory)) {
+            return JDBCType.ARRAY;
+        }
+        if (typname == null) {
+            return JDBCType.OTHER;
+        }
+        return switch (typname) {
+        case "int2" -> JDBCType.SMALLINT;
+        case "int4" -> JDBCType.INTEGER;
+        case "int8" -> JDBCType.BIGINT;
+        case "numeric" -> JDBCType.NUMERIC;
+        case "float4" -> JDBCType.REAL;
+        case "float8" -> JDBCType.DOUBLE;
+        case "bool" -> JDBCType.BIT;
+        case "varchar", "text", "name" -> JDBCType.VARCHAR;
+        case "bpchar", "char" -> JDBCType.CHAR;
+        case "date" -> JDBCType.DATE;
+        case "time", "timetz" -> JDBCType.TIME;
+        case "timestamp", "timestamptz" -> JDBCType.TIMESTAMP;
+        case "bytea" -> JDBCType.BINARY;
+        case "xml" -> JDBCType.SQLXML;
+        default -> JDBCType.OTHER;
+        };
     }
 
 
@@ -992,7 +1119,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         // Schema privileges are deliberately not read — support is too opaque
         // across dialects (Oracle: schema == user).
         String databaseSql = """
-                SELECT d.datname AS object_name, 'DATABASE' AS object_kind,
+                SELECT d.datname AS object_name, d.datname AS specific_name, 'DATABASE' AS object_kind,
                         pg_get_userbyid(a.grantor) AS grantor,
                         CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
                         a.privilege_type, a.is_grantable
@@ -1002,7 +1129,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         readObjectPrivileges(connection, databaseSql, null, null, result);
 
         String routineSql = """
-                SELECT p.proname AS object_name,
+                SELECT p.proname AS object_name, p.proname || '_' || p.oid AS specific_name,
                         CASE WHEN p.prokind = 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS object_kind,
                         pg_get_userbyid(a.grantor) AS grantor,
                         CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
@@ -1014,7 +1141,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         readObjectPrivileges(connection, routineSql, schemaName, schemaName, result);
 
         String sequenceSql = """
-                SELECT c.relname AS object_name, 'SEQUENCE' AS object_kind,
+                SELECT c.relname AS object_name, c.relname AS specific_name, 'SEQUENCE' AS object_kind,
                         pg_get_userbyid(a.grantor) AS grantor,
                         CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
                         a.privilege_type, a.is_grantable
@@ -1041,7 +1168,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                             rs.getString("object_kind"), Optional.empty(), Optional.ofNullable(schemaName),
                             rs.getString("object_name"), Optional.ofNullable(rs.getString("grantor")),
                             rs.getString("grantee"), rs.getString("privilege_type"),
-                            Optional.of(rs.getBoolean("is_grantable") ? "YES" : "NO")));
+                            Optional.of(rs.getBoolean("is_grantable") ? "YES" : "NO"),
+                            rs.getString("specific_name")));
                 }
             }
         }

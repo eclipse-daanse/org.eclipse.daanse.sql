@@ -11,6 +11,7 @@ package org.eclipse.daanse.sql.jdbc.metadata;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.List;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -37,5 +38,13 @@ class PostgreSqlMetadataContractTest extends MetadataProviderContract {
     @Override
     protected void close() {
         container.stop();
+    }
+
+    @Override
+    protected List<String> createOverloads() {
+        return List.of("CREATE FUNCTION sales.f_total(qty INT) RETURNS INT LANGUAGE SQL AS 'SELECT qty'",
+                "CREATE FUNCTION sales.f_total(qty INT, INOUT price DECIMAL(10, 2), OUT total DECIMAL(10, 2))"
+                        + " LANGUAGE SQL AS 'SELECT price, qty * price'",
+                "GRANT EXECUTE ON FUNCTION sales.f_total(INT) TO PUBLIC");
     }
 }

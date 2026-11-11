@@ -10,14 +10,17 @@
 package org.eclipse.daanse.sql.jdbc.metadata;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.JDBCType;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,7 +32,10 @@ import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
 import org.eclipse.daanse.sql.jdbc.api.schema.CheckConstraint;
+import org.eclipse.daanse.sql.jdbc.api.schema.Function;
+import org.eclipse.daanse.sql.jdbc.api.schema.FunctionColumn;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
+import org.eclipse.daanse.sql.jdbc.api.schema.ObjectPrivilege;
 import org.eclipse.daanse.sql.jdbc.api.schema.Sequence;
 import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
@@ -55,6 +61,7 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  * sales.order_line   PK (order_id, line_no), FK fk_order_line_orders (order_id) → sales.orders
  * sales.v_orders     a view on orders
  * sales.seq_unlimited, sales.seq_limited (1 to 999)
+ * sales.f_total      two overloads, where a schema may hold several routines of a name
  * </pre>
  *
  * A subclass opens the database and says how it differs: how it names its schemas, how it creates
@@ -139,6 +146,21 @@ abstract class MetadataProviderContract {
         return true;
     }
 
+    /**
+     * The statements that create two overloads of the function {@code f_total} in the orders' schema
+     * and grant {@code EXECUTE} on the first of them to {@code PUBLIC}:
+     *
+     * <pre>
+     * f_total(qty INT) RETURNS INT
+     * f_total(qty INT, INOUT price DECIMAL(10, 2), OUT total DECIMAL(10, 2))
+     * </pre>
+     *
+     * None where a schema holds one routine of a name only.
+     */
+    protected List<String> createOverloads() {
+        return List.of();
+    }
+
     @BeforeAll
     void setUp() throws Exception {
         connection = open();
@@ -188,6 +210,7 @@ abstract class MetadataProviderContract {
             sql.add(createSequence(sales + ".seq_unlimited", false));
             sql.add(createSequence(sales + ".seq_limited", true));
         }
+        sql.addAll(createOverloads());
         return sql;
     }
 
@@ -320,6 +343,31 @@ abstract class MetadataProviderContract {
                         .isGreaterThanOrEqualTo(Integer.MAX_VALUE));
     }
 
+    /**
+     * Two functions of one name with different parameters are two routines, each with its own
+     * parameters in order and a specific name that tells it from the other. A privilege on one of them
+     * names that one by its specific name.
+     */
+    @Test
+    void overloadsAreTwoRoutinesWithTheirOwnParameters() throws SQLException {
+        assumeFalse(createOverloads().isEmpty(), "a schema holds one routine of a name only");
+
+        List<Function> overloads = provider.getAllFunctions(connection, null, sales()).stream()
+                .filter(f -> f.reference().name().equalsIgnoreCase("f_total")).toList();
+
+        assertThat(overloads).hasSize(2);
+        assertThat(overloads).extracting(f -> f.reference().specificName()).doesNotHaveDuplicates();
+        assertThat(overloads).extracting(MetadataProviderContract::parameters).containsExactlyInAnyOrder(
+                List.of("1 IN qty INTEGER"),
+                List.of("1 IN qty INTEGER", "2 INOUT price DECIMAL", "3 OUT total DECIMAL"));
+        Function first = overloads.stream().filter(f -> f.columns().size() == 1).findFirst().orElseThrow();
+
+        Optional<List<ObjectPrivilege>> privileges = provider.getAllObjectPrivileges(connection, null, sales());
+        privileges.ifPresent(rows -> assertThat(rows)
+                .filteredOn(row -> row.objectName().equalsIgnoreCase("f_total")).isNotEmpty()
+                .allSatisfy(row -> assertThat(row.specificName()).isEqualTo(first.reference().specificName())));
+    }
+
     /** The connection the provider reads through. */
     protected Connection connection() {
         return connection;
@@ -367,6 +415,14 @@ abstract class MetadataProviderContract {
     private static OptionalInt optionalInt(ResultSet rs, String column) throws SQLException {
         int value = rs.getInt(column);
         return rs.wasNull() ? OptionalInt.empty() : OptionalInt.of(value);
+    }
+
+    /** Each parameter as {@code position mode name type}; a decimal is a decimal, as NUMERIC or DECIMAL. */
+    private static List<String> parameters(Function function) {
+        return function.columns().stream().sorted(Comparator.comparingInt(FunctionColumn::ordinalPosition))
+                .map(c -> c.ordinalPosition() + " " + c.columnType() + " " + c.name().toLowerCase(Locale.ROOT) + " "
+                        + (c.dataType() == JDBCType.NUMERIC ? JDBCType.DECIMAL : c.dataType()))
+                .toList();
     }
 
     private static List<IndexInfoItem> index(List<IndexInfoItem> items, String name) {
