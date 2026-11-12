@@ -37,6 +37,7 @@ import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
+import org.eclipse.daanse.sql.jdbc.impl.DatabaseServiceImpl;
 import org.eclipse.daanse.sql.jdbc.metadata.PostgreSqlMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -213,6 +214,33 @@ class PostgreSqlGeneratorsRoundTripTest {
         try (Statement s = conn.createStatement()) {
             s.execute("DROP TABLE \"public\".\"dc\"");
             s.execute("DROP TABLE \"public\".\"dp\"");
+        }
+    }
+
+    /**
+     * The comments the dialect writes on a view and on one of its columns are read back as the
+     * snapshot reads them, through the metadata provider or else the JDBC driver.
+     */
+    @Test
+    void view_comments_are_written_and_read_back() throws SQLException {
+        TableReference view = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "public")),
+                "v_noted", TableReference.TYPE_VIEW);
+        DatabaseServiceImpl service = new DatabaseServiceImpl();
+        PostgreSqlMetadataProvider provider = new PostgreSqlMetadataProvider();
+        try (Statement s = conn.createStatement()) {
+            s.execute("CREATE VIEW \"public\".\"v_noted\" AS SELECT id, name FROM \"public\".\"users\"");
+            s.execute(dialect.ddlGenerator().commentOnTable(view, "the view's comment").orElseThrow());
+            s.execute(dialect.ddlGenerator().commentOnColumn(view, "name", "the column's comment", null)
+                    .orElseThrow());
+            assertThat(service.getTableDefinitions(conn, provider, null, "public", "v_noted", null))
+                    .filteredOn(t -> t.table().name().equals("v_noted")).singleElement()
+                    .satisfies(t -> assertThat(t.tableMetaData().remarks()).contains("the view's comment"));
+            assertThat(service.getColumnDefinitions(conn, provider, null, "public", "v_noted", null))
+                    .filteredOn(c -> c.column().table().map(TableReference::name).filter("v_noted"::equals).isPresent()
+                            && c.column().name().equals("name"))
+                    .singleElement()
+                    .satisfies(c -> assertThat(c.columnMetaData().remarks()).contains("the column's comment"));
+            s.execute(dialect.ddlGenerator().dropView(view, false));
         }
     }
 }

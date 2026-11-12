@@ -303,6 +303,9 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
     /** {@code ALTER TABLE t MODIFY COMMENT '…'}; {@code null} clears it. */
     @Override
     public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        if (TableReference.TYPE_VIEW.equals(table.type())) {
+            return java.util.Optional.empty();
+        }
         return java.util.Optional.of("ALTER TABLE " + qualified(table) + " MODIFY COMMENT " + chLiteral(comment));
     }
 
@@ -310,6 +313,9 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
     @Override
     public java.util.Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
             org.eclipse.daanse.sql.model.schema.ColumnMetaData currentMeta) {
+        if (TableReference.TYPE_VIEW.equals(table.type())) {
+            return java.util.Optional.empty();
+        }
         return java.util.Optional.of("ALTER TABLE " + qualified(table) + " COMMENT COLUMN "
                 + quoteIdentifier(columnName) + " " + chLiteral(comment));
     }
@@ -339,5 +345,11 @@ public class ClickHouseDialect extends AbstractJdbcDialect {
     public Optional<String> createUser(String userName, boolean ifNotExists) {
         return Optional.of("CREATE USER " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(userName)
                 + " HOST NONE");
+    }
+
+    /** ClickHouse sets a comment with {@code ALTER TABLE … MODIFY COMMENT}, which takes no view. */
+    @Override
+    public boolean supportsCommentOnView() {
+        return false;
     }
 }

@@ -707,6 +707,9 @@ public class MySqlDialect extends AbstractJdbcDialect {
     /** {@code ALTER TABLE t COMMENT = '…'} — MySQL has no COMMENT ON; {@code null} clears it. */
     @Override
     public Optional<String> commentOnTable(TableReference table, String comment) {
+        if (TableReference.TYPE_VIEW.equals(table.type())) {
+            return Optional.empty();
+        }
         return Optional.of("ALTER TABLE " + qualified(table) + " COMMENT = " + mysqlLiteral(comment));
     }
 
@@ -718,6 +721,9 @@ public class MySqlDialect extends AbstractJdbcDialect {
     @Override
     public Optional<String> commentOnColumn(TableReference table, String columnName, String comment,
             ColumnMetaData currentMeta) {
+        if (TableReference.TYPE_VIEW.equals(table.type())) {
+            return Optional.empty();
+        }
         if (currentMeta == null) {
             throw new IllegalArgumentException("currentMeta must not be null for a MySQL column comment");
         }
@@ -886,5 +892,11 @@ public class MySqlDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsDescendingIndexColumns() {
         return dialectVersion.isUnknownOrAtLeast(8, 0);
+    }
+
+    /** MySQL and MariaDB keep no comment on a view or its columns. */
+    @Override
+    public boolean supportsCommentOnView() {
+        return false;
     }
 }

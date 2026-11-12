@@ -124,6 +124,9 @@ public class HiveDialect extends AbstractJdbcDialect {
     /** {@code ALTER TABLE t SET TBLPROPERTIES ('comment' = '…')}; {@code null} clears it. */
     @Override
     public java.util.Optional<String> commentOnTable(TableReference table, String comment) {
+        if (TableReference.TYPE_VIEW.equals(table.type())) {
+            return java.util.Optional.empty();
+        }
         String s = comment == null ? "" : comment;
         return java.util.Optional.of("ALTER TABLE " + qualified(table) + " SET TBLPROPERTIES ('comment' = '"
                 + s.replace("\\", "\\\\").replace("'", "\\'") + "')");
@@ -142,6 +145,12 @@ public class HiveDialect extends AbstractJdbcDialect {
     /** Hive has no named table constraints; the primary key stays unnamed. */
     @Override
     public boolean supportsNamedPrimaryKey() {
+        return false;
+    }
+
+    /** Hive (and Impala, which takes its spelling) sets a comment as a property of a table; a view is not written. */
+    @Override
+    public boolean supportsCommentOnView() {
         return false;
     }
 }

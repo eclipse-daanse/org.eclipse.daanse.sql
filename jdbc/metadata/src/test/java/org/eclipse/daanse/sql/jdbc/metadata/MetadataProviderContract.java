@@ -91,6 +91,9 @@ abstract class MetadataProviderContract {
     /** The comment on the view {@code sales.v_orders}. */
     protected static final String VIEW_COMMENT = "The orders in short";
 
+    /** The comment on the column {@code qty} of the view {@code sales.v_orders}. */
+    protected static final String VIEW_COLUMN_COMMENT = "How many are ordered";
+
     /** The comment on the function {@code sales.f_answer}. */
     protected static final String FUNCTION_COMMENT = "The answer to everything";
 
@@ -227,13 +230,14 @@ abstract class MetadataProviderContract {
 
     /**
      * The statements that put the comments above on {@code stock.product}, its column {@code code}
-     * and, where {@link #viewComments()}, the view {@code sales.v_orders}; by default
-     * {@code COMMENT ON}.
+     * and, where {@link #viewComments()}, the view {@code sales.v_orders} and its column {@code qty};
+     * by default {@code COMMENT ON}.
      */
     protected List<String> comments() {
         return List.of("COMMENT ON TABLE " + stock() + ".product IS '" + PRODUCT_COMMENT + "'",
                 "COMMENT ON COLUMN " + stock() + ".product.code IS '" + CODE_COMMENT + "'",
-                "COMMENT ON VIEW " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'");
+                "COMMENT ON VIEW " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'",
+                "COMMENT ON COLUMN " + sales() + ".v_orders.qty IS '" + VIEW_COLUMN_COMMENT + "'");
     }
 
     /** Whether the database keeps a comment on a view. */
@@ -535,16 +539,19 @@ abstract class MetadataProviderContract {
     }
 
     /**
-     * The comments on a table, on one of its columns and on a view, as the snapshot reads them: from
-     * the provider's tables and columns where it reads them itself, otherwise from the JDBC driver.
+     * The comments on a table, on one of its columns, on a view and on one of its columns, as the
+     * snapshot reads them: from the provider's tables and columns where it reads them itself,
+     * otherwise from the JDBC driver.
      */
     @Test
-    void commentsOnATableItsColumnAndAView() throws SQLException {
+    void commentsOnTablesViewsAndTheirColumns() throws SQLException {
         assertThat(tableRemarks(stock(), "product")).as("comment on the table").contains(PRODUCT_COMMENT);
         assertThat(columns(stock(), "product").get("code").remarks()).as("comment on the column")
                 .contains(CODE_COMMENT);
         if (viewComments()) {
             assertThat(tableRemarks(sales(), "v_orders")).as("comment on the view").contains(VIEW_COMMENT);
+            assertThat(columns(sales(), "v_orders").get("qty").remarks()).as("comment on the view's column")
+                    .contains(VIEW_COLUMN_COMMENT);
         }
     }
 

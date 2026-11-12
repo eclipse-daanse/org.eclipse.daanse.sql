@@ -51,7 +51,8 @@ class MsSqlMetadataContractTest extends MetadataProviderContract {
     protected List<String> comments() {
         return List.of(description(PRODUCT_COMMENT, "stock", "TABLE", "product", null),
                 description(CODE_COMMENT, "stock", "TABLE", "product", "code"),
-                description(VIEW_COMMENT, "sales", "VIEW", "v_orders", null));
+                description(VIEW_COMMENT, "sales", "VIEW", "v_orders", null),
+                description(VIEW_COLUMN_COMMENT, "sales", "VIEW", "v_orders", "qty"));
     }
 
     @Override
