@@ -40,6 +40,7 @@ import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.RoutineRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
+import org.eclipse.daanse.sql.jdbc.api.meta.StructureInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.impl.DatabaseServiceImpl;
 import org.junit.jupiter.api.AfterAll;
@@ -253,5 +254,30 @@ class MicrosoftSqlServerGeneratorsRoundTripTest {
     void role_is_created_read_back_and_dropped() throws SQLException {
         UserRoundTrip.assertRoleRoundTrip(conn, dialect.ddlGenerator(), new MicrosoftSqlServerMetadataProvider(),
                 DatabasePrincipal.KIND_ROLE, "rt_only_role");
+    }
+
+    /**
+     * A schema that holds a function and no table: the snapshot holds its function. The time the
+     * snapshot takes is printed.
+     */
+    @Test
+    void routines_of_a_schema_without_tables_are_in_the_snapshot() throws SQLException {
+        try (Statement s = conn.createStatement()) {
+            s.execute("CREATE SCHEMA only_routines");
+            s.execute("CREATE FUNCTION only_routines.f_alone() RETURNS INT AS BEGIN RETURN 1 END");
+        }
+        long start = System.nanoTime();
+        StructureInfo structure = new DatabaseServiceImpl().createMetaInfo(conn, new MicrosoftSqlServerMetadataProvider()).structureInfo();
+        System.out.printf("SQL Server snapshot with its provider: %d ms, %d schemas, %d functions%n",
+                (System.nanoTime() - start) / 1_000_000, structure.schemas().size(), structure.functions().size());
+        assertThat(structure.functions()).anySatisfy(f -> {
+            assertThat(f.reference().name()).isEqualToIgnoringCase("f_alone");
+            assertThat(f.reference().schema()).map(SchemaReference::name)
+                    .hasValueSatisfying(n -> assertThat(n).isEqualToIgnoringCase("only_routines"));
+        });
+        try (Statement s = conn.createStatement()) {
+            s.execute("DROP FUNCTION only_routines.f_alone");
+            s.execute("DROP SCHEMA only_routines");
+        }
     }
 }
