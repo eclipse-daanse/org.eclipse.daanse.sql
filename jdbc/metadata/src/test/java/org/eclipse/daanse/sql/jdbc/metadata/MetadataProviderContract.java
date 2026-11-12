@@ -55,6 +55,8 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  *
  * <pre>
  * stock.product      PK (id), UNIQUE uq_product_code (code), code of 20 characters, price DECIMAL(10, 2)
+ * stock.defaults     PK (id), label DEFAULT 'NEW', amount DEFAULT 5, created DEFAULT CURRENT_TIMESTAMP,
+ *                    note without a default
  * sales.orders       PK (id), FK fk_orders_product (product_id) → stock.product,
  *                    CHECK ck_orders_id (id &gt; 0), CHECK without a name (qty &gt; 0), id and qty NOT NULL,
  *                    INDEX ix_orders_ordered_on (ordered_on),
@@ -133,6 +135,11 @@ abstract class MetadataProviderContract {
     /** The type of a text column of {@code length} characters. */
     protected String text(int length) {
         return "VARCHAR(" + length + ")";
+    }
+
+    /** The type of a column that holds a date and a time of day. */
+    protected String timestampType() {
+        return "TIMESTAMP";
     }
 
     /** The statement that creates a sequence, with the limits 1 to 999 or without limits. */
@@ -306,6 +313,9 @@ abstract class MetadataProviderContract {
         sql.add("CREATE TABLE " + stock + ".product (id INT NOT NULL, code " + text(20) + " NOT NULL,"
                 + " price DECIMAL(10, 2), CONSTRAINT pk_product PRIMARY KEY (id),"
                 + " CONSTRAINT uq_product_code UNIQUE (code))");
+        sql.add("CREATE TABLE " + stock + ".defaults (id INT NOT NULL, label " + text(10) + " DEFAULT 'NEW',"
+                + " amount INT DEFAULT 5, created " + timestampType() + " DEFAULT CURRENT_TIMESTAMP,"
+                + " note " + text(10) + ", CONSTRAINT pk_defaults PRIMARY KEY (id))");
         sql.addAll(afterStock());
         sql.addAll(createSchema(sales));
         sql.add("CREATE TABLE " + sales + ".orders (id INT NOT NULL, product_id INT, qty INT NOT NULL,"
@@ -361,6 +371,25 @@ abstract class MetadataProviderContract {
         }
         assertThat(columns.get("price").size()).as("precision of price").hasValue(10);
         assertThat(columns.get("price").digits()).as("scale of price").hasValue(2);
+    }
+
+    /**
+     * A column's default as text, as the database writes it in SQL: a string as a quoted literal,
+     * which the database may decorate ({@code 'NEW'::character varying}, {@code ('NEW')}), a number
+     * as a number, an expression as an expression, not a literal; a column without a default has
+     * none, not the text {@code NULL}.
+     */
+    @Test
+    void columnDefaultsAsText() throws SQLException {
+        Map<String, Column> columns = columns(stock(), "defaults");
+
+        assertThat(columns.get("label").columnDefault()).as("a string")
+                .hasValueSatisfying(d -> assertThat(d).contains("'NEW'"));
+        assertThat(columns.get("amount").columnDefault()).as("a number")
+                .hasValueSatisfying(d -> assertThat(d).contains("5").doesNotContain("'"));
+        assertThat(columns.get("created").columnDefault()).as("an expression")
+                .hasValueSatisfying(d -> assertThat(d).isNotBlank().doesNotContain("'"));
+        assertThat(columns.get("note").columnDefault()).as("no default").isEmpty();
     }
 
     @Test
@@ -615,7 +644,8 @@ abstract class MetadataProviderContract {
     }
 
     /** What the contract reads of a column. */
-    private record Column(OptionalInt size, OptionalInt digits, Optional<String> remarks) {
+    private record Column(OptionalInt size, OptionalInt digits, Optional<String> remarks,
+            Optional<String> columnDefault) {
     }
 
     private Map<String, Column> columns(String schema, String table) throws SQLException {
@@ -626,8 +656,8 @@ abstract class MetadataProviderContract {
             for (ColumnDefinition column : own.get()) {
                 if (column.column().table().filter(t -> is(t, schema, table)).isPresent()) {
                     ColumnMetaData meta = column.columnMetaData();
-                    columns.put(name(column.column()),
-                            new Column(meta.columnSize(), meta.decimalDigits(), meta.remarks()));
+                    columns.put(name(column.column()), new Column(meta.columnSize(), meta.decimalDigits(),
+                            meta.remarks(), meta.columnDefault()));
                 }
             }
             return columns;
@@ -644,8 +674,11 @@ abstract class MetadataProviderContract {
             while (rs.next()) {
                 if (inSchema(rs, schema) && table.equalsIgnoreCase(rs.getString("TABLE_NAME"))) {
                     String name = rs.getString("COLUMN_NAME").toLowerCase(Locale.ROOT);
-                    columns.put(name, new Column(optionalInt(rs, "COLUMN_SIZE"), optionalInt(rs, "DECIMAL_DIGITS"),
-                            Optional.ofNullable(rs.getString("REMARKS"))));
+                    OptionalInt size = optionalInt(rs, "COLUMN_SIZE");
+                    OptionalInt digits = optionalInt(rs, "DECIMAL_DIGITS");
+                    Optional<String> remarks = Optional.ofNullable(rs.getString("REMARKS"));
+                    Optional<String> columnDefault = Optional.ofNullable(rs.getString("COLUMN_DEF"));
+                    columns.put(name, new Column(size, digits, remarks, columnDefault));
                 }
             }
         }

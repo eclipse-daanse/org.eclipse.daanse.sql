@@ -19,12 +19,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfoItem;
@@ -62,6 +64,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ProcedureRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ViewDefinitionRecord;
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +77,75 @@ public class MySqlMetadataProvider implements MetadataProvider {
 
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MySqlMetadataProvider.class);
+
+
+    /** The types whose literal default is written as a number or a bit value, unquoted. */
+    private static final Set<String> UNQUOTED_DEFAULT_TYPES = Set.of("tinyint", "smallint", "mediumint", "int",
+            "integer", "bigint", "decimal", "numeric", "float", "double", "real", "bit", "year", "bool", "boolean");
+
+    /**
+     * The columns of a schema as the JDBC driver reports them, a schema being a catalog, each with its
+     * default as MySQL writes it in SQL. MySQL keeps a literal default unquoted in
+     * {@code information_schema.COLUMNS}, and Connector/J reports it so: {@code NEW} for
+     * {@code DEFAULT 'NEW'}, where JDBC asks for a quoted literal, and a reader cannot tell it from an
+     * expression. The provider reads the defaults of the schema in one query and gives them as
+     * {@link #columnDefault} writes them.
+     */
+    @Override
+    public Optional<List<ColumnDefinition>> getAllColumnDefinitions(Connection connection, String catalog,
+            String schemaPattern, String tableNamePattern, String columnNamePattern) throws SQLException {
+        String schemaName = resolveSchema(schemaPattern, connection);
+        String sql = """
+                SELECT TABLE_NAME, COLUMN_NAME, COLUMN_DEFAULT, DATA_TYPE, EXTRA
+                FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?
+                """;
+        Map<List<String>, String> defaults = new HashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schemaName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    defaults.put(List.of(rs.getString("TABLE_NAME"), rs.getString("COLUMN_NAME")),
+                            columnDefault(rs.getString("COLUMN_DEFAULT"), rs.getString("DATA_TYPE"),
+                                    rs.getString("EXTRA")));
+                }
+            }
+        }
+        return Optional.of(DriverMetadata.columns(connection, schemaName, null, tableNamePattern, columnNamePattern,
+                (schema, table, column) -> null, (namespace, table, column, driverDefault) -> {
+                    List<String> key = List.of(table, column);
+                    return defaults.containsKey(key) ? defaults.get(key) : driverDefault;
+                }));
+    }
+
+    /**
+     * A column's default as MySQL writes it in SQL, from {@code information_schema.COLUMNS}: an
+     * expression, which {@code EXTRA} marks {@code DEFAULT_GENERATED} ({@code CURRENT_TIMESTAMP},
+     * {@code (1 + 1)}), as MySQL gives it, with the quotes and backslashes it escapes in the text
+     * unescaped; a literal of a number or bit type as it is ({@code 5}, {@code b'1'}), and a hexadecimal
+     * literal ({@code 0x6162}); any other literal, of a text, date, time or enumeration, quoted, a quote
+     * doubled and a backslash escaped ({@code 'it''s'}). {@code null} for none.
+     */
+    static String columnDefault(String columnDefault, String dataType, String extra) {
+        if (columnDefault == null) {
+            return null;
+        }
+        if (extra != null && extra.toUpperCase(Locale.ROOT).contains("DEFAULT_GENERATED")) {
+            StringBuilder unescaped = new StringBuilder(columnDefault.length());
+            for (int i = 0; i < columnDefault.length(); i++) {
+                char c = columnDefault.charAt(i);
+                if (c == '\\' && i + 1 < columnDefault.length()) {
+                    c = columnDefault.charAt(++i);
+                }
+                unescaped.append(c);
+            }
+            return unescaped.toString();
+        }
+        String type = dataType == null ? "" : dataType.toLowerCase(Locale.ROOT);
+        if (UNQUOTED_DEFAULT_TYPES.contains(type) || columnDefault.startsWith("0x")) {
+            return columnDefault;
+        }
+        return "'" + columnDefault.replace("\\", "\\\\").replace("'", "''") + "'";
+    }
 
 
     @Override

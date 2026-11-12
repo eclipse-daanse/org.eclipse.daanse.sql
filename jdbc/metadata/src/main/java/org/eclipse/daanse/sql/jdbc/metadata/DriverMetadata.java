@@ -49,6 +49,18 @@ final class DriverMetadata {
         String of(String schema, String table, String column);
     }
 
+    /** The default of a column as the provider reads it, from the one the driver reports. */
+    @FunctionalInterface
+    interface Defaults {
+
+        /**
+         * @param namespace     the column's schema, or for a driver without schemas its catalog
+         * @param driverDefault the default the driver reports, or {@code null}
+         * @return the default as text, or {@code null} for none
+         */
+        String of(String namespace, String table, String column, String driverDefault);
+    }
+
     private DriverMetadata() {
     }
 
@@ -82,6 +94,18 @@ final class DriverMetadata {
      */
     static List<ColumnDefinition> columns(Connection connection, String catalog, String schemaPattern,
             String tableNamePattern, String columnNamePattern, Comments comments) throws SQLException {
+        return columns(connection, catalog, schemaPattern, tableNamePattern, columnNamePattern, comments,
+                (namespace, table, column, driverDefault) -> driverDefault);
+    }
+
+    /**
+     * {@link java.sql.DatabaseMetaData#getColumns}, as
+     * {@link #columns(Connection, String, String, String, String, Comments)}, each column with the
+     * default {@code defaults} makes of the driver's.
+     */
+    static List<ColumnDefinition> columns(Connection connection, String catalog, String schemaPattern,
+            String tableNamePattern, String columnNamePattern, Comments comments, Defaults defaults)
+            throws SQLException {
         List<ColumnDefinition> columns = new ArrayList<>();
         try (ResultSet rs = connection.getMetaData().getColumns(catalog, schemaPattern, tableNamePattern,
                 columnNamePattern)) {
@@ -98,7 +122,9 @@ final class DriverMetadata {
                 OptionalInt nullable = optionalInt(rs, "NULLABLE");
                 Optional<String> remarks = Optional.ofNullable(rs.getString("REMARKS"))
                         .or(() -> Optional.ofNullable(comments.of(schemaName, tableName, columnName)));
-                Optional<String> columnDefault = Optional.ofNullable(rs.getString("COLUMN_DEF"));
+                String namespace = schemaName != null ? schemaName : catalogName;
+                Optional<String> columnDefault = Optional.ofNullable(
+                        defaults.of(namespace, tableName, columnName, rs.getString("COLUMN_DEF")));
                 OptionalInt charOctetLength = optionalInt(rs, "CHAR_OCTET_LENGTH");
                 ColumnMetaData.AutoIncrement autoIncrement = ColumnMetaData.AutoIncrement
                         .ofString(rs.getString("IS_AUTOINCREMENT"));

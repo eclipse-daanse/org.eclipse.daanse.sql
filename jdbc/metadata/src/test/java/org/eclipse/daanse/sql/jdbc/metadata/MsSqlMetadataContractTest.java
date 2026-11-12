@@ -74,6 +74,12 @@ class MsSqlMetadataContractTest extends MetadataProviderContract {
                 + (column == null ? "" : ", @level2type = N'COLUMN', @level2name = N'" + column + "'");
     }
 
+    /** SQL Server's TIMESTAMP is a row version; a date and time is DATETIME2. */
+    @Override
+    protected String timestampType() {
+        return "DATETIME2";
+    }
+
     @Override
     protected String createSequence(String name, boolean limited) {
         return "CREATE SEQUENCE " + name + (limited ? " AS INT MINVALUE 1 MAXVALUE 999" : "");

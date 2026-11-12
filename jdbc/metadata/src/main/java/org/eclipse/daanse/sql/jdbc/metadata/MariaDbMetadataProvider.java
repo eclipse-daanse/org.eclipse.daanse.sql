@@ -65,6 +65,7 @@ import org.eclipse.daanse.sql.jdbc.record.schema.SequenceRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.TriggerRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.UniqueConstraintRecord;
 import org.eclipse.daanse.sql.jdbc.record.schema.ViewDefinitionRecord;
+import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,6 +78,22 @@ public class MariaDbMetadataProvider implements MetadataProvider {
 
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MariaDbMetadataProvider.class);
+
+
+    /**
+     * The columns of a schema as the JDBC driver reports them, a schema being a catalog. MariaDB
+     * writes a default in SQL itself, a string quoted; for a column without a default, and for
+     * {@code DEFAULT NULL}, which is the same, it reports the text {@code NULL}, which the provider
+     * gives as no default.
+     */
+    @Override
+    public Optional<List<ColumnDefinition>> getAllColumnDefinitions(Connection connection, String catalog,
+            String schemaPattern, String tableNamePattern, String columnNamePattern) throws SQLException {
+        String schemaName = resolveSchema(schemaPattern, connection);
+        return Optional.of(DriverMetadata.columns(connection, schemaName, null, tableNamePattern, columnNamePattern,
+                (schema, table, column) -> null,
+                (namespace, table, column, driverDefault) -> "NULL".equals(driverDefault) ? null : driverDefault));
+    }
 
 
     @Override

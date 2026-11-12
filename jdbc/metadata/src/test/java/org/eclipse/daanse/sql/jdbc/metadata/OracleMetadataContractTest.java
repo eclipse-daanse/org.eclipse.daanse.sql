@@ -117,7 +117,7 @@ class OracleMetadataContractTest extends MetadataProviderContract {
 
     @Override
     protected List<String> afterStock() {
-        return List.of("GRANT REFERENCES ON STOCK.product TO " + sales());
+        return List.of("GRANT REFERENCES ON STOCK.product TO " + sales(), "GRANT SELECT ON STOCK.defaults TO " + sales());
     }
 
     @Test
