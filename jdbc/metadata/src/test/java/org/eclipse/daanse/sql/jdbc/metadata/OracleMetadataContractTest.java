@@ -111,7 +111,8 @@ class OracleMetadataContractTest extends MetadataProviderContract {
     protected List<String> comments() {
         return List.of("COMMENT ON TABLE STOCK.product IS '" + PRODUCT_COMMENT + "'",
                 "COMMENT ON COLUMN STOCK.product.code IS '" + CODE_COMMENT + "'",
-                "COMMENT ON TABLE " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'");
+                "COMMENT ON TABLE " + sales() + ".v_orders IS '" + VIEW_COMMENT + "'",
+                "COMMENT ON COLUMN " + sales() + ".v_orders.qty IS '" + VIEW_COLUMN_COMMENT + "'");
     }
 
     @Override

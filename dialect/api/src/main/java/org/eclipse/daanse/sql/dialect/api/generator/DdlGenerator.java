@@ -994,13 +994,15 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     // -------------------- comments --------------------
 
     /**
-     * {@code COMMENT ON TABLE schema.table IS '…'}; a {@code null} comment
-     * removes it ({@code IS NULL}).
+     * {@code COMMENT ON TABLE schema.table IS '…'}, and {@code COMMENT ON VIEW} for a view
+     * ({@link TableReference#TYPE_VIEW}); a {@code null} comment removes it ({@code IS NULL}).
      *
-     * @return empty when the dialect cannot store table comments
+     * @return empty when the dialect cannot store table comments, and for a view where it keeps none
+     *         on a view ({@link #supportsCommentOnView()})
      */
     default Optional<String> commentOnTable(TableReference table, String comment) {
-        return Optional.of("COMMENT ON TABLE " + qualified(table) + " IS " + commentLiteral(comment));
+        String kind = TableReference.TYPE_VIEW.equals(table.type()) ? "VIEW " : "TABLE ";
+        return Optional.of("COMMENT ON " + kind + qualified(table) + " IS " + commentLiteral(comment));
     }
 
     /**
@@ -1016,6 +1018,15 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
             ColumnMetaData currentMeta) {
         return Optional.of("COMMENT ON COLUMN " + qualified(table) + "." + quoteIdentifier(columnName) + " IS "
                 + commentLiteral(comment));
+    }
+
+    /**
+     * @return true if {@code commentOnTable} and {@code commentOnColumn} write a comment on a view
+     *         ({@link TableReference#TYPE_VIEW}) and on a view's column; false where the database
+     *         keeps none on a view, and both are empty for one
+     */
+    default boolean supportsCommentOnView() {
+        return true;
     }
 
     /** ANSI string literal for a comment ({@code '} doubled), or {@code NULL}. */

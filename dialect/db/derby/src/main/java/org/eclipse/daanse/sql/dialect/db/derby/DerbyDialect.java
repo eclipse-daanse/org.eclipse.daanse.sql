@@ -390,4 +390,10 @@ public class DerbyDialect extends AbstractJdbcDialect {
     public boolean supportsDeferrableForeignKeys() {
         return dialectVersion.isUnknownOrAtLeast(10, 11);
     }
+
+    /** Derby keeps no comments. */
+    @Override
+    public boolean supportsCommentOnView() {
+        return false;
+    }
 }

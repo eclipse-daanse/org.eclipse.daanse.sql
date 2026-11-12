@@ -342,4 +342,10 @@ public class SqliteDialect extends AbstractJdbcDialect {
     public boolean supportsDeferrableForeignKeys() {
         return true;
     }
+
+    /** SQLite keeps no comments. */
+    @Override
+    public boolean supportsCommentOnView() {
+        return false;
+    }
 }
