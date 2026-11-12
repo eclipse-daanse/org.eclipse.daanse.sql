@@ -27,11 +27,13 @@ import java.util.OptionalLong;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.Deferrability;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
 import org.eclipse.daanse.sql.jdbc.metadata.OracleMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -178,5 +180,37 @@ class OracleGeneratorsRoundTripTest {
     void descending_index_column_is_created_and_read_back() throws SQLException {
         IndexRoundTrip.assertDescendingIndexRoundTrip(conn, dialect.ddlGenerator(), new OracleMetadataProvider(), users,
                 "IX_USERS_DESC", "NAME", "ID");
+    }
+
+    /**
+     * A foreign key the dialect writes as checked at the end of the transaction lets a child come
+     * before its parent within one, and is read back as initially deferred.
+     */
+    @Test
+    void deferrable_foreign_key_is_checked_at_commit_and_read_back() throws SQLException {
+        String schema = CONTAINER.getUsername().toUpperCase();
+        TableReference parent = new TableReference(Optional.of(new SchemaReference(Optional.empty(), schema)), "DP",
+                TableReference.TYPE_TABLE);
+        TableReference child = new TableReference(Optional.of(new SchemaReference(Optional.empty(), schema)), "DC",
+                TableReference.TYPE_TABLE);
+        try (Statement s = conn.createStatement()) {
+            s.execute("CREATE TABLE \"" + schema + "\".\"DP\" (ID NUMBER PRIMARY KEY)");
+            s.execute("CREATE TABLE \"" + schema + "\".\"DC\" (ID NUMBER PRIMARY KEY, DP_ID NUMBER)");
+            s.execute(dialect.ddlGenerator().addForeignKeyConstraint(child, "FK_DC_DP", List.of("DP_ID"), parent,
+                    List.of("ID"), null, null, Deferrability.INITIALLY_DEFERRED).orElseThrow());
+            conn.setAutoCommit(false);
+            s.execute("INSERT INTO \"" + schema + "\".\"DC\" VALUES (1, 7)");
+            s.execute("INSERT INTO \"" + schema + "\".\"DP\" VALUES (7)");
+            conn.commit();
+        } finally {
+            conn.setAutoCommit(true);
+        }
+        assertThat(new OracleMetadataProvider().getAllImportedKeys(conn, null, schema).orElseThrow())
+                .filteredOn(key -> "FK_DC_DP".equals(key.name())).singleElement()
+                .satisfies(key -> assertThat(key.deferrability()).isEqualTo(ImportedKey.Deferrability.INITIALLY_DEFERRED));
+        try (Statement s = conn.createStatement()) {
+            s.execute("DROP TABLE \"" + schema + "\".\"DC\"");
+            s.execute("DROP TABLE \"" + schema + "\".\"DP\"");
+        }
     }
 }

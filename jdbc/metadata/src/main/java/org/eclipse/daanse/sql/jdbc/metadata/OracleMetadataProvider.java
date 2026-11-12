@@ -457,7 +457,7 @@ public class OracleMetadataProvider implements MetadataProvider {
                 SELECT fk.CONSTRAINT_NAME AS FK_NAME, fk.TABLE_NAME AS FK_TABLE,
                         fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE, pk.OWNER AS PK_SCHEMA, fk.OWNER AS FK_SCHEMA,
                         pk_col.COLUMN_NAME AS PK_COLUMN, fk_col.POSITION AS KEY_SEQ,
-                        fk.DELETE_RULE, pk.CONSTRAINT_NAME AS PK_NAME
+                        fk.DELETE_RULE, fk.DEFERRABLE, fk.DEFERRED, pk.CONSTRAINT_NAME AS PK_NAME
                 FROM ALL_CONSTRAINTS fk
                 JOIN ALL_CONS_COLUMNS fk_col ON fk.OWNER = fk_col.OWNER AND fk.CONSTRAINT_NAME = fk_col.CONSTRAINT_NAME
                 JOIN ALL_CONSTRAINTS pk ON fk.R_OWNER = pk.OWNER AND fk.R_CONSTRAINT_NAME = pk.CONSTRAINT_NAME
@@ -489,7 +489,7 @@ public class OracleMetadataProvider implements MetadataProvider {
                 SELECT fk.CONSTRAINT_NAME AS FK_NAME, fk.TABLE_NAME AS FK_TABLE,
                         fk_col.COLUMN_NAME AS FK_COLUMN, pk.TABLE_NAME AS PK_TABLE, pk.OWNER AS PK_SCHEMA, fk.OWNER AS FK_SCHEMA,
                         pk_col.COLUMN_NAME AS PK_COLUMN, fk_col.POSITION AS KEY_SEQ,
-                        fk.DELETE_RULE, pk.CONSTRAINT_NAME AS PK_NAME
+                        fk.DELETE_RULE, fk.DEFERRABLE, fk.DEFERRED, pk.CONSTRAINT_NAME AS PK_NAME
                 FROM ALL_CONSTRAINTS fk
                 JOIN ALL_CONS_COLUMNS fk_col ON fk.OWNER = fk_col.OWNER AND fk.CONSTRAINT_NAME = fk_col.CONSTRAINT_NAME
                 JOIN ALL_CONSTRAINTS pk ON fk.R_OWNER = pk.OWNER AND fk.R_CONSTRAINT_NAME = pk.CONSTRAINT_NAME
@@ -1040,7 +1040,20 @@ public class OracleMetadataProvider implements MetadataProvider {
                                                                                                                     // support
                                                                                                                     // UPDATE
                                                                                                                     // CASCADE
-                mapOracleDeleteRule(deleteRule), Optional.ofNullable(pkName), ImportedKey.Deferrability.NOT_DEFERRABLE);
+                mapOracleDeleteRule(deleteRule), Optional.ofNullable(pkName),
+                deferrability(rs.getString("DEFERRABLE"), rs.getString("DEFERRED")));
+    }
+
+    /**
+     * When a key is checked, from {@code ALL_CONSTRAINTS.DEFERRABLE} ({@code DEFERRABLE} or
+     * {@code NOT DEFERRABLE}) and {@code DEFERRED} ({@code DEFERRED} or {@code IMMEDIATE}).
+     */
+    static ImportedKey.Deferrability deferrability(String deferrable, String deferred) {
+        if (!"DEFERRABLE".equalsIgnoreCase(deferrable)) {
+            return ImportedKey.Deferrability.NOT_DEFERRABLE;
+        }
+        return "DEFERRED".equalsIgnoreCase(deferred) ? ImportedKey.Deferrability.INITIALLY_DEFERRED
+                : ImportedKey.Deferrability.INITIALLY_IMMEDIATE;
     }
 
 

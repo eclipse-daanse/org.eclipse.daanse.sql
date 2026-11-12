@@ -574,4 +574,10 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     public boolean supportsDescendingIndexColumns() {
         return true;
     }
+
+    /** PostgreSQL checks a deferrable foreign key at the end of the transaction where it is deferred. */
+    @Override
+    public boolean supportsDeferrableForeignKeys() {
+        return true;
+    }
 }

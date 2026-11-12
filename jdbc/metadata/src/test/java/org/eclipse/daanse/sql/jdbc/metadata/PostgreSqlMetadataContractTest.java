@@ -41,6 +41,13 @@ class PostgreSqlMetadataContractTest extends MetadataProviderContract {
     }
 
     @Override
+    protected List<String> createDeferrableForeignKey() {
+        return List.of("CREATE TABLE sales.late_line (id INT NOT NULL, orders_id INT,"
+                + " CONSTRAINT pk_late_line PRIMARY KEY (id), CONSTRAINT fk_late_line_orders FOREIGN KEY (orders_id)"
+                + " REFERENCES sales.orders (id) DEFERRABLE INITIALLY DEFERRED)");
+    }
+
+    @Override
     protected MetadataProvider provider() {
         return new PostgreSqlMetadataProvider();
     }

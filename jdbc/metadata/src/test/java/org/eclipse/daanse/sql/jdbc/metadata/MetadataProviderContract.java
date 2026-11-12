@@ -62,6 +62,8 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
  *                    INDEX ix_orders_large (qty) WHERE qty &gt; 10, where the database has partial indexes,
  *                    INDEX ix_orders_qty_desc (qty DESC, id)
  * sales.order_line   PK (order_id, line_no), FK fk_order_line_orders (order_id) → sales.orders
+ * sales.late_line    PK (id), FK fk_late_line_orders (orders_id) → sales.orders, checked at commit,
+ *                    where the database has deferrable keys
  * sales.child_bare   PK (id), FK fk_child_bare (orders_id) → sales.orders, no index of its own
  * sales.child_indexed
  *                    PK (id), INDEX ix_child_indexed (orders_id), then FK fk_child_indexed (orders_id)
@@ -185,6 +187,16 @@ abstract class MetadataProviderContract {
         return List.of();
     }
 
+    /**
+     * The statements that create {@code late_line} in the orders' schema, with the foreign key
+     * {@code fk_late_line_orders (orders_id)} to the orders that is checked at the end of the
+     * transaction ({@code DEFERRABLE INITIALLY DEFERRED}); none where the database checks every key
+     * at once.
+     */
+    protected List<String> createDeferrableForeignKey() {
+        return List.of();
+    }
+
     /** Whether the database keeps the order of an index column that sorts descending. */
     protected boolean keepsDescendingIndexColumns() {
         return true;
@@ -302,6 +314,7 @@ abstract class MetadataProviderContract {
         sql.addAll(createFilteredIndex());
         sql.add("CREATE INDEX " + indexName(sales, "ix_orders_qty_desc") + " ON " + sales + ".orders (qty DESC, id)");
         sql.addAll(createChildren());
+        sql.addAll(createDeferrableForeignKey());
         if (sequences()) {
             sql.add(createSequence(sales + ".seq_unlimited", false));
             sql.add(createSequence(sales + ".seq_limited", true));
@@ -364,6 +377,24 @@ abstract class MetadataProviderContract {
                         assertThat(is(key.primaryKeyColumn(), stock(), "product", "id")).isTrue();
                         assertThat(key.name()).isEqualToIgnoringCase("fk_orders_product");
                     });
+        }
+    }
+
+    /**
+     * A foreign key is reported as checked at once, and one checked at the end of the transaction as
+     * initially deferred, where the database has such keys.
+     */
+    @Test
+    void foreignKeyWithWhenItIsChecked() throws SQLException {
+        List<ImportedKey> keys = provider.getAllImportedKeys(connection, null, sales()).orElseThrow();
+
+        assertThat(keys).filteredOn(key -> is(key.foreignKeyColumn(), sales(), "order_line", "order_id"))
+                .isNotEmpty().allSatisfy(key -> assertThat(key.deferrability())
+                        .isEqualTo(ImportedKey.Deferrability.NOT_DEFERRABLE));
+        if (!createDeferrableForeignKey().isEmpty()) {
+            assertThat(keys).filteredOn(key -> is(key.foreignKeyColumn(), sales(), "late_line", "orders_id"))
+                    .singleElement().satisfies(key -> assertThat(key.deferrability())
+                            .isEqualTo(ImportedKey.Deferrability.INITIALLY_DEFERRED));
         }
     }
 
