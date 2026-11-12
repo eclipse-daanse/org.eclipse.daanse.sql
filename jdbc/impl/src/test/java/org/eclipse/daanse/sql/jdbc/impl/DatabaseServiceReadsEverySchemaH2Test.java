@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 /**
  * The snapshot holds the tables of every schema, so it holds their keys and constraints too — not only
  * those of the connection's current schema, which a provider reads when it is given no schema. The
- * current schema is read as well, though it holds no table.
+ * routines and sequences of every schema are read as well, also of a schema that holds no table.
  */
 class DatabaseServiceReadsEverySchemaH2Test {
 
@@ -60,6 +60,10 @@ class DatabaseServiceReadsEverySchemaH2Test {
                     """);
             // the current schema stays PUBLIC: no table, a sequence
             stmt.execute("CREATE SEQUENCE PUBLIC.SEQ_ORDER_NO");
+            // a schema without a table: a function and a sequence
+            stmt.execute("CREATE SCHEMA ROUTINES");
+            stmt.execute("CREATE ALIAS ROUTINES.F_ALONE FOR 'java.lang.System.currentTimeMillis'");
+            stmt.execute("CREATE SEQUENCE ROUTINES.SEQ_ALONE");
         }
         MetaInfo metaInfo = new DatabaseServiceImpl().createMetaInfo(connection, new H2MetadataProvider());
         structure = metaInfo.structureInfo();
@@ -99,6 +103,15 @@ class DatabaseServiceReadsEverySchemaH2Test {
     @Test
     void theCurrentSchemaIsReadThoughItHoldsNoTable() {
         assertThat(structure.sequences()).extracting(s -> s.name()).contains("SEQ_ORDER_NO");
+    }
+
+    @Test
+    void routinesAndSequencesOfASchemaWithoutATableAreRead() {
+        assertThat(structure.functions()).anySatisfy(f -> {
+            assertThat(f.reference().name()).isEqualTo("F_ALONE");
+            assertThat(f.reference().schema()).map(SchemaReference::name).contains("ROUTINES");
+        });
+        assertThat(structure.sequences()).extracting(s -> s.name()).contains("SEQ_ALONE");
     }
 
     private static String name(TableReference table) {

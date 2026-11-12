@@ -235,8 +235,11 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
 
         // NEW metadata — only via dialect, no JDBC fallback needed
+        // Sequences, user-defined types and routines may lie in a schema that holds no table: they are
+        // read for every schema the database reports as well.
+        List<String> everySchema = everySchema(tableSchemas, schemas, catalogs);
         List<Trigger> triggers = eachSchema(tableSchemas, s -> provider.getAllTriggers(connection, null, s));
-        List<Sequence> sequences = eachSchema(tableSchemas, s -> provider.getAllSequences(connection, null, s));
+        List<Sequence> sequences = eachSchema(everySchema, s -> provider.getAllSequences(connection, null, s));
         List<org.eclipse.daanse.sql.jdbc.api.schema.Synonym> synonyms =
                 eachSchema(tableSchemas, s -> provider.getAllSynonyms(connection, null, s));
         List<CheckConstraint> checkConstraints =
@@ -244,11 +247,11 @@ public class DatabaseServiceImpl implements DatabaseService {
         List<UniqueConstraint> uniqueConstraints =
                 eachSchema(tableSchemas, s -> provider.getAllUniqueConstraints(connection, null, s));
         List<UserDefinedType> userDefinedTypes =
-                eachSchema(tableSchemas, s -> provider.getAllUserDefinedTypes(connection, null, s));
+                eachSchema(everySchema, s -> provider.getAllUserDefinedTypes(connection, null, s));
         List<ViewDefinition> viewDefinitions =
                 eachSchema(tableSchemas, s -> provider.getAllViewDefinitions(connection, null, s));
-        List<Procedure> procedures = eachSchema(tableSchemas, s -> provider.getAllProcedures(connection, null, s));
-        List<Function> functions = eachSchema(tableSchemas, s -> provider.getAllFunctions(connection, null, s));
+        List<Procedure> procedures = eachSchema(everySchema, s -> provider.getAllProcedures(connection, null, s));
+        List<Function> functions = eachSchema(everySchema, s -> provider.getAllFunctions(connection, null, s));
         List<MaterializedView> materializedViews =
                 eachSchema(tableSchemas, s -> provider.getAllMaterializedViews(connection, null, s));
         List<org.eclipse.daanse.sql.jdbc.api.schema.Partition> partitions =
@@ -304,6 +307,22 @@ public class DatabaseServiceImpl implements DatabaseService {
                 tablePrivileges, List.copyOf(columnPrivileges), objectPrivileges, roleMemberships, principals,
                 synonyms);
         return new MetaInfoRecord(databaseInfo, structureInfo, identifierInfo, typeInfos, indexInfos);
+    }
+
+    /**
+     * The schemas the tables lie in, and every other schema the database reports, named as the
+     * providers name a schema: for a database without schemas (MySQL, MariaDB), its catalogs, which
+     * {@link #namespaceOf} takes as the schemas.
+     */
+    private static List<String> everySchema(List<String> tableSchemas, List<SchemaReference> schemas,
+            List<CatalogReference> catalogs) {
+        Set<String> names = new LinkedHashSet<>(tableSchemas);
+        if (!schemas.isEmpty()) {
+            schemas.forEach(schema -> names.add(schema.name()));
+        } else {
+            catalogs.forEach(catalog -> names.add(catalog.name()));
+        }
+        return List.copyOf(names);
     }
 
     /** Reads the bulk metadata of one schema. */

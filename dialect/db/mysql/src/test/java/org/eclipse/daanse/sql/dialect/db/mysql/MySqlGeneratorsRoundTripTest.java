@@ -33,7 +33,9 @@ import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.Prepared
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.RoutineRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
+import org.eclipse.daanse.sql.jdbc.api.meta.StructureInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.impl.DatabaseServiceImpl;
 import org.eclipse.daanse.sql.jdbc.metadata.MySqlMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -174,5 +176,31 @@ class MySqlGeneratorsRoundTripTest {
             UserRoundTrip.assertRoleRoundTrip(root, dialect.ddlGenerator(), new MySqlMetadataProvider(),
                     DatabasePrincipal.KIND_UNKNOWN, "rt_only_role");
         }
+    }
+
+    /**
+     * A schema that holds a function and no table: the snapshot holds its function. The time the
+     * snapshot takes is printed.
+     */
+    @Test
+    void routines_of_a_schema_without_tables_are_in_the_snapshot() throws SQLException {
+        Connection root = java.sql.DriverManager.getConnection(CONTAINER.getJdbcUrl(), "root", CONTAINER.getPassword());
+        try (Statement s = root.createStatement()) {
+            s.execute("CREATE DATABASE only_routines");
+            s.execute("CREATE FUNCTION only_routines.f_alone() RETURNS INT DETERMINISTIC RETURN 1");
+        }
+        long start = System.nanoTime();
+        StructureInfo structure = new DatabaseServiceImpl().createMetaInfo(root, new MySqlMetadataProvider()).structureInfo();
+        System.out.printf("MySQL snapshot with its provider: %d ms, %d schemas, %d functions%n",
+                (System.nanoTime() - start) / 1_000_000, structure.schemas().size(), structure.functions().size());
+        assertThat(structure.functions()).anySatisfy(f -> {
+            assertThat(f.reference().name()).isEqualToIgnoringCase("f_alone");
+            assertThat(f.reference().schema()).map(SchemaReference::name)
+                    .hasValueSatisfying(n -> assertThat(n).isEqualToIgnoringCase("only_routines"));
+        });
+        try (Statement s = root.createStatement()) {
+            s.execute("DROP DATABASE only_routines");
+        }
+        root.close();
     }
 }
