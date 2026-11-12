@@ -1032,7 +1032,7 @@ public class DatabaseServiceImpl implements DatabaseService {
 
                 // Get procedure columns
                 List<ProcedureColumn> columns = getProcedureColumns(databaseMetaData,
-                        oCatalogName.orElse(null), oSchemaName.orElse(null), procedureName);
+                        oCatalogName.orElse(null), oSchemaName.orElse(null), procedureName, specificName);
 
                 Procedure procedure = new ProcedureRecord(reference, Procedure.ProcedureType.of(procedureType), remarks,
                         columns, Optional.empty(), Optional.empty(), Optional.empty());
@@ -1043,8 +1043,13 @@ public class DatabaseServiceImpl implements DatabaseService {
         return List.copyOf(procedures);
     }
 
+    /**
+     * The parameters of one procedure. The driver reports those of every procedure of the name; of
+     * several (overloads) a row belongs to the one its {@code SPECIFIC_NAME} names. A row or a
+     * procedure without a specific name belongs to every procedure of the name.
+     */
     private List<ProcedureColumn> getProcedureColumns(DatabaseMetaData databaseMetaData, String catalog,
-            String schema, String procedureName) throws SQLException {
+            String schema, String procedureName, String specificName) throws SQLException {
         List<ProcedureColumn> columns = new ArrayList<>();
 
         try (ResultSet rs = databaseMetaData.getProcedureColumns(catalog, schema, procedureName, null)) {
@@ -1073,6 +1078,9 @@ public class DatabaseServiceImpl implements DatabaseService {
                 final Optional<String> remarks = Optional.ofNullable(rs.getString("REMARKS"));
                 final Optional<String> columnDefault = Optional.ofNullable(rs.getString("COLUMN_DEF"));
                 final int ordinalPosition = rs.getInt("ORDINAL_POSITION");
+                if (!ofRoutine(rs, specificName)) {
+                    continue;
+                }
 
                 JDBCType jdbcType;
                 try {
@@ -1117,7 +1125,7 @@ public class DatabaseServiceImpl implements DatabaseService {
 
                 // Get function columns
                 List<FunctionColumn> columns = getFunctionColumns(databaseMetaData,
-                        oCatalogName.orElse(null), oSchemaName.orElse(null), functionName);
+                        oCatalogName.orElse(null), oSchemaName.orElse(null), functionName, specificName);
 
                 Function function = new FunctionRecord(reference, Function.FunctionType.of(functionType), remarks,
                         columns, Optional.empty(), Optional.empty(), Optional.empty());
@@ -1128,8 +1136,12 @@ public class DatabaseServiceImpl implements DatabaseService {
         return List.copyOf(functions);
     }
 
+    /**
+     * The parameters of one function; of several of the name (overloads) a row belongs to the one its
+     * {@code SPECIFIC_NAME} names, as for {@link #getProcedureColumns}.
+     */
     private List<FunctionColumn> getFunctionColumns(DatabaseMetaData databaseMetaData, String catalog,
-            String schema, String functionName) throws SQLException {
+            String schema, String functionName, String specificName) throws SQLException {
         List<FunctionColumn> columns = new ArrayList<>();
 
         try (ResultSet rs = databaseMetaData.getFunctionColumns(catalog, schema, functionName, null)) {
@@ -1163,6 +1175,9 @@ public class DatabaseServiceImpl implements DatabaseService {
                 }
 
                 final int ordinalPosition = rs.getInt("ORDINAL_POSITION");
+                if (!ofRoutine(rs, specificName)) {
+                    continue;
+                }
 
                 JDBCType jdbcType;
                 try {
@@ -1181,6 +1196,23 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
 
         return List.copyOf(columns);
+    }
+
+    /**
+     * Whether the parameter row {@code rs} is one of the routine {@code specificName} names: read
+     * last in the row, as JDBC lists {@code SPECIFIC_NAME} last. A driver without the column, or a
+     * routine or row without a specific name, leaves the row to every routine of the name.
+     */
+    private static boolean ofRoutine(ResultSet rs, String specificName) {
+        if (specificName == null) {
+            return true;
+        }
+        try {
+            String rowSpecificName = rs.getString("SPECIFIC_NAME");
+            return rowSpecificName == null || specificName.equals(rowSpecificName);
+        } catch (SQLException e) {
+            return true;
+        }
     }
 
     private List<ImportedKey> getExportedKeys(DatabaseMetaData databaseMetaData, TableReference table)
