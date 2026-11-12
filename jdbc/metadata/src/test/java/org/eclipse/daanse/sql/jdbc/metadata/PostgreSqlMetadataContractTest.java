@@ -12,6 +12,7 @@ package org.eclipse.daanse.sql.jdbc.metadata;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -45,6 +46,11 @@ class PostgreSqlMetadataContractTest extends MetadataProviderContract {
         return List.of("CREATE TABLE sales.late_line (id INT NOT NULL, orders_id INT,"
                 + " CONSTRAINT pk_late_line PRIMARY KEY (id), CONSTRAINT fk_late_line_orders FOREIGN KEY (orders_id)"
                 + " REFERENCES sales.orders (id) DEFERRABLE INITIALLY DEFERRED)");
+    }
+
+    @Override
+    protected Optional<String> functionLanguage() {
+        return Optional.of("sql");
     }
 
     @Override

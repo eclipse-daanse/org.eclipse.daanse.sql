@@ -28,5 +28,13 @@ public record ProcedureRecord(
         List<ProcedureColumn> columns,
         Optional<String> body,
         Optional<String> fullDefinition,
-        Optional<Instant> lastModified) implements Procedure {
+        Optional<Instant> lastModified,
+        Optional<String> language) implements Procedure {
+
+    /** A procedure whose language is not known. */
+    public ProcedureRecord(ProcedureReference reference, ProcedureType procedureType, Optional<String> remarks,
+            List<ProcedureColumn> columns, Optional<String> body, Optional<String> fullDefinition,
+            Optional<Instant> lastModified) {
+        this(reference, procedureType, remarks, columns, body, fullDefinition, lastModified, Optional.empty());
+    }
 }

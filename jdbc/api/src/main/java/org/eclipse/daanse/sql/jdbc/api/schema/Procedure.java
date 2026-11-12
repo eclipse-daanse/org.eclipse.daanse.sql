@@ -44,6 +44,14 @@ public non-sealed interface Procedure extends SchemaObject {
         return Optional.empty();
     }
 
+    /**
+     * @return the language of the body, in lower case as the database names it ({@code sql},
+     *         {@code plpgsql}, {@code plsql}, {@code tsql}, {@code java}), or empty if not known
+     */
+    default Optional<String> language() {
+        return Optional.empty();
+    }
+
     enum ProcedureType {
         UNKNOWN(DatabaseMetaData.procedureResultUnknown), NO_RESULT(DatabaseMetaData.procedureNoResult),
         RETURNS_RESULT(DatabaseMetaData.procedureReturnsResult);

@@ -255,6 +255,14 @@ abstract class MetadataProviderContract {
     }
 
     /**
+     * The language of the body of {@code f_answer} as the provider names it; empty where the
+     * provider names none.
+     */
+    protected Optional<String> functionLanguage() {
+        return Optional.empty();
+    }
+
+    /**
      * The statements that create two overloads of the function {@code f_total} in the orders' schema
      * and grant {@code EXECUTE} on the first of them to {@code PUBLIC}:
      *
@@ -563,6 +571,17 @@ abstract class MetadataProviderContract {
         assertThat(provider.getAllFunctions(connection, null, sales()))
                 .filteredOn(f -> f.reference().name().equalsIgnoreCase("f_answer")).singleElement()
                 .satisfies(f -> assertThat(f.remarks()).contains(FUNCTION_COMMENT));
+    }
+
+    /** A function is reported with the language of its body, where the provider names it. */
+    @Test
+    void aFunctionWithTheLanguageOfItsBody() throws SQLException {
+        assumeFalse(createCommentedFunction().isEmpty(),
+                "the database keeps no comment on a function, or the provider reads none");
+
+        assertThat(provider.getAllFunctions(connection, null, sales()))
+                .filteredOn(f -> f.reference().name().equalsIgnoreCase("f_answer")).singleElement()
+                .satisfies(f -> assertThat(f.language()).isEqualTo(functionLanguage()));
     }
 
     /**

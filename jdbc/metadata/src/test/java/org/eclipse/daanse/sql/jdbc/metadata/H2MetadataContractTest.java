@@ -12,6 +12,7 @@ package org.eclipse.daanse.sql.jdbc.metadata;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 
@@ -26,6 +27,11 @@ class H2MetadataContractTest extends MetadataProviderContract {
     @Override
     protected boolean makesForeignKeyIndexes() {
         return true;
+    }
+
+    @Override
+    protected Optional<String> functionLanguage() {
+        return Optional.of("java");
     }
 
     @Override

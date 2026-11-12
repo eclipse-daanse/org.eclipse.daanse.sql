@@ -44,6 +44,14 @@ public non-sealed interface Function extends SchemaObject {
         return Optional.empty();
     }
 
+    /**
+     * @return the language of the body, in lower case as the database names it ({@code sql},
+     *         {@code plpgsql}, {@code plsql}, {@code tsql}, {@code java}), or empty if not known
+     */
+    default Optional<String> language() {
+        return Optional.empty();
+    }
+
     enum FunctionType {
         UNKNOWN(DatabaseMetaData.functionResultUnknown), NO_TABLE(DatabaseMetaData.functionNoTable),
         RETURNS_TABLE(DatabaseMetaData.functionReturnsTable);

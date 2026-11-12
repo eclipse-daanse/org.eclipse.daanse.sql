@@ -98,6 +98,9 @@ import org.eclipse.daanse.sql.jdbc.record.schema.ViewDefinitionRecord;
  */
 public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
 
+    /** The language of a routine whose module holds its text; a CLR routine has none. */
+    private static final String TSQL = "tsql";
+
     /** The comments of the tables, views and their columns in the schemas a pattern matches. */
     private static final String OBJECT_COMMENTS_SQL = """
             SELECT s.name AS schema_name, o.name AS object_name, c.name AS column_name,
@@ -662,7 +665,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                             : Optional.of(modifyDate.toInstant());
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName),
                             Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols, bodyOpt, bodyOpt,
-                            lastMod));
+                            lastMod, bodyOpt.map(b -> TSQL)));
                 }
             }
         }
@@ -708,7 +711,7 @@ public class MicrosoftSqlServerMetadataProvider implements MetadataProvider {
                     Optional<Instant> lastMod = modifyDate == null ? Optional.empty()
                             : Optional.of(modifyDate.toInstant());
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName), funcType,
-                            Optional.ofNullable(remarks), cols, bodyOpt, bodyOpt, lastMod));
+                            Optional.ofNullable(remarks), cols, bodyOpt, bodyOpt, lastMod, bodyOpt.map(b -> TSQL)));
                 }
             }
         }

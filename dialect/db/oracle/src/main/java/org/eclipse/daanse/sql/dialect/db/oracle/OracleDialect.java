@@ -25,10 +25,16 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Collectors;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineSignature;
 
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
 import org.eclipse.daanse.sql.model.schema.TableReference;
@@ -908,5 +914,65 @@ public class OracleDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsDeferrableForeignKeys() {
         return true;
+    }
+
+    /** Oracle writes a routine's body in PL/SQL. */
+    @Override
+    public Set<String> routineLanguages() {
+        return Set.of("plsql");
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] FUNCTION s.f ("A" IN NUMBER) RETURN NUMBER AS body}; the body ends
+     * with its own {@code END;}, and no client's {@code /} follows. A parameter's name is quoted as
+     * an identifier: a body names it as the database stores it. A function needs its return type.
+     */
+    @Override
+    public Optional<String> createFunction(RoutineDefinition function, boolean orReplace) {
+        if (!routineLanguages().contains(function.language().toLowerCase(Locale.ROOT))
+                || function.returnType() == null) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace ? "OR REPLACE " : "") + "FUNCTION "
+                + qualifiedRoutine(function.schemaName(), function.name()) + parameters(function) + " RETURN "
+                + function.returnType() + " AS " + function.body());
+    }
+
+    /** {@code CREATE [OR REPLACE] PROCEDURE s.p ("N" IN NUMBER, "TOTAL" IN OUT NUMBER) AS body}. */
+    @Override
+    public Optional<String> createProcedure(RoutineDefinition procedure, boolean orReplace) {
+        if (!routineLanguages().contains(procedure.language().toLowerCase(Locale.ROOT))) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace ? "OR REPLACE " : "") + "PROCEDURE "
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()) + parameters(procedure) + " AS "
+                + procedure.body());
+    }
+
+    /**
+     * {@code DROP FUNCTION s.f}: a schema holds one routine of a name, overloads live in packages
+     * only, so the types are not written. {@code IF EXISTS} from Oracle 23.
+     */
+    @Override
+    public Optional<String> dropFunction(RoutineSignature function, boolean ifExists) {
+        return Optional.of("DROP FUNCTION " + (ifExists && dialectVersion.atLeast(23, 0) ? "IF EXISTS " : "")
+                + qualifiedRoutine(function.schemaName(), function.name()));
+    }
+
+    /** {@code DROP PROCEDURE s.p}, as {@link #dropFunction}. */
+    @Override
+    public Optional<String> dropProcedure(RoutineSignature procedure, boolean ifExists) {
+        return Optional.of("DROP PROCEDURE " + (ifExists && dialectVersion.atLeast(23, 0) ? "IF EXISTS " : "")
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()));
+    }
+
+    private String parameters(RoutineDefinition routine) {
+        if (routine.parameters().isEmpty()) {
+            return "";
+        }
+        return routine.parameters().stream()
+                .map(p -> quoteIdentifier(p.name()) + " " + (p.mode() == ParameterMode.INOUT ? "IN OUT" : p.mode().name())
+                        + " " + p.type())
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 }

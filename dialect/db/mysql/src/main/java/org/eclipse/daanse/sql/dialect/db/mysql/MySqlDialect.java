@@ -25,11 +25,17 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Collectors;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineSignature;
 
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
 import org.eclipse.daanse.sql.model.schema.TableReference;
@@ -897,6 +903,66 @@ public class MySqlDialect extends AbstractJdbcDialect {
     /** MySQL and MariaDB keep no comment on a view or its columns. */
     @Override
     public boolean supportsCommentOnView() {
+        return false;
+    }
+
+    /** MySQL and MariaDB write a routine's body in their SQL. */
+    @Override
+    public Set<String> routineLanguages() {
+        return Set.of("sql");
+    }
+
+    /**
+     * {@code CREATE FUNCTION s.f (a INT) RETURNS INT body}. The body starts with the function's
+     * characteristics where it has them ({@code DETERMINISTIC}, {@code READS SQL DATA}), as the
+     * database writes them, and is written unchanged; with binary logging on, MySQL takes a function
+     * only with one of them. A function has {@code IN} parameters only and needs its return type.
+     * MySQL has no {@code OR REPLACE}; it is left out.
+     */
+    @Override
+    public Optional<String> createFunction(RoutineDefinition function, boolean orReplace) {
+        if (!routineLanguages().contains(function.language().toLowerCase(Locale.ROOT))
+                || function.returnType() == null
+                || function.parameters().stream().anyMatch(p -> p.mode() != ParameterMode.IN)) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace && createOrReplaceRoutine() ? "OR REPLACE " : "") + "FUNCTION "
+                + qualifiedRoutine(function.schemaName(), function.name()) + "("
+                + function.parameters().stream().map(p -> quoteIdentifier(p.name()) + " " + p.type())
+                        .collect(Collectors.joining(", "))
+                + ") RETURNS " + function.returnType() + " " + function.body());
+    }
+
+    /** {@code CREATE PROCEDURE s.p (IN n INT, INOUT total INT) body}, the body as for a function. */
+    @Override
+    public Optional<String> createProcedure(RoutineDefinition procedure, boolean orReplace) {
+        if (!routineLanguages().contains(procedure.language().toLowerCase(Locale.ROOT))) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace && createOrReplaceRoutine() ? "OR REPLACE " : "") + "PROCEDURE "
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()) + "("
+                + procedure.parameters().stream()
+                        .map(p -> p.mode().name() + " " + quoteIdentifier(p.name()) + " " + p.type())
+                        .collect(Collectors.joining(", "))
+                + ") " + procedure.body());
+    }
+
+    /** {@code DROP FUNCTION [IF EXISTS] s.f}; a schema holds one routine of a name. */
+    @Override
+    public Optional<String> dropFunction(RoutineSignature function, boolean ifExists) {
+        return Optional.of("DROP FUNCTION " + (ifExists ? "IF EXISTS " : "")
+                + qualifiedRoutine(function.schemaName(), function.name()));
+    }
+
+    /** {@code DROP PROCEDURE [IF EXISTS] s.p}. */
+    @Override
+    public Optional<String> dropProcedure(RoutineSignature procedure, boolean ifExists) {
+        return Optional.of("DROP PROCEDURE " + (ifExists ? "IF EXISTS " : "")
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()));
+    }
+
+    /** Whether a routine may be written {@code CREATE OR REPLACE}; MySQL has none. */
+    protected boolean createOrReplaceRoutine() {
         return false;
     }
 }
