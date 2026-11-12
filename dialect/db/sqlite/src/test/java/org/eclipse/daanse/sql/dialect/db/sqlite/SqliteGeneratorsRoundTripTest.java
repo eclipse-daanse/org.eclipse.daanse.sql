@@ -29,6 +29,7 @@ import java.util.OptionalLong;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.Deferrability;
 import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.IndexColumn;
 import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.IndexDefinition;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
@@ -146,6 +147,34 @@ class SqliteGeneratorsRoundTripTest {
             }
             assertThat(columns).containsExactly("name DESC", "id ASC");
             s.execute("DROP INDEX \"ix_users_desc\"");
+        }
+    }
+
+    /**
+     * A foreign key the dialect writes as checked at the end of the transaction lets a child come
+     * before its parent within one. SQLite adds no constraint to an existing table: the key goes into
+     * the table's definition.
+     */
+    @Test
+    void deferrable_foreign_key_is_checked_at_commit() throws SQLException {
+        TableReference parent = new TableReference(Optional.empty(), "dp", TableReference.TYPE_TABLE);
+        String key = dialect.ddlGenerator().foreignKeyClause("fk_dc_dp", List.of("dp_id"), parent, List.of("id"),
+                null, null, Deferrability.INITIALLY_DEFERRED).orElseThrow();
+        try (Statement s = conn.createStatement()) {
+            s.execute("PRAGMA foreign_keys = ON");
+            s.execute("CREATE TABLE \"dp\" (id INTEGER PRIMARY KEY)");
+            s.execute("CREATE TABLE \"dc\" (id INTEGER PRIMARY KEY, dp_id INTEGER, " + key + ")");
+            conn.setAutoCommit(false);
+            s.execute("INSERT INTO \"dc\" VALUES (1, 7)");
+            s.execute("INSERT INTO \"dp\" VALUES (7)");
+            conn.commit();
+        } finally {
+            conn.setAutoCommit(true);
+        }
+        assertFirstIntEquals(conn, "SELECT COUNT(*) FROM \"dc\"", 1);
+        try (Statement s = conn.createStatement()) {
+            s.execute("DROP TABLE \"dc\"");
+            s.execute("DROP TABLE \"dp\"");
         }
     }
 }

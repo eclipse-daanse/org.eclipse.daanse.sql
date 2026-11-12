@@ -903,4 +903,10 @@ public class OracleDialect extends AbstractJdbcDialect {
     public boolean supportsDescendingIndexColumns() {
         return true;
     }
+
+    /** Oracle checks a deferrable foreign key at the end of the transaction where it is deferred. */
+    @Override
+    public boolean supportsDeferrableForeignKeys() {
+        return true;
+    }
 }

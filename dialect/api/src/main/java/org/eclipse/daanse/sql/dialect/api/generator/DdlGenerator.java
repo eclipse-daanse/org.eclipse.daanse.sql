@@ -846,6 +846,64 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return sb.toString();
     }
 
+    /**
+     * When a constraint is checked: at once, after each statement ({@link #NOT_DEFERRABLE}); or at
+     * the end of the transaction, where a transaction may defer it
+     * ({@code SET CONSTRAINTS … DEFERRED}) and by default does not ({@link #INITIALLY_IMMEDIATE})
+     * or does ({@link #INITIALLY_DEFERRED}).
+     */
+    enum Deferrability {
+        NOT_DEFERRABLE, INITIALLY_IMMEDIATE, INITIALLY_DEFERRED
+    }
+
+    /**
+     * One foreign key as a table constraint, as
+     * {@link #foreignKeyClause(String, List, TableReference, List, String, String)} writes it, with
+     * {@code DEFERRABLE INITIALLY IMMEDIATE} or {@code DEFERRABLE INITIALLY DEFERRED} after it for a
+     * key that may be checked at the end of the transaction.
+     *
+     * @return empty for a deferrable key where the database checks every key at once
+     *         ({@link #supportsDeferrableForeignKeys()} is false)
+     */
+    default Optional<String> foreignKeyClause(String constraintName, List<String> fkColumns,
+            TableReference referencedTable, List<String> referencedColumns, String onDelete, String onUpdate,
+            Deferrability deferrability) {
+        String clause = foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns, onDelete,
+                onUpdate);
+        if (deferrability == null || deferrability == Deferrability.NOT_DEFERRABLE) {
+            return Optional.of(clause);
+        }
+        if (!supportsDeferrableForeignKeys()) {
+            return Optional.empty();
+        }
+        return Optional.of(clause + (deferrability == Deferrability.INITIALLY_DEFERRED
+                ? " DEFERRABLE INITIALLY DEFERRED"
+                : " DEFERRABLE INITIALLY IMMEDIATE"));
+    }
+
+    /**
+     * {@code ALTER TABLE schema.table ADD} the foreign key
+     * {@link #foreignKeyClause(String, List, TableReference, List, String, String, Deferrability)}
+     * writes.
+     *
+     * @return empty where that clause is, and where a foreign key cannot be added to an existing table
+     *         ({@link #supportsAddForeignKeyConstraint()} is false)
+     */
+    default Optional<String> addForeignKeyConstraint(TableReference table, String constraintName,
+            List<String> fkColumns, TableReference referencedTable, List<String> referencedColumns, String onDelete,
+            String onUpdate, Deferrability deferrability) {
+        if (!supportsAddForeignKeyConstraint()) {
+            return Optional.empty();
+        }
+        return foreignKeyClause(constraintName, fkColumns, referencedTable, referencedColumns, onDelete, onUpdate,
+                deferrability).map(clause -> "ALTER TABLE " + qualified(table) + " ADD " + clause);
+    }
+
+    /** @return true if a foreign key may be checked at the end of the transaction ({@code DEFERRABLE}) */
+    default boolean supportsDeferrableForeignKeys() {
+        return false;
+    }
+
     /** {@code ALTER TABLE schema.table ADD CONSTRAINT name CHECK (expression)}. */
     default String addCheckConstraint(TableReference table, String constraintName, String expression) {
         return "ALTER TABLE " + qualified(table) + " ADD " + checkConstraintClause(constraintName, expression);

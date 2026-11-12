@@ -381,4 +381,13 @@ public class DerbyDialect extends AbstractJdbcDialect {
     public boolean supportsDescendingIndexColumns() {
         return true;
     }
+
+    /**
+     * Derby checks a deferrable foreign key at the end of the transaction from 10.11 on; a dialect
+     * made without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsDeferrableForeignKeys() {
+        return dialectVersion.isUnknownOrAtLeast(10, 11);
+    }
 }

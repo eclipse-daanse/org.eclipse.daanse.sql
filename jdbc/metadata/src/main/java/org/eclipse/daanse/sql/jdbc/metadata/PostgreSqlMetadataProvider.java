@@ -402,7 +402,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                 SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
                         fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
                         pk_att.attname AS pk_column,
-                        cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
+                        cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule,
+                        con.condeferrable AS is_deferrable, con.condeferred AS is_deferred
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
                 JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
@@ -437,7 +438,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
                 SELECT con.conname AS fk_name, fk_n.nspname AS fk_schema, fk_class.relname AS fk_table,
                         fk_att.attname AS fk_column, pk_n.nspname AS pk_schema, pk_class.relname AS pk_table,
                         pk_att.attname AS pk_column,
-                        cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule
+                        cols.ord AS key_seq, con.confdeltype AS delete_rule, con.confupdtype AS update_rule,
+                        con.condeferrable AS is_deferrable, con.condeferred AS is_deferred
                 FROM pg_constraint con
                 JOIN pg_class fk_class ON fk_class.oid = con.conrelid
                 JOIN pg_namespace fk_n ON fk_n.oid = fk_class.relnamespace
@@ -962,7 +964,16 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
         ColumnReference pkColRef = new ColumnReference(Optional.of(pkTableRef), pkColumn);
 
         return new ImportedKeyRecord(pkColRef, fkColRef, fkName, keySeq, mapPgReferentialAction(updateRule),
-                mapPgReferentialAction(deleteRule), Optional.empty(), ImportedKey.Deferrability.NOT_DEFERRABLE);
+                mapPgReferentialAction(deleteRule), Optional.empty(),
+                deferrability(rs.getBoolean("is_deferrable"), rs.getBoolean("is_deferred")));
+    }
+
+    /** When a key is checked, from {@code pg_constraint.condeferrable} and {@code condeferred}. */
+    static ImportedKey.Deferrability deferrability(boolean deferrable, boolean deferred) {
+        if (!deferrable) {
+            return ImportedKey.Deferrability.NOT_DEFERRABLE;
+        }
+        return deferred ? ImportedKey.Deferrability.INITIALLY_DEFERRED : ImportedKey.Deferrability.INITIALLY_IMMEDIATE;
     }
 
 

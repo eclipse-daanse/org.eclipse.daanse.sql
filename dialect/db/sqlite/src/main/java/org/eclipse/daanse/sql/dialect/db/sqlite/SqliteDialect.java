@@ -336,4 +336,10 @@ public class SqliteDialect extends AbstractJdbcDialect {
     public boolean supportsDescendingIndexColumns() {
         return true;
     }
+
+    /** SQLite checks a deferrable foreign key at the end of the transaction where it is deferred. */
+    @Override
+    public boolean supportsDeferrableForeignKeys() {
+        return true;
+    }
 }

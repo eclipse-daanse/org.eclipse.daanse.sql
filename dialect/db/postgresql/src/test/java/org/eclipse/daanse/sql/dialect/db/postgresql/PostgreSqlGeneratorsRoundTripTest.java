@@ -29,12 +29,14 @@ import java.util.OptionalLong;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.Deferrability;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
+import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
 import org.eclipse.daanse.sql.jdbc.metadata.PostgreSqlMetadataProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -181,5 +183,36 @@ class PostgreSqlGeneratorsRoundTripTest {
     void descending_index_column_is_created_and_read_back() throws SQLException {
         IndexRoundTrip.assertDescendingIndexRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(), USERS,
                 "ix_users_desc", "name", "id");
+    }
+
+    /**
+     * A foreign key the dialect writes as checked at the end of the transaction lets a child come
+     * before its parent within one, and is read back as initially deferred.
+     */
+    @Test
+    void deferrable_foreign_key_is_checked_at_commit_and_read_back() throws SQLException {
+        TableReference parent = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "public")),
+                "dp", TableReference.TYPE_TABLE);
+        TableReference child = new TableReference(Optional.of(new SchemaReference(Optional.empty(), "public")),
+                "dc", TableReference.TYPE_TABLE);
+        try (Statement s = conn.createStatement()) {
+            s.execute("CREATE TABLE \"public\".\"dp\" (id INT PRIMARY KEY)");
+            s.execute("CREATE TABLE \"public\".\"dc\" (id INT PRIMARY KEY, dp_id INT)");
+            s.execute(dialect.ddlGenerator().addForeignKeyConstraint(child, "fk_dc_dp", List.of("dp_id"), parent,
+                    List.of("id"), null, null, Deferrability.INITIALLY_DEFERRED).orElseThrow());
+            conn.setAutoCommit(false);
+            s.execute("INSERT INTO \"public\".\"dc\" VALUES (1, 7)");
+            s.execute("INSERT INTO \"public\".\"dp\" VALUES (7)");
+            conn.commit();
+        } finally {
+            conn.setAutoCommit(true);
+        }
+        assertThat(new PostgreSqlMetadataProvider().getAllImportedKeys(conn, null, "public").orElseThrow())
+                .filteredOn(key -> "fk_dc_dp".equals(key.name())).singleElement()
+                .satisfies(key -> assertThat(key.deferrability()).isEqualTo(ImportedKey.Deferrability.INITIALLY_DEFERRED));
+        try (Statement s = conn.createStatement()) {
+            s.execute("DROP TABLE \"public\".\"dc\"");
+            s.execute("DROP TABLE \"public\".\"dp\"");
+        }
     }
 }
