@@ -965,4 +965,13 @@ public class MySqlDialect extends AbstractJdbcDialect {
     protected boolean createOrReplaceRoutine() {
         return false;
     }
+
+    /**
+     * MySQL has roles from 8.0, MariaDB from 10.0.5, both with {@code IF [NOT] EXISTS}; a dialect made
+     * without a connection takes such a version.
+     */
+    @Override
+    public boolean supportsRoles() {
+        return dialectVersion.isUnknownOrAtLeast(8, 0);
+    }
 }

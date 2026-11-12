@@ -289,4 +289,11 @@ class PostgreSqlGeneratorsRoundTripTest {
             s.execute(ddl.dropFunction(new RoutineSignature("public", "rt_twice", null), false).orElseThrow());
         }
     }
+
+    /** A role the dialect writes is created, again where it can say so, read back and dropped. */
+    @Test
+    void role_is_created_read_back_and_dropped() throws SQLException {
+        UserRoundTrip.assertRoleRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(),
+                DatabasePrincipal.KIND_ROLE, "rt_only_role");
+    }
 }

@@ -247,4 +247,11 @@ class MicrosoftSqlServerGeneratorsRoundTripTest {
                 function, procedure, "SELECT [dbo].[rt_add](2, 3)", 5, List.of("n IN", "total OUT"), "@a + @b",
                 "@total = @total + @n");
     }
+
+    /** A role the dialect writes is created, again where it can say so, read back and dropped. */
+    @Test
+    void role_is_created_read_back_and_dropped() throws SQLException {
+        UserRoundTrip.assertRoleRoundTrip(conn, dialect.ddlGenerator(), new MicrosoftSqlServerMetadataProvider(),
+                DatabasePrincipal.KIND_ROLE, "rt_only_role");
+    }
 }

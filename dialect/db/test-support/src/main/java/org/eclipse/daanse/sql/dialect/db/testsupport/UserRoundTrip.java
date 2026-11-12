@@ -88,6 +88,34 @@ public final class UserRoundTrip {
                 .noneMatch(p -> p.name().equalsIgnoreCase(user) || p.name().equalsIgnoreCase(role)));
     }
 
+    /**
+     * Creates the role {@code role}, and again where the dialect can say {@code IF NOT EXISTS}, reads
+     * it back as a principal of {@code roleKind} where the provider reads principals, drops it, and
+     * again where the dialect can say {@code IF EXISTS}.
+     */
+    public static void assertRoleRoundTrip(Connection conn, DdlGenerator ddl, MetadataProvider provider,
+            String roleKind, String role) throws SQLException {
+        assertThat(ddl.supportsRoles()).as("supportsRoles").isTrue();
+        String create = ddl.createRole(role, false).orElseThrow();
+        String createIfNotExists = ddl.createRole(role, true).orElseThrow();
+        String drop = ddl.dropRole(role, false).orElseThrow();
+        String dropIfExists = ddl.dropRole(role, true).orElseThrow();
+
+        execute(conn, create);
+        if (!createIfNotExists.equals(create)) {
+            execute(conn, createIfNotExists);
+        }
+        provider.getAllPrincipals(conn).ifPresent(all -> assertThat(all)
+                .filteredOn(p -> p.name().equalsIgnoreCase(role)).as("the role").singleElement()
+                .satisfies(p -> assertThat(p.kind()).isEqualTo(roleKind)));
+        execute(conn, drop);
+        if (!dropIfExists.equals(drop)) {
+            execute(conn, dropIfExists);
+        }
+        provider.getAllPrincipals(conn).ifPresent(all -> assertThat(all).as("the principals after the drop")
+                .noneMatch(p -> p.name().equalsIgnoreCase(role)));
+    }
+
     private static void execute(Connection conn, String sql) throws SQLException {
         try (Statement s = conn.createStatement()) {
             s.execute(sql);
