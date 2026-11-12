@@ -158,4 +158,13 @@ class MariaDBGeneratorsRoundTripTest {
                     "SELECT `rt`.`rt_add`(2, 3)", 5, List.of("n IN", "total INOUT"), "a + b", "total = total + n");
         }
     }
+
+    /** A role the dialect writes is created, again where it can say so, read back and dropped. */
+    @Test
+    void role_is_created_read_back_and_dropped() throws SQLException {
+        try (Connection root = DriverManager.getConnection(CONTAINER.getJdbcUrl(), "root", CONTAINER.getPassword())) {
+            UserRoundTrip.assertRoleRoundTrip(root, dialect.ddlGenerator(), new MariaDbMetadataProvider(),
+                    DatabasePrincipal.KIND_ROLE, "rt_only_role");
+        }
+    }
 }

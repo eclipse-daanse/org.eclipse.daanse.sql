@@ -396,4 +396,15 @@ public class DerbyDialect extends AbstractJdbcDialect {
     public boolean supportsCommentOnView() {
         return false;
     }
+
+    /** Derby has no {@code IF [NOT] EXISTS} for a role; it is left out. */
+    @Override
+    public java.util.Optional<String> createRole(String roleName, boolean ifNotExists) {
+        return super.createRole(roleName, false);
+    }
+
+    @Override
+    public java.util.Optional<String> dropRole(String roleName, boolean ifExists) {
+        return super.dropRole(roleName, false);
+    }
 }

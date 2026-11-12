@@ -82,4 +82,11 @@ class H2UserTest {
             s.execute(dialect.dropUser("rt_user", false).orElseThrow());
         }
     }
+
+    /** H2's provider reads no principals; the round trip checks the statements run. */
+    @Test
+    void role_is_created_and_dropped() throws SQLException {
+        UserRoundTrip.assertRoleRoundTrip(conn, dialect.ddlGenerator(), MetadataProvider.EMPTY,
+                DatabasePrincipal.KIND_ROLE, "rt_only_role");
+    }
 }

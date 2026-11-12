@@ -975,4 +975,16 @@ public class OracleDialect extends AbstractJdbcDialect {
                         + " " + p.type())
                 .collect(Collectors.joining(", ", "(", ")"));
     }
+
+    /** {@code IF NOT EXISTS} for a role from Oracle 23; before, and for an unknown version, it is left out. */
+    @Override
+    public Optional<String> createRole(String roleName, boolean ifNotExists) {
+        return super.createRole(roleName, ifNotExists && dialectVersion.atLeast(23, 0));
+    }
+
+    /** {@code IF EXISTS} for a role from Oracle 23; before, and for an unknown version, it is left out. */
+    @Override
+    public Optional<String> dropRole(String roleName, boolean ifExists) {
+        return super.dropRole(roleName, ifExists && dialectVersion.atLeast(23, 0));
+    }
 }

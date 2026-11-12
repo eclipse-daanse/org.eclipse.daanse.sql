@@ -1394,14 +1394,50 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
     // The grantor of a privilege is never rendered — it is implied by the
     // session executing the statement.
 
-    /** {@code CREATE ROLE "x"}; a user is created by {@link #createUser(String, boolean)}. */
+    /**
+     * {@code CREATE ROLE "x"}, written whether or not the database has roles; a user is created by
+     * {@link #createUser(String, boolean)}. {@link #createRole(String, boolean)} says where the
+     * database has no roles.
+     */
     default String createRole(String roleName) {
         return "CREATE ROLE " + quoteIdentifier(roleName);
     }
 
-    /** {@code DROP ROLE "x"}. */
+    /** {@code DROP ROLE "x"}; {@link #dropRole(String, boolean)} says where the database has no roles. */
     default String dropRole(String roleName) {
         return "DROP ROLE " + quoteIdentifier(roleName);
+    }
+
+    /**
+     * {@code CREATE ROLE [IF NOT EXISTS] "x"}: a principal that holds privileges and is granted to
+     * users and other roles. With {@code ifNotExists} an existing role is no error where the dialect
+     * can say so; elsewhere the statement fails on it.
+     *
+     * @return empty where the database has no roles ({@link #supportsRoles()} is false)
+     */
+    default Optional<String> createRole(String roleName, boolean ifNotExists) {
+        if (!supportsRoles()) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE ROLE " + (ifNotExists ? "IF NOT EXISTS " : "") + quoteIdentifier(roleName));
+    }
+
+    /**
+     * {@code DROP ROLE [IF EXISTS] "x"}. With {@code ifExists} a missing role is no error where the
+     * dialect can say so; elsewhere the statement fails on it.
+     *
+     * @return empty where the database has no roles ({@link #supportsRoles()} is false)
+     */
+    default Optional<String> dropRole(String roleName, boolean ifExists) {
+        if (!supportsRoles()) {
+            return Optional.empty();
+        }
+        return Optional.of("DROP ROLE " + (ifExists ? "IF EXISTS " : "") + quoteIdentifier(roleName));
+    }
+
+    /** @return true if {@code createRole} / {@code dropRole} with a flag render statements */
+    default boolean supportsRoles() {
+        return true;
     }
 
     /**

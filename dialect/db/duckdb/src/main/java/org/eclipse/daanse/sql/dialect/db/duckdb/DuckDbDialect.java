@@ -516,4 +516,10 @@ public class DuckDbDialect extends AbstractJdbcDialect {
         default -> super.generateKnownFunction(function, arguments);
         };
     }
+
+    /** DuckDB has no roles. */
+    @Override
+    public boolean supportsRoles() {
+        return false;
+    }
 }

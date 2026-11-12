@@ -265,4 +265,14 @@ class OracleGeneratorsRoundTripTest {
                 procedure, "SELECT \"" + schema + "\".\"RT_ADD\"(2, 3) FROM DUAL", 5,
                 List.of("n IN", "total INOUT"), "RETURN A + B", "TOTAL := TOTAL + N");
     }
+
+    /** A role the dialect writes is created, again where it can say so, read back and dropped. */
+    @Test
+    void role_is_created_read_back_and_dropped() throws SQLException {
+        try (Connection system = DriverManager.getConnection(CONTAINER.getJdbcUrl(), "system",
+                CONTAINER.getPassword())) {
+            UserRoundTrip.assertRoleRoundTrip(system, dialect.ddlGenerator(), new OracleMetadataProvider(),
+                    DatabasePrincipal.KIND_ROLE, "rt_only_role");
+        }
+    }
 }

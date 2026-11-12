@@ -348,4 +348,10 @@ public class SqliteDialect extends AbstractJdbcDialect {
     public boolean supportsCommentOnView() {
         return false;
     }
+
+    /** SQLite has no roles. */
+    @Override
+    public boolean supportsRoles() {
+        return false;
+    }
 }

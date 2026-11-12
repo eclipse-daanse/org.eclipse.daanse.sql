@@ -552,15 +552,26 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     @Override
     public Optional<String> createUser(String userName, boolean ifNotExists) {
         String create = "CREATE USER " + quoteIdentifier(userName);
-        if (!ifNotExists) {
-            return Optional.of(create);
-        }
+        return Optional.of(ifNotExists ? unlessItExists(create) : create);
+    }
+
+    /**
+     * PostgreSQL has no {@code CREATE ROLE IF NOT EXISTS}: with {@code ifNotExists} the statement is a
+     * {@code DO} block that takes an existing role of the name as done.
+     */
+    @Override
+    public Optional<String> createRole(String roleName, boolean ifNotExists) {
+        String create = "CREATE ROLE " + quoteIdentifier(roleName);
+        return Optional.of(ifNotExists ? unlessItExists(create) : create);
+    }
+
+    /** {@code create} in a {@code DO} block that takes an existing object of the name as done. */
+    private static String unlessItExists(String create) {
         String quote = "$$";
         for (int i = 1; create.contains(quote); i++) {
             quote = "$u" + i + "$";
         }
-        return Optional.of("DO " + quote + " BEGIN " + create + "; EXCEPTION WHEN duplicate_object THEN NULL; END "
-                + quote);
+        return "DO " + quote + " BEGIN " + create + "; EXCEPTION WHEN duplicate_object THEN NULL; END " + quote;
     }
 
     /** PostgreSQL keeps a materialized view's rows from its creation on, until it is refreshed. */

@@ -1013,4 +1013,18 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     private static String variable(String name) {
         return name.startsWith("@") ? name : "@" + name;
     }
+
+    /** With {@code ifNotExists}, guarded by the database's principals, as for a user. */
+    @Override
+    public Optional<String> createRole(String roleName, boolean ifNotExists) {
+        String create = "CREATE ROLE " + quoteIdentifier(roleName);
+        return Optional.of(ifNotExists ? "IF NOT EXISTS (" + principalNamed(roleName) + ") " + create : create);
+    }
+
+    /** With {@code ifExists}, guarded by the database's principals, as for a user. */
+    @Override
+    public Optional<String> dropRole(String roleName, boolean ifExists) {
+        String drop = "DROP ROLE " + quoteIdentifier(roleName);
+        return Optional.of(ifExists ? "IF EXISTS (" + principalNamed(roleName) + ") " + drop : drop);
+    }
 }
