@@ -12,6 +12,7 @@ package org.eclipse.daanse.sql.jdbc.metadata;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -34,6 +35,11 @@ class MsSqlMetadataContractTest extends MetadataProviderContract {
     @Override
     protected List<String> createFilteredIndex() {
         return List.of("CREATE INDEX ix_orders_large ON sales.orders (qty) WHERE qty > 10");
+    }
+
+    @Override
+    protected Optional<String> functionLanguage() {
+        return Optional.of("tsql");
     }
 
     @Override

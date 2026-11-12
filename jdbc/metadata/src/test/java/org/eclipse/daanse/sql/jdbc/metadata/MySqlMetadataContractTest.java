@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import org.eclipse.daanse.sql.jdbc.api.MetadataProvider;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -41,6 +42,11 @@ class MySqlMetadataContractTest extends MetadataProviderContract {
     @Override
     protected boolean makesForeignKeyIndexes() {
         return true;
+    }
+
+    @Override
+    protected Optional<String> functionLanguage() {
+        return Optional.of("sql");
     }
 
     @Override

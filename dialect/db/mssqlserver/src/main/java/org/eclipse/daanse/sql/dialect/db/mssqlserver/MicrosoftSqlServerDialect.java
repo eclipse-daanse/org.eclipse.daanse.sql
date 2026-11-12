@@ -26,7 +26,13 @@ import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineSignature;
 
 import org.eclipse.daanse.sql.model.schema.ColumnDefinition;
 import org.eclipse.daanse.sql.model.schema.ColumnMetaData;
@@ -942,5 +948,69 @@ public class MicrosoftSqlServerDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsDescendingIndexColumns() {
         return true;
+    }
+
+    /** SQL Server writes a routine's body in T-SQL. */
+    @Override
+    public Set<String> routineLanguages() {
+        return Set.of("tsql");
+    }
+
+    /**
+     * {@code CREATE [OR ALTER] FUNCTION s.f (@a INT) RETURNS INT AS body}: a parameter is a variable,
+     * its name begins with {@code @}. A function has {@code IN} parameters only and needs its return
+     * type. {@code OR ALTER} from SQL Server 2016.
+     */
+    @Override
+    public Optional<String> createFunction(RoutineDefinition function, boolean orReplace) {
+        if (!routineLanguages().contains(function.language().toLowerCase(Locale.ROOT))
+                || function.returnType() == null
+                || function.parameters().stream().anyMatch(p -> p.mode() != ParameterMode.IN)) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + orAlter(orReplace) + "FUNCTION "
+                + qualifiedRoutine(function.schemaName(), function.name()) + "("
+                + function.parameters().stream().map(p -> variable(p.name()) + " " + p.type())
+                        .collect(Collectors.joining(", "))
+                + ") RETURNS " + function.returnType() + " AS " + function.body());
+    }
+
+    /**
+     * {@code CREATE [OR ALTER] PROCEDURE s.p @n INT, @total INT OUTPUT AS body}: an {@code OUT} or
+     * {@code INOUT} parameter is an {@code OUTPUT} one, which passes its value both ways.
+     */
+    @Override
+    public Optional<String> createProcedure(RoutineDefinition procedure, boolean orReplace) {
+        if (!routineLanguages().contains(procedure.language().toLowerCase(Locale.ROOT))) {
+            return Optional.empty();
+        }
+        String parameters = procedure.parameters().stream()
+                .map(p -> variable(p.name()) + " " + p.type() + (p.mode() == ParameterMode.IN ? "" : " OUTPUT"))
+                .collect(Collectors.joining(", "));
+        return Optional.of("CREATE " + orAlter(orReplace) + "PROCEDURE "
+                + qualifiedRoutine(procedure.schemaName(), procedure.name())
+                + (parameters.isEmpty() ? "" : " " + parameters) + " AS " + procedure.body());
+    }
+
+    /** {@code DROP FUNCTION [IF EXISTS] s.f}; SQL Server has no overloads. {@code IF EXISTS} from 2016. */
+    @Override
+    public Optional<String> dropFunction(RoutineSignature function, boolean ifExists) {
+        return Optional.of("DROP FUNCTION " + (ifExists && dialectVersion.isUnknownOrAtLeast(13, 0) ? "IF EXISTS " : "")
+                + qualifiedRoutine(function.schemaName(), function.name()));
+    }
+
+    /** {@code DROP PROCEDURE [IF EXISTS] s.p}, as {@link #dropFunction}. */
+    @Override
+    public Optional<String> dropProcedure(RoutineSignature procedure, boolean ifExists) {
+        return Optional.of("DROP PROCEDURE " + (ifExists && dialectVersion.isUnknownOrAtLeast(13, 0) ? "IF EXISTS " : "")
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()));
+    }
+
+    private String orAlter(boolean orReplace) {
+        return orReplace && dialectVersion.isUnknownOrAtLeast(13, 0) ? "OR ALTER " : "";
+    }
+
+    private static String variable(String name) {
+        return name.startsWith("@") ? name : "@" + name;
     }
 }

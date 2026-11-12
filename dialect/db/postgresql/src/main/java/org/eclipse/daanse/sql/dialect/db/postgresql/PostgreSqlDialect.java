@@ -27,10 +27,16 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Collectors;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineSignature;
 
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.model.schema.Trigger;
@@ -579,5 +585,71 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
     @Override
     public boolean supportsDeferrableForeignKeys() {
         return true;
+    }
+
+    /** PostgreSQL writes a routine's body in SQL or PL/pgSQL. */
+    @Override
+    public Set<String> routineLanguages() {
+        return Set.of("sql", "plpgsql");
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] FUNCTION s.f (a integer, OUT r integer) [RETURNS t] LANGUAGE l AS $$body$$}:
+     * the body in a dollar quote that does not occur in it; without a return type the {@code OUT}
+     * parameters make the result.
+     */
+    @Override
+    public Optional<String> createFunction(RoutineDefinition function, boolean orReplace) {
+        if (!routineLanguages().contains(function.language().toLowerCase(Locale.ROOT))) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace ? "OR REPLACE " : "") + "FUNCTION "
+                + qualifiedRoutine(function.schemaName(), function.name()) + "(" + parameters(function) + ")"
+                + (function.returnType() == null ? "" : " RETURNS " + function.returnType()) + " LANGUAGE "
+                + function.language() + " AS " + dollarQuoted(function.body()));
+    }
+
+    /** {@code CREATE [OR REPLACE] PROCEDURE s.p (n integer, INOUT total integer) LANGUAGE l AS $$body$$}. */
+    @Override
+    public Optional<String> createProcedure(RoutineDefinition procedure, boolean orReplace) {
+        if (!routineLanguages().contains(procedure.language().toLowerCase(Locale.ROOT))) {
+            return Optional.empty();
+        }
+        return Optional.of("CREATE " + (orReplace ? "OR REPLACE " : "") + "PROCEDURE "
+                + qualifiedRoutine(procedure.schemaName(), procedure.name()) + "(" + parameters(procedure) + ")"
+                + " LANGUAGE " + procedure.language() + " AS " + dollarQuoted(procedure.body()));
+    }
+
+    /** {@code DROP FUNCTION [IF EXISTS] s.f [(integer, text)]}: the types name one of several overloads. */
+    @Override
+    public Optional<String> dropFunction(RoutineSignature function, boolean ifExists) {
+        return Optional.of("DROP FUNCTION " + (ifExists ? "IF EXISTS " : "") + signature(function));
+    }
+
+    /** {@code DROP PROCEDURE [IF EXISTS] s.p [(integer, integer)]}. */
+    @Override
+    public Optional<String> dropProcedure(RoutineSignature procedure, boolean ifExists) {
+        return Optional.of("DROP PROCEDURE " + (ifExists ? "IF EXISTS " : "") + signature(procedure));
+    }
+
+    private String parameters(RoutineDefinition routine) {
+        return routine.parameters().stream()
+                .map(p -> (p.mode() == ParameterMode.IN ? "" : p.mode().name() + " ") + quoteIdentifier(p.name())
+                        + " " + p.type())
+                .collect(Collectors.joining(", "));
+    }
+
+    private String signature(RoutineSignature routine) {
+        String name = qualifiedRoutine(routine.schemaName(), routine.name());
+        return routine.parameterTypes() == null ? name : name + "(" + String.join(", ", routine.parameterTypes()) + ")";
+    }
+
+    /** {@code text} in the dollar quote {@code $$}, or {@code $body$}, … where that occurs in it. */
+    private static String dollarQuoted(String text) {
+        String quote = "$$";
+        for (int i = 0; text.contains(quote); i++) {
+            quote = i == 0 ? "$body$" : "$body" + i + "$";
+        }
+        return quote + text + quote;
     }
 }

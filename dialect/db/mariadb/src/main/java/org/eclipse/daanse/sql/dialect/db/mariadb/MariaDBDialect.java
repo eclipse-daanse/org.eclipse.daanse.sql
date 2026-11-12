@@ -190,4 +190,10 @@ public class MariaDBDialect extends MySqlDialect {
     public boolean supportsDescendingIndexColumns() {
         return dialectVersion.isUnknownOrAtLeast(10, 8);
     }
+
+    /** MariaDB writes a routine {@code CREATE OR REPLACE}, from 10.1.3. */
+    @Override
+    protected boolean createOrReplaceRoutine() {
+        return true;
+    }
 }

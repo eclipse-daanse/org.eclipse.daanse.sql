@@ -28,5 +28,13 @@ public record FunctionRecord(
         List<FunctionColumn> columns,
         Optional<String> body,
         Optional<String> fullDefinition,
-        Optional<Instant> lastModified) implements Function {
+        Optional<Instant> lastModified,
+        Optional<String> language) implements Function {
+
+    /** A function whose language is not known. */
+    public FunctionRecord(FunctionReference reference, FunctionType functionType, Optional<String> remarks,
+            List<FunctionColumn> columns, Optional<String> body, Optional<String> fullDefinition,
+            Optional<Instant> lastModified) {
+        this(reference, functionType, remarks, columns, body, fullDefinition, lastModified, Optional.empty());
+    }
 }

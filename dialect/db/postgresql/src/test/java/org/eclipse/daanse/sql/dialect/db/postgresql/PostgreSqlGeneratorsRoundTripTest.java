@@ -30,9 +30,15 @@ import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.Deferrability;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineParameter;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineSignature;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
+import org.eclipse.daanse.sql.dialect.db.testsupport.RoutineRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.meta.IndexInfo;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
@@ -241,6 +247,46 @@ class PostgreSqlGeneratorsRoundTripTest {
                     .singleElement()
                     .satisfies(c -> assertThat(c.columnMetaData().remarks()).contains("the column's comment"));
             s.execute(dialect.ddlGenerator().dropView(view, false));
+        }
+    }
+
+    /**
+     * A function and a procedure the dialect writes are created, the function is called, both are
+     * read back with their parameters, language and body, and dropped by their signature.
+     */
+    @Test
+    void routines_are_created_called_read_back_and_dropped() throws SQLException {
+        RoutineDefinition function = new RoutineDefinition("public", "rt_add",
+                List.of(RoutineParameter.in("a", "integer"), RoutineParameter.in("b", "integer")), "integer", "sql",
+                "SELECT a + b");
+        RoutineDefinition procedure = new RoutineDefinition("public", "rt_bump",
+                List.of(RoutineParameter.in("n", "integer"), new RoutineParameter("total", ParameterMode.INOUT,
+                        "integer")),
+                null, "plpgsql", "BEGIN total := total + n; END");
+        RoutineRoundTrip.assertRoutineRoundTrip(conn, dialect.ddlGenerator(), new PostgreSqlMetadataProvider(),
+                function, procedure, "SELECT \"public\".\"rt_add\"(2, 3)", 5, List.of("n IN", "total INOUT"),
+                "a + b", "total := total + n");
+    }
+
+    /** Of two functions of one name, the one the types of its parameters name is dropped. */
+    @Test
+    void one_of_two_overloads_is_dropped_by_its_parameter_types() throws SQLException {
+        DdlGenerator ddl = dialect.ddlGenerator();
+        RoutineDefinition two = new RoutineDefinition("public", "rt_twice",
+                List.of(RoutineParameter.in("a", "integer"), RoutineParameter.in("b", "integer")), "integer", "sql",
+                "SELECT a + b");
+        RoutineDefinition one = new RoutineDefinition("public", "rt_twice", List.of(RoutineParameter.in("a", "integer")),
+                "integer", "sql", "SELECT a + a");
+        try (Statement s = conn.createStatement()) {
+            s.execute(ddl.createFunction(two, false).orElseThrow());
+            s.execute(ddl.createFunction(one, false).orElseThrow());
+            s.execute(ddl.dropFunction(new RoutineSignature("public", "rt_twice", List.of("integer", "integer")), false)
+                    .orElseThrow());
+            assertFirstIntEquals(conn, "SELECT \"public\".\"rt_twice\"(4)", 8);
+            assertThat(new PostgreSqlMetadataProvider().getAllFunctions(conn, null, "public"))
+                    .filteredOn(f -> f.reference().name().equals("rt_twice")).singleElement()
+                    .satisfies(f -> assertThat(f.columns()).hasSize(1));
+            s.execute(ddl.dropFunction(new RoutineSignature("public", "rt_twice", null), false).orElseThrow());
         }
     }
 }

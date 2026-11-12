@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -523,7 +524,7 @@ public class MySqlMetadataProvider implements MetadataProvider {
         Map<String, List<ProcedureColumn>> paramMap = loadProcedureColumns(connection, schemaName);
 
         String sql = """
-                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_COMMENT, ROUTINE_DEFINITION
+                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_COMMENT, ROUTINE_DEFINITION, ROUTINE_BODY
                 FROM information_schema.ROUTINES
                 WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'PROCEDURE'
                 ORDER BY ROUTINE_NAME
@@ -545,7 +546,8 @@ public class MySqlMetadataProvider implements MetadataProvider {
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName, specificName),
                             Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols,
-                            Optional.ofNullable(body), fullDef, Optional.empty()));
+                            Optional.ofNullable(body), fullDef, Optional.empty(),
+                            Optional.ofNullable(rs.getString("ROUTINE_BODY")).map(l -> l.toLowerCase(Locale.ROOT))));
                 }
             }
         }
@@ -559,7 +561,7 @@ public class MySqlMetadataProvider implements MetadataProvider {
         Map<String, List<FunctionColumn>> paramMap = loadFunctionColumns(connection, schemaName);
 
         String sql = """
-                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_COMMENT, ROUTINE_DEFINITION
+                SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_COMMENT, ROUTINE_DEFINITION, ROUTINE_BODY
                 FROM information_schema.ROUTINES
                 WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'FUNCTION'
                 ORDER BY ROUTINE_NAME
@@ -581,7 +583,8 @@ public class MySqlMetadataProvider implements MetadataProvider {
 
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName, specificName),
                             Function.FunctionType.NO_TABLE, Optional.ofNullable(remarks), cols,
-                            Optional.ofNullable(body), fullDef, Optional.empty()));
+                            Optional.ofNullable(body), fullDef, Optional.empty(),
+                            Optional.ofNullable(rs.getString("ROUTINE_BODY")).map(l -> l.toLowerCase(Locale.ROOT))));
                 }
             }
         }

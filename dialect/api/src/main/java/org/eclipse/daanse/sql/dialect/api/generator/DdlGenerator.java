@@ -991,6 +991,124 @@ public interface DdlGenerator extends IdentifierQuoter, DialectCapabilitiesProvi
         return Optional.empty();
     }
 
+    // -------------------- DDL — functions and procedures --------------------
+
+    /** How a parameter of a routine passes its value: into the routine, out of it, or both. */
+    enum ParameterMode {
+        IN, OUT, INOUT
+    }
+
+    /**
+     * A parameter of a routine: its name, how it passes its value ({@code IN} where none is given)
+     * and its type, written as given.
+     */
+    record RoutineParameter(String name, ParameterMode mode, String type) {
+
+        public RoutineParameter {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("parameter name must not be blank");
+            }
+            if (type == null || type.isBlank()) {
+                throw new IllegalArgumentException("parameter type must not be blank");
+            }
+            mode = mode == null ? ParameterMode.IN : mode;
+        }
+
+        /** An {@code IN} parameter. */
+        public static RoutineParameter in(String name, String type) {
+            return new RoutineParameter(name, ParameterMode.IN, type);
+        }
+    }
+
+    /**
+     * A function or procedure to create: its schema ({@code null} for none), its name, its parameters
+     * in order, the type a function returns ({@code null} for a procedure, and for a function whose
+     * {@code OUT} parameters make its result where the database derives the result from them), the
+     * language of its body, and the body. The body is always the database's own and is written
+     * unchanged.
+     */
+    record RoutineDefinition(String schemaName, String name, List<RoutineParameter> parameters, String returnType,
+            String language, String body) {
+
+        public RoutineDefinition {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("routine name must not be blank");
+            }
+            if (body == null || body.isBlank()) {
+                throw new IllegalArgumentException("routine body must not be blank");
+            }
+            parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        }
+    }
+
+    /**
+     * A routine to drop: its schema ({@code null} for none), its name and, to name one of several
+     * routines of that name (overloads), the types of its parameters in order; {@code null} names it
+     * by its name alone.
+     */
+    record RoutineSignature(String schemaName, String name, List<String> parameterTypes) {
+
+        public RoutineSignature {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("routine name must not be blank");
+            }
+            parameterTypes = parameterTypes == null ? null : List.copyOf(parameterTypes);
+        }
+    }
+
+    /**
+     * The languages this dialect writes the body of a routine in, in lower case ({@code sql},
+     * {@code plpgsql}, {@code plsql}, {@code tsql}); empty where it writes no routines. A routine whose
+     * body is in another language is not written.
+     */
+    default java.util.Set<String> routineLanguages() {
+        return java.util.Set.of();
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] FUNCTION schema.name (parameters) RETURNS type … body}: one
+     * statement, without a client's delimiter. With {@code orReplace} an existing function of that
+     * signature is replaced where the dialect can say so; elsewhere the statement fails on it.
+     *
+     * @return empty where the dialect writes no function in the definition's language
+     *         ({@link #routineLanguages()}), or cannot write one of its parameters' modes
+     */
+    default Optional<String> createFunction(RoutineDefinition function, boolean orReplace) {
+        return Optional.empty();
+    }
+
+    /**
+     * {@code CREATE [OR REPLACE] PROCEDURE schema.name (parameters) … body}, as
+     * {@link #createFunction} writes a function; the definition's return type is not used.
+     *
+     * @return empty where the dialect writes no procedure in the definition's language
+     *         ({@link #routineLanguages()}), or cannot write one of its parameters' modes
+     */
+    default Optional<String> createProcedure(RoutineDefinition procedure, boolean orReplace) {
+        return Optional.empty();
+    }
+
+    /**
+     * {@code DROP FUNCTION [IF EXISTS] schema.name [(types)]}: the types name one overload where the
+     * database has overloads. With {@code ifExists} a missing function is no error where the dialect
+     * can say so.
+     *
+     * @return empty where the dialect writes no routines
+     */
+    default Optional<String> dropFunction(RoutineSignature function, boolean ifExists) {
+        return Optional.empty();
+    }
+
+    /**
+     * {@code DROP PROCEDURE [IF EXISTS] schema.name [(types)]}, as {@link #dropFunction} drops a
+     * function.
+     *
+     * @return empty where the dialect writes no routines
+     */
+    default Optional<String> dropProcedure(RoutineSignature procedure, boolean ifExists) {
+        return Optional.empty();
+    }
+
     // -------------------- comments --------------------
 
     /**

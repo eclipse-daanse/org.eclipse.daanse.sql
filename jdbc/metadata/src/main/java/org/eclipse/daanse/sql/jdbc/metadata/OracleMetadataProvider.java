@@ -95,6 +95,9 @@ public class OracleMetadataProvider implements MetadataProvider {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OracleMetadataProvider.class);
 
+    /** The language of a schema's own functions and procedures. */
+    private static final Optional<String> PLSQL = Optional.of("plsql");
+
 
     /**
      * The tables and views as the JDBC driver reports them, each with its comment from
@@ -725,7 +728,8 @@ public class OracleMetadataProvider implements MetadataProvider {
                     Optional<Instant> lastMod = Optional.ofNullable(lastDdlMap.get(objectName));
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, objectName),
-                            Procedure.ProcedureType.NO_RESULT, Optional.empty(), cols, body, fullDef, lastMod));
+                            Procedure.ProcedureType.NO_RESULT, Optional.empty(), cols, body, fullDef, lastMod,
+                            PLSQL));
                 }
             }
         }
@@ -760,7 +764,8 @@ public class OracleMetadataProvider implements MetadataProvider {
                     Optional<Instant> lastMod = Optional.ofNullable(lastDdlMap.get(objectName));
 
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, objectName),
-                            Function.FunctionType.NO_TABLE, Optional.empty(), cols, body, fullDef, lastMod));
+                            Function.FunctionType.NO_TABLE, Optional.empty(), cols, body, fullDef, lastMod,
+                            PLSQL));
                 }
             }
         }

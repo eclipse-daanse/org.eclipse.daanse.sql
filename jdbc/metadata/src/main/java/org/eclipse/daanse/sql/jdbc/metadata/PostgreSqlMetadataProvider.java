@@ -615,10 +615,11 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     public List<Procedure> getAllProcedures(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
                 SELECT p.proname AS routine_name, p.proname || '_' || p.oid AS specific_name,
-                        d.description AS remarks, p.prosrc AS body,
+                        d.description AS remarks, p.prosrc AS body, l.lanname AS language,
                         pg_get_functiondef(p.oid) AS full_def
                 FROM pg_proc p
                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                JOIN pg_language l ON l.oid = p.prolang
                 LEFT JOIN pg_description d ON d.objoid = p.oid AND d.classoid = 'pg_proc'::regclass
                 WHERE n.nspname = ? AND p.prokind = 'p'
                 ORDER BY p.proname
@@ -642,7 +643,8 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName, specificName),
                             Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), columns,
-                            Optional.ofNullable(body), Optional.ofNullable(fullDef), Optional.empty()));
+                            Optional.ofNullable(body), Optional.ofNullable(fullDef), Optional.empty(),
+                            Optional.ofNullable(rs.getString("language"))));
                 }
             }
         } catch (SQLException e) {
@@ -666,11 +668,12 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
     public List<Function> getAllFunctions(Connection connection, String catalog, String schema) throws SQLException {
         String sql = """
                 SELECT p.proname AS routine_name, p.proname || '_' || p.oid AS specific_name,
-                        d.description AS remarks, p.prosrc AS body,
+                        d.description AS remarks, p.prosrc AS body, l.lanname AS language,
                         pg_get_functiondef(p.oid) AS full_def,
                         CASE WHEN p.proretset THEN 'TABLE' ELSE 'SCALAR' END AS return_type
                 FROM pg_proc p
                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                JOIN pg_language l ON l.oid = p.prolang
                 LEFT JOIN pg_description d ON d.objoid = p.oid AND d.classoid = 'pg_proc'::regclass
                 WHERE n.nspname = ? AND p.prokind = 'f'
                 ORDER BY p.proname
@@ -699,7 +702,7 @@ public class PostgreSqlMetadataProvider implements MetadataProvider {
 
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName, specificName),
                             funcType, Optional.ofNullable(remarks), columns, Optional.ofNullable(body),
-                            Optional.ofNullable(fullDef), Optional.empty()));
+                            Optional.ofNullable(fullDef), Optional.empty(), Optional.ofNullable(rs.getString("language"))));
                 }
             }
         } catch (SQLException e) {

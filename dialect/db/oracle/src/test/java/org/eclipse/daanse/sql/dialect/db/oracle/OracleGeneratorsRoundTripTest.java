@@ -28,9 +28,13 @@ import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.Deferrability;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineParameter;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
+import org.eclipse.daanse.sql.dialect.db.testsupport.RoutineRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.api.schema.ImportedKey;
@@ -241,5 +245,24 @@ class OracleGeneratorsRoundTripTest {
                     .satisfies(c -> assertThat(c.columnMetaData().remarks()).contains("the column's comment"));
             s.execute(dialect.ddlGenerator().dropView(view, false));
         }
+    }
+
+    /**
+     * A function and a procedure the dialect writes are created, the function is called, both are
+     * read back with their parameters, language and body, and dropped by their signature.
+     */
+    @Test
+    void routines_are_created_called_read_back_and_dropped() throws SQLException {
+        String schema = CONTAINER.getUsername().toUpperCase();
+        RoutineDefinition function = new RoutineDefinition(schema, "RT_ADD",
+                List.of(RoutineParameter.in("A", "NUMBER"), RoutineParameter.in("B", "NUMBER")), "NUMBER", "plsql",
+                "BEGIN RETURN A + B; END;");
+        RoutineDefinition procedure = new RoutineDefinition(schema, "RT_BUMP",
+                List.of(RoutineParameter.in("N", "NUMBER"), new RoutineParameter("TOTAL", ParameterMode.INOUT,
+                        "NUMBER")),
+                null, "plsql", "BEGIN TOTAL := TOTAL + N; END;");
+        RoutineRoundTrip.assertRoutineRoundTrip(conn, dialect.ddlGenerator(), new OracleMetadataProvider(), function,
+                procedure, "SELECT \"" + schema + "\".\"RT_ADD\"(2, 3) FROM DUAL", 5,
+                List.of("n IN", "total INOUT"), "RETURN A + B", "TOTAL := TOTAL + N");
     }
 }

@@ -540,7 +540,7 @@ public class H2MetadataProvider implements MetadataProvider {
         Map<String, List<ProcedureColumn>> paramMap = loadProcedureColumns(connection, schemaName);
 
         String sql = """
-            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
+            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION, EXTERNAL_LANGUAGE
             FROM INFORMATION_SCHEMA.ROUTINES
             WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'PROCEDURE'
             ORDER BY ROUTINE_NAME
@@ -560,7 +560,7 @@ public class H2MetadataProvider implements MetadataProvider {
 
                     procedures.add(new ProcedureRecord(new ProcedureReference(oSchema, routineName, specificName),
                         Procedure.ProcedureType.NO_RESULT, Optional.ofNullable(remarks), cols,
-                        Optional.ofNullable(body), Optional.empty(), Optional.empty()));
+                        Optional.ofNullable(body), Optional.empty(), Optional.empty(), language(rs)));
                 }
             }
         }
@@ -575,7 +575,7 @@ public class H2MetadataProvider implements MetadataProvider {
         Map<String, List<FunctionColumn>> paramMap = loadFunctionColumns(connection, schemaName);
 
         String sql = """
-            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION
+            SELECT ROUTINE_NAME, SPECIFIC_NAME, ROUTINE_TYPE, REMARKS, ROUTINE_DEFINITION, EXTERNAL_LANGUAGE
             FROM INFORMATION_SCHEMA.ROUTINES
             WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE = 'FUNCTION'
             ORDER BY ROUTINE_NAME
@@ -595,11 +595,17 @@ public class H2MetadataProvider implements MetadataProvider {
 
                     functions.add(new FunctionRecord(new FunctionReference(oSchema, routineName, specificName),
                         Function.FunctionType.NO_TABLE, Optional.ofNullable(remarks), cols,
-                        Optional.ofNullable(body), Optional.empty(), Optional.empty()));
+                        Optional.ofNullable(body), Optional.empty(), Optional.empty(), language(rs)));
                 }
             }
         }
         return List.copyOf(functions);
+    }
+
+
+    /** The language of a routine's body: H2's routines are Java methods ({@code EXTERNAL_LANGUAGE}). */
+    private static Optional<String> language(ResultSet rs) throws SQLException {
+        return Optional.ofNullable(rs.getString("EXTERNAL_LANGUAGE")).map(l -> l.toLowerCase(java.util.Locale.ROOT));
     }
 
 

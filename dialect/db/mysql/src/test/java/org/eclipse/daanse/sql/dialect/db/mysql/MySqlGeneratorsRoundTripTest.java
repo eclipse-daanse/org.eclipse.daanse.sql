@@ -25,9 +25,13 @@ import java.util.OptionalLong;
 import org.eclipse.daanse.sql.model.schema.SchemaReference;
 import org.eclipse.daanse.sql.model.schema.TableReference;
 import org.eclipse.daanse.sql.dialect.api.DialectInitData;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.ParameterMode;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineDefinition;
+import org.eclipse.daanse.sql.dialect.api.generator.DdlGenerator.RoutineParameter;
 import org.eclipse.daanse.sql.dialect.api.generator.MergeGenerator;
 import org.eclipse.daanse.sql.dialect.api.generator.PaginationGenerator.PreparedPaging;
 import org.eclipse.daanse.sql.dialect.db.testsupport.IndexRoundTrip;
+import org.eclipse.daanse.sql.dialect.db.testsupport.RoutineRoundTrip;
 import org.eclipse.daanse.sql.dialect.db.testsupport.UserRoundTrip;
 import org.eclipse.daanse.sql.jdbc.api.schema.DatabasePrincipal;
 import org.eclipse.daanse.sql.jdbc.metadata.MySqlMetadataProvider;
@@ -140,5 +144,25 @@ class MySqlGeneratorsRoundTripTest {
     void descending_index_column_is_created_and_read_back() throws SQLException {
         IndexRoundTrip.assertDescendingIndexRoundTrip(conn, dialect.ddlGenerator(), new MySqlMetadataProvider(), users,
                 "ix_users_desc", "name", "id");
+    }
+
+    /**
+     * A function and a procedure the dialect writes are created, the function is called, both are
+     * read back with their parameters, language and body, and dropped by their signature. A body
+     * starts with the routine's characteristics, as the database writes them.
+     */
+    @Test
+    void routines_are_created_called_read_back_and_dropped() throws SQLException {
+        RoutineDefinition function = new RoutineDefinition("rt", "rt_add",
+                List.of(RoutineParameter.in("a", "INT"), RoutineParameter.in("b", "INT")), "INT", "sql",
+                "DETERMINISTIC RETURN a + b");
+        RoutineDefinition procedure = new RoutineDefinition("rt", "rt_bump",
+                List.of(RoutineParameter.in("n", "INT"), new RoutineParameter("total", ParameterMode.INOUT, "INT")),
+                null, "sql", "SET total = total + n");
+        // root may create a function while the binary log is on; the container's user may not
+        try (Connection root = java.sql.DriverManager.getConnection(CONTAINER.getJdbcUrl(), "root", CONTAINER.getPassword())) {
+            RoutineRoundTrip.assertRoutineRoundTrip(root, dialect.ddlGenerator(), new MySqlMetadataProvider(), function, procedure,
+                    "SELECT `rt`.`rt_add`(2, 3)", 5, List.of("n IN", "total INOUT"), "a + b", "total = total + n");
+        }
     }
 }
