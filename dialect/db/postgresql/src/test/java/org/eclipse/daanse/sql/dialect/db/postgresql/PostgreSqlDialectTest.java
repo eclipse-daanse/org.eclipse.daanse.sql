@@ -22,6 +22,7 @@
 package org.eclipse.daanse.sql.dialect.db.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.when;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 
+import org.eclipse.daanse.sql.dialect.api.DialectInitData;
 import org.eclipse.daanse.sql.jdbc.api.meta.IdentifierInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,6 +74,30 @@ class PostgreSqlDialectTest {
         String sql = dialect.regexGenerator().generateRegularExpression("table.column", ".*a.*").get().toString();
         assertEquals("cast(table.column as text) is not null and cast(table.column as text) ~ '\\A(?:.*a.*)\\Z'",
                 sql);
+    }
+
+    @Test
+    void testSupportsGroupingSets() {
+        assertTrue(dialect.supportsGroupingSets(), "a connection without a version is taken as a current PostgreSQL");
+        assertTrue(dialect.getAggregateCapabilities().groupingSets(),
+                "the aggregate capabilities carry the same answer");
+    }
+
+    @Test
+    void testSupportsGroupingSets_FromVersion95() {
+        assertTrue(withVersion(9, 5).supportsGroupingSets(), "PostgreSQL 9.5 has GROUPING SETS");
+        assertTrue(withVersion(16, 0).supportsGroupingSets(), "PostgreSQL 16 has GROUPING SETS");
+        assertFalse(withVersion(9, 4).supportsGroupingSets(), "PostgreSQL 9.4 has no GROUPING SETS");
+        assertFalse(withVersion(8, 0).supportsGroupingSets(), "PostgreSQL 8.0 has no GROUPING SETS");
+    }
+
+    @Test
+    void testSupportsGroupingSets_WithoutConnection() {
+        assertTrue(new PostgreSqlDialect().supportsGroupingSets(), "a dialect without a version says yes");
+    }
+
+    private static PostgreSqlDialect withVersion(int major, int minor) {
+        return new PostgreSqlDialect(DialectInitData.ansiDefaults().withVersion(major, minor));
     }
 
 }

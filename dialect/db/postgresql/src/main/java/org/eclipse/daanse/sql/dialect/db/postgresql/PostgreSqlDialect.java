@@ -102,6 +102,15 @@ public class PostgreSqlDialect extends AbstractJdbcDialect {
         return true;
     }
 
+    /**
+     * PostgreSQL supports {@code GROUPING SETS}, {@code ROLLUP} and {@code CUBE} since 9.5. A dialect made without a
+     * connection knows no version and says yes.
+     */
+    @Override
+    public boolean supportsGroupingSets() {
+        return dialectVersion.isUnknownOrAtLeast(9, 5);
+    }
+
     @Override
     public boolean supportsCreateOrReplaceTrigger() {
         if (org.eclipse.daanse.sql.dialect.api.DialectVersion.UNKNOWN.equals(dialectVersion)) {
