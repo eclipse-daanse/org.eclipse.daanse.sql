@@ -57,5 +57,72 @@
       <version>${revision}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.eclipse.daanse</groupId>
+      <artifactId>org.eclipse.daanse.sql.jdbc.record</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
+  <profiles>
+    <!-- Version tests (versions package, -Dintegration.docker=true): the jar of each H2 version, each loaded in a
+    class loader of its own. H2 is embedded, so no container is needed. -->
+    <profile>
+      <id>h2-versions</id>
+      <activation>
+        <property>
+          <name>integration.docker</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <version>3.7.0</version>
+            <executions>
+              <execution>
+                <id>h2-versions</id>
+                <phase>generate-test-resources</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <outputDirectory>${project.build.directory}/h2-versions</outputDirectory>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.h2database</groupId>
+                      <artifactId>h2</artifactId>
+                      <version>1.4.200</version>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>com.h2database</groupId>
+                      <artifactId>h2</artifactId>
+                      <version>2.0.206</version>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>com.h2database</groupId>
+                      <artifactId>h2</artifactId>
+                      <version>2.1.214</version>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>com.h2database</groupId>
+                      <artifactId>h2</artifactId>
+                      <version>2.2.224</version>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>com.h2database</groupId>
+                      <artifactId>h2</artifactId>
+                      <version>2.3.232</version>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

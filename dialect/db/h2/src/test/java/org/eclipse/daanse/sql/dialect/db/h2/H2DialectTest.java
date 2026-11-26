@@ -90,9 +90,9 @@ class H2DialectTest {
         void testGenerateRegularExpression_CaseInsensitive() {
             String sql = dialect.regexGenerator()
                     .generateRegularExpression("table.column", "(?i)|(?u).*a.*").orElseThrow();
-            // pattern anchored: MDX MATCHES is Pattern.matches, H2 REGEXP_LIKE finds
+            // pattern anchored: MDX MATCHES is Pattern.matches, H2 REGEXP_LIKE finds; the flag stays in the pattern
             assertEquals(
-                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z', 'i')",
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '(?-u)\\A(?:(?i).*a.*)\\z')",
                     sql);
         }
 
@@ -101,7 +101,7 @@ class H2DialectTest {
             String sql = dialect.regexGenerator()
                     .generateRegularExpression("table.column", ".*a.*").orElseThrow();
             assertEquals(
-                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '\\A(?:.*a.*)\\z')",
+                    "table.column IS NOT NULL AND REGEXP_LIKE(table.column, '(?-u)\\A(?:.*a.*)\\z')",
                     sql);
         }
     }
@@ -310,9 +310,10 @@ class H2DialectTest {
 
         @Test
         void testGeneratePercentileDisc() {
+            // the standard's discrete percentile on the sorted group: H2's own PERCENTILE_DISC is the nearest rank
             String result = dialect.generatePercentileDisc(0.5, false, "table1", "column1").orElseThrow();
-            assertTrue(result.contains("PERCENTILE_DISC"));
-            assertTrue(result.contains("0.5"));
+            assertTrue(result.contains("ARRAY_AGG"));
+            assertTrue(result.contains("CEILING(0.5 * COUNT("));
         }
 
         @Test
